@@ -1,0 +1,27 @@
+##########################################################################
+# HF_HOME — Hugging Face cache for downloaded model weights.
+##########################################################################
+HF_HOME=./cache/HF_HOME
+
+##########################################################################
+# PINOKIO_SHARE_LOCAL
+# Set to true to expose the API on your LAN. Optional — we already bind on
+# 0.0.0.0 with a fixed port in start.js, so direct API access works
+# regardless. PINOKIO_SHARE_LOCAL adds Pinokio's share-proxy on top.
+##########################################################################
+PINOKIO_SHARE_LOCAL=false
+
+##########################################################################
+# PINOKIO_SHARE_LOCAL_PORT — optional fixed share-proxy port.
+##########################################################################
+PINOKIO_SHARE_LOCAL_PORT=
+
+##########################################################################
+# VOICESTUDIO_EXTRA_MODEL_DIRS
+# Colon-separated absolute paths the importer scans for HF-cache-style
+# 'models--owner--repo' subdirectories. Useful for sharing TTS models
+# from other apps (eg. a standalone VoxCPM webui).
+# Add colon-separated paths if you have other TTS launchers you want
+# the Import tab to scan.
+##########################################################################
+VOICESTUDIO_EXTRA_MODEL_DIRS=

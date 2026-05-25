@@ -1,0 +1,2068 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Studio KH</title>
+  <!-- Cache-busters: bump the ?v= string whenever the static assets are updated
+       so Pinokio's webview can't keep serving a stale build. The backend also
+       sends Cache-Control: no-store for these paths as a belt-and-braces. -->
+  <link rel="stylesheet" href="/assets/style.css?v=phase2-logo-1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <!-- Order matters: app.js MUST come before alpine.min.js so that the
+       global studio() function exists when Alpine evaluates x-data. With
+       defer, Alpine otherwise starts immediately when its own tag executes,
+       which is before app.js loads. prompts.js sets window.SAMPLE_PROMPTS
+       and must load before app.js references it. -->
+  <script defer src="/assets/prompts.js?v=phase2-queue-1"></script>
+  <script defer src="/assets/app.js?v=phase2-repo-persist-1"></script>
+  <script defer src="/assets/alpine.min.js?v=phase2-queue-1"></script>
+</head>
+<body x-data="studio()" x-init="init()">
+
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-mark" src="/assets/icon.png?v=logo-1" alt="Voice Studio logo" />
+      <span class="brand-name">Voice Studio</span>
+      <span class="brand-tag">Mac · Apple Silicon</span>
+    </div>
+    <nav class="tabs">
+      <button :class="{active: tab==='generate'}" @click="tab='generate'">Generate</button>
+      <button :class="{active: tab==='models'}" @click="tab='models'">Models</button>
+      <button :class="{active: tab==='downloads'}" @click="tab='downloads'">
+        Downloads
+        <span class="badge" x-show="activeDownloadCount > 0" x-text="activeDownloadCount"></span>
+      </button>
+      <button :class="{active: tab==='imports'}" @click="tab='imports'; scanImports()">Import</button>
+      <button :class="{active: tab==='voices'}" @click="tab='voices'; refreshVoices()">
+        Voices
+        <span class="badge" x-show="voices.length > 0" x-text="voices.length"></span>
+      </button>
+      <button :class="{active: tab==='api'}" @click="tab='api'">API</button>
+      <button :class="{active: tab==='settings'}" @click="tab='settings'; refreshSettings()">Settings</button>
+    </nav>
+    <div class="status">
+      <span class="dot" :class="health.ok ? 'ok' : 'bad'"></span>
+      <span x-text="health.ok ? 'online' : 'offline'"></span>
+    </div>
+  </header>
+
+  <!-- ─────────── GENERATE (Phase 2.0 — Kokoro) ─────────── -->
+  <main x-show="tab==='generate'" class="page generate-page">
+    <section class="page-head">
+      <h1>Generate Speech</h1>
+      <p class="muted">
+        Type text, pick a voice, hit generate. Phase 2.0 ships <strong>Kokoro</strong>
+        (real-time, English) — other engines roll out in 2.1+.
+      </p>
+    </section>
+
+    <!-- Engine not installed -->
+    <div class="banner warn" x-show="!gen.available" x-cloak>
+      <div>
+        <strong>Generation engine not installed.</strong>
+        <p class="muted">
+          Click <strong>Install Generation</strong> (or <strong>Reinstall Generation</strong>
+          if it's already been run once) in the Pinokio sidebar — same button, label
+          flips automatically. Look for the ✨ wand icon next to <em>Settings</em>.
+          Installs <em>torch</em>, <em>kokoro</em>, <em>transformers</em>, and supporting
+          libraries (~3–4 GB). After install completes, Stop → Start the server.
+        </p>
+        <p class="error-text" x-show="gen.error" x-text="gen.error"></p>
+      </div>
+    </div>
+
+    <!-- No cached models -->
+    <div class="banner info" x-show="gen.available && cachedModels.length === 0" x-cloak>
+      <div>
+        <strong>No TTS models cached yet.</strong>
+        <p class="muted">
+          Open <a class="link-accent" @click="tab='models'">Models</a> and pick one to download.
+          <strong>hexgrad/Kokoro-82M</strong> (~340 MB, MIT, real-time) is the recommended starter — by far the smallest.
+        </p>
+      </div>
+    </div>
+
+    <p class="muted soft-hint" x-show="gen.available && cachedModels.length > 0 && !genWiredFamilies.length" x-cloak>
+      💡 You have models cached but no generation pipelines wired up. Make sure
+      <code>kokoro</code> is installed (Install Generation → check the install log).
+    </p>
+
+    <!-- ─── Dependency diagnostics (collapsible) ─── -->
+    <details class="diag" :open="diag.any_missing">
+      <summary>
+        <span class="diag-summary-text">
+          🩺 Dependency check
+          <span class="muted small">
+            <span x-show="diag.total_engines"
+                  x-text="diag.ready_count + ' / ' + diag.total_engines + ' engines ready'"></span>
+            <span x-show="diag.any_missing" class="diag-warn"> · some packages missing</span>
+          </span>
+        </span>
+        <button class="btn ghost small" @click.prevent="refreshDiagnostics()">↻ Re-check</button>
+      </summary>
+      <div class="diag-body">
+        <p class="muted">
+          Each engine needs a specific set of packages. If something below shows ❌, run
+          <strong>Install Generation</strong> from the Pinokio sidebar (it shows as <strong>Reinstall Generation</strong> if you've already run it once — same button), then <strong>Stop → Start</strong> the server.
+          <span x-show="diag.device">Currently using device <code x-text="diag.device"></code>.</span>
+        </p>
+
+        <details class="diag-explainer">
+          <summary>Why does each model need its own packages?</summary>
+          <div class="diag-explainer-body">
+            <p>
+              Different model families use different inference libraries.
+              <strong>Kokoro</strong> uses the <code>kokoro</code> package,
+              <strong>VoxCPM / Bark / Spark-TTS</strong> use <code>transformers</code>,
+              <strong>F5-TTS</strong> needs <code>diffusers</code>, and so on.
+              The catalog mixes models from different ecosystems so you can pick the
+              right tool for each task — but each library has to be importable for
+              that model's engine to run.
+            </p>
+            <p>
+              <strong>Good news: installation is a one-time thing.</strong> Click
+              <strong>Install Generation</strong> in the Pinokio sidebar once, restart
+              the server, and every model in those families works permanently. You
+              only ever re-install after <strong>Reset</strong> or on a new machine.
+            </p>
+            <p>
+              The "Install Generation" script bundles all the libraries together for
+              simplicity. If you only ever plan to use one engine (say, Kokoro), the
+              extra packages still install but they're idle — they don't slow
+              anything down.
+            </p>
+          </div>
+        </details>
+
+        <h4 class="diag-h4">Packages</h4>
+        <table class="diag-table">
+          <thead><tr><th></th><th>Package</th><th>Version</th><th>Role</th></tr></thead>
+          <tbody>
+            <template x-for="p in (diag.packages || [])" :key="p.package">
+              <tr :class="{'diag-row-bad': !p.installed}">
+                <td><span x-text="p.installed ? '✅' : '❌'"></span></td>
+                <td><code x-text="p.package"></code></td>
+                <td class="diag-version">
+                  <span x-show="p.installed" x-text="p.version || '(no __version__)'"></span>
+                  <span x-show="!p.installed" class="muted small" x-text="p.error || 'not importable'"></span>
+                </td>
+                <td class="muted small" x-text="p.role"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+
+        <h4 class="diag-h4">Engines</h4>
+        <table class="diag-table">
+          <thead><tr><th></th><th>Family</th><th>Status</th><th>Requires</th></tr></thead>
+          <tbody>
+            <template x-for="e in (diag.engines || [])" :key="e.family">
+              <tr :class="{'diag-row-bad': !e.ready && !e.deps_ok, 'diag-row-pending': e.deps_ok && !e.wired}">
+                <td>
+                  <span x-show="e.ready">✅</span>
+                  <span x-show="!e.ready && e.deps_ok && !e.wired" title="Packages installed; worker ships in a future phase">🕓</span>
+                  <span x-show="!e.deps_ok">⛔</span>
+                </td>
+                <td><code x-text="e.family"></code></td>
+                <td>
+                  <span x-show="e.ready" class="diag-ok">Ready</span>
+                  <span x-show="!e.ready && e.deps_ok && !e.wired" class="diag-pending">
+                    Worker ships in a future phase (packages OK)
+                  </span>
+                  <span x-show="!e.deps_ok" class="diag-bad">
+                    Missing:
+                    <template x-for="m in e.missing" :key="m">
+                      <code x-text="m"></code>
+                    </template>
+                  </span>
+                </td>
+                <td class="muted small">
+                  <template x-for="r in e.requires" :key="r">
+                    <span><code x-text="r"></code> </span>
+                  </template>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <div class="gen-grid">
+      <!-- Left column: controls -->
+      <div class="gen-controls">
+
+        <!-- Model picker -->
+        <section class="control-block">
+          <label>Model</label>
+          <select x-model="gen.repo" @change="onModelChange()">
+            <template x-for="m in cachedModels" :key="m.repo">
+              <option :value="m.repo"
+                      :disabled="!isModelReady(m.repo)"
+                      x-text="modelOptionLabel(m)"></option>
+            </template>
+          </select>
+          <p class="muted hint" x-show="cachedModels.length === 0">
+            No models cached yet. Download one from the Models tab first.
+          </p>
+          <!--
+            NB: there used to be a second hint here that said "This model's
+            generation pipeline isn't wired up yet — try Kokoro instead." It
+            was redundant with the newer per-model warning banners below,
+            AND used the legacy `isModelWired` helper which doesn't account
+            for the 3-state engine system. Killed in favor of the banners
+            below which correctly distinguish "missing packages" vs "worker
+            in roadmap" vs ready.
+          -->
+
+          <!-- Per-model dependency warning — missing packages case -->
+          <div class="banner warn dep-warn"
+               x-show="gen.repo && !isModelReady(gen.repo) && !modelDepsOk(gen.repo)"
+               x-cloak>
+            <div>
+              <strong>This model needs additional packages.</strong>
+              <p class="muted">
+                Missing:
+                <template x-for="dep in modelMissingDeps(gen.repo)" :key="dep">
+                  <code class="dep-chip" x-text="dep"></code>
+                </template>
+              </p>
+              <p class="muted">
+                Different model families use different inference libraries.
+                Voice Studio mixes them so you can pick the right one per task — but
+                each library has to be importable for that model's engine to run.
+              </p>
+              <p class="muted">
+                <strong>One-time fix</strong> (per launcher): click <strong>Install Generation</strong>
+                (or <strong>Reinstall Generation</strong> if it's already been run)
+                in the Pinokio sidebar, then <strong>Stop → Start</strong> this server.
+                After that, every model in this family works permanently. See the
+                <a class="link-accent" @click.prevent="document.querySelector('details.diag')?.setAttribute('open','')">
+                  🩺 Dependency check
+                </a>
+                panel above for the full status.
+              </p>
+            </div>
+          </div>
+
+          <!-- Per-model dependency warning — worker not wired up yet -->
+          <div class="banner info dep-warn"
+               x-show="gen.repo && !isModelReady(gen.repo) && modelDepsOk(gen.repo)"
+               x-cloak>
+            <div>
+              <strong>🕓 This model's worker is in the roadmap.</strong>
+              <p class="muted">
+                All Python packages for this engine are installed and importable —
+                but the actual generation pipeline isn't wired up in the backend yet.
+                It's coming in a future Phase release.
+              </p>
+              <p class="muted">
+                <strong>In the meantime:</strong> use a different model whose engine is
+                already wired up (look for ✓ green chips in the diag panel). Voice
+                Studio currently ships workers for <strong>Kokoro</strong>,
+                <strong>Qwen3-TTS</strong>, <strong>VoxCPM v1</strong>,
+                <strong>VoxCPM2-MLX</strong>, and <strong>Bark</strong> — pick any of
+                those families from the Models tab.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Voice picker (Kokoro only for now) -->
+        <section class="control-block" x-show="isKokoro(gen.repo)" x-cloak>
+          <label>Voice</label>
+          <select x-model="gen.voice">
+            <optgroup label="American English — Female">
+              <template x-for="v in kokoroVoicesFor('a', 'f')" :key="v.id">
+                <option :value="v.id" x-text="v.label + ' — ' + v.id"></option>
+              </template>
+            </optgroup>
+            <optgroup label="American English — Male">
+              <template x-for="v in kokoroVoicesFor('a', 'm')" :key="v.id">
+                <option :value="v.id" x-text="v.label + ' — ' + v.id"></option>
+              </template>
+            </optgroup>
+            <optgroup label="British English — Female">
+              <template x-for="v in kokoroVoicesFor('b', 'f')" :key="v.id">
+                <option :value="v.id" x-text="v.label + ' — ' + v.id"></option>
+              </template>
+            </optgroup>
+            <optgroup label="British English — Male">
+              <template x-for="v in kokoroVoicesFor('b', 'm')" :key="v.id">
+                <option :value="v.id" x-text="v.label + ' — ' + v.id"></option>
+              </template>
+            </optgroup>
+          </select>
+          <p class="muted hint">
+            Kokoro ships ~28 preset voices. Voice ID prefix encodes language + gender
+            (af = American Female, bm = British Male, etc.).
+          </p>
+        </section>
+
+        <!-- ─── Qwen3-TTS CustomVoice: preset speaker picker ─── -->
+        <section class="control-block" x-show="qwen3Mode(gen.repo) === 'custom'" x-cloak>
+          <label>Preset speaker</label>
+          <select x-model="gen.preset_speaker">
+            <optgroup label="English">
+              <template x-for="s in qwen3PresetSpeakersFor('en')" :key="s.id">
+                <option :value="s.id" x-text="s.id + ' (' + (s.gender === 'm' ? '♂' : '♀') + ') — ' + s.description"></option>
+              </template>
+            </optgroup>
+            <optgroup label="Chinese">
+              <template x-for="s in qwen3PresetSpeakersFor('zh')" :key="s.id">
+                <option :value="s.id" x-text="s.id + ' (' + (s.gender === 'm' ? '♂' : '♀') + ') — ' + s.description"></option>
+              </template>
+            </optgroup>
+            <optgroup label="Japanese / Korean">
+              <template x-for="s in [...qwen3PresetSpeakersFor('ja'), ...qwen3PresetSpeakersFor('ko')]" :key="s.id">
+                <option :value="s.id" x-text="s.id + ' (' + (s.gender === 'm' ? '♂' : '♀') + ', ' + s.lang.toUpperCase() + ') — ' + s.description"></option>
+              </template>
+            </optgroup>
+          </select>
+          <p class="muted hint">
+            Preset speakers are baked into the CustomVoice model — pick one. Speakers can deliver content
+            in any supported language regardless of their native language tag (some accent transfer applies).
+          </p>
+        </section>
+
+        <!-- ─── Qwen3-TTS CustomVoice: emotion / tone instruct ─── -->
+        <section class="control-block" x-show="qwen3Mode(gen.repo) === 'custom'" x-cloak>
+          <label>Emotion / tone (optional)</label>
+          <input type="text" x-model="gen.instruct"
+                 placeholder="e.g. Sad and crying, speaking slowly. Leave empty for normal tone.">
+          <p class="muted hint">
+            Free-form natural-language instruction. Examples:
+            <code>Excited and happy</code>, <code>Whispering quietly</code>, <code>Angry and shouting</code>.
+          </p>
+        </section>
+
+        <!-- ─── Qwen3-TTS VoiceDesign: natural-language prompt ─── -->
+        <section class="control-block" x-show="qwen3Mode(gen.repo) === 'design'" x-cloak>
+          <label>Voice description <span class="required">*</span></label>
+          <textarea x-model="gen.voice_design_prompt" rows="2"
+                    placeholder="Describe the voice in natural language. e.g. 'Deep gravelly male, like a 60-year-old narrator'"></textarea>
+          <p class="muted hint">
+            VoiceDesign synthesizes a brand-new voice from your description — no reference audio needed.
+            Quick presets:
+          </p>
+          <div class="design-presets">
+            <template x-for="ex in (gen.qwen3_voice_design_examples || [])" :key="ex">
+              <button class="btn ghost small" @click="setVoiceDesignExample(ex)" x-text="ex"></button>
+            </template>
+          </div>
+        </section>
+
+        <!-- ─── Qwen3-TTS Base: voice cloning from library ─── -->
+        <section class="control-block" x-show="qwen3Mode(gen.repo) === 'clone'" x-cloak>
+          <label>Reference voice (from library) <span class="required">*</span></label>
+          <select x-model="gen.voice_library_id">
+            <option value="">— pick a voice from your library —</option>
+            <template x-for="v in voices" :key="v.id">
+              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')'"></option>
+            </template>
+          </select>
+          <p class="muted hint" x-show="voices.length === 0">
+            Your <a class="link-accent" @click="tab='voices'">Voices library</a> is empty. Add a reference clip there first
+            (3–15 seconds of clean speech).
+          </p>
+          <p class="muted hint" x-show="voices.length > 0">
+            Manage clips in <a class="link-accent" @click="tab='voices'">Voices</a>.
+            Tip: a transcript (set when uploading the voice) sometimes improves prosody — leave the override blank to use the library's transcript.
+          </p>
+        </section>
+
+        <section class="control-block" x-show="qwen3Mode(gen.repo) === 'clone' && gen.voice_library_id" x-cloak>
+          <label>Reference transcript override (optional)</label>
+          <textarea x-model="gen.ref_transcript" rows="2"
+                    placeholder="Override what's spoken in the reference clip. Defaults to the library transcript if blank."></textarea>
+          <p class="muted hint">
+            Qwen3-TTS uses this to align timing. Usually the library's saved transcript works — only override if
+            you renamed the voice or used a different clip than the original.
+          </p>
+        </section>
+
+        <!-- ─── VoxCPM: optional reference voice (cloning) ─── -->
+        <section class="control-block" x-show="isVoxCPM(gen.repo)" x-cloak>
+          <label>Reference voice (optional, enables voice cloning)</label>
+          <select x-model="gen.voice_library_id">
+            <option value="">— no reference, use voice design via emotion below —</option>
+            <template x-for="v in voices" :key="v.id">
+              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' + (v.has_transcript ? ' ✓ transcript' : ' ⚠ no transcript')"></option>
+            </template>
+          </select>
+          <p class="muted hint">
+            VoxCPM v1 voice cloning uses "continuation" mode: provide a reference clip <strong>and</strong> its
+            transcript. Voices without a saved transcript will need an override below. Leave blank to skip cloning
+            and use plain TTS with the emotion control.
+          </p>
+        </section>
+
+        <section class="control-block" x-show="isVoxCPM(gen.repo) && gen.voice_library_id" x-cloak>
+          <label>Reference transcript (required for cloning) <span class="required">*</span></label>
+          <textarea x-model="gen.ref_transcript" rows="2"
+                    placeholder="What's said in the reference clip. Leave blank to use the library's saved transcript."></textarea>
+          <p class="muted hint">
+            VoxCPM v1 *requires* a transcript paired with the reference clip — that's how its continuation mode works.
+            If the voice in your library has a saved transcript, you can leave this blank.
+          </p>
+        </section>
+
+        <!-- ─── VoxCPM: emotion / tone control ─── -->
+        <section class="control-block" x-show="isVoxCPM(gen.repo)" x-cloak>
+          <label>Emotion / tone control (optional)</label>
+          <input type="text" x-model="gen.instruct"
+                 placeholder="e.g. sad and slow, elderly male gravelly. Leave empty for natural delivery.">
+          <p class="muted hint">
+            VoxCPM wraps this in parentheses as a prompt prefix (the model treats <code>(sad and slow)Hello world</code>
+            as an emotion-conditioned utterance). Works whether or not you've picked a reference voice.
+          </p>
+          <div class="design-presets">
+            <template x-for="ex in (gen.voxcpm_emotion_examples || [])" :key="ex">
+              <button class="btn ghost small" @click="setVoxcpmEmotionExample(ex)" x-text="ex"></button>
+            </template>
+          </div>
+        </section>
+
+        <!-- ─── VoxCPM: advanced generation knobs ─── -->
+        <details class="control-block" x-show="isVoxCPM(gen.repo)" x-cloak>
+          <summary>Advanced VoxCPM knobs</summary>
+          <div class="advanced-inner">
+            <label>Guidance (cfg_value)</label>
+            <div class="slider-row">
+              <input type="range" min="0.5" max="6.0" step="0.05" x-model.number="gen.cfg_value">
+              <input type="number" class="num-input" min="0.5" max="6.0" step="0.01" x-model.number="gen.cfg_value">
+            </div>
+            <p class="muted hint">Higher = stricter adherence to text + emotion. VoxCPM default is 2.0. Type any float.</p>
+
+            <label class="advanced-label">Inference timesteps</label>
+            <div class="slider-row">
+              <input type="range" min="4" max="30" step="1" x-model.number="gen.inference_timesteps">
+              <input type="number" class="num-input" min="4" max="50" step="1" x-model.number="gen.inference_timesteps">
+            </div>
+            <p class="muted hint">More steps = slower but typically cleaner audio. Default 10.</p>
+
+            <label class="advanced-checkbox">
+              <input type="checkbox" x-model="gen.normalize_text">
+              <span>Normalize numbers / abbreviations before TTS (e.g. "Dr." → "doctor")</span>
+            </label>
+          </div>
+        </details>
+
+        <!-- ─── VoxCPM2-MLX: voice design prompt (optional) ─── -->
+        <section class="control-block" x-show="isVoxCPMMlx(gen.repo)" x-cloak>
+          <label>Voice design (optional)</label>
+          <textarea x-model="gen.voice_design_prompt" rows="2"
+                    placeholder="Describe the voice in natural language. e.g. 'A young woman, gentle and sweet voice'. Leave blank for default or use the reference voice below instead."></textarea>
+          <p class="muted hint">
+            VoxCPM2 can design a voice from your description without needing a reference clip. Combine with a
+            reference below for stylized cloning, or leave both blank for zero-shot default voice.
+          </p>
+          <div class="design-presets">
+            <template x-for="ex in (gen.qwen3_voice_design_examples || [])" :key="ex">
+              <button class="btn ghost small" @click="setVoiceDesignExample(ex)" x-text="ex"></button>
+            </template>
+          </div>
+        </section>
+
+        <!-- ─── VoxCPM2-MLX: reference voice (optional) ─── -->
+        <section class="control-block" x-show="isVoxCPMMlx(gen.repo)" x-cloak>
+          <label>Reference voice (optional, enables cloning)</label>
+          <select x-model="gen.voice_library_id">
+            <option value="">— no reference, use voice design above or zero-shot default —</option>
+            <template x-for="v in voices" :key="v.id">
+              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' + (v.has_transcript ? ' ✓ transcript' : '')"></option>
+            </template>
+          </select>
+          <p class="muted hint">
+            VoxCPM2 voice cloning works even without a transcript (unlike v1) — but the library's saved
+            transcript improves prosody when available. Combine with the voice design field above for
+            stylized cloning ("clone this voice but speaking sadly").
+          </p>
+        </section>
+
+        <section class="control-block" x-show="isVoxCPMMlx(gen.repo) && gen.voice_library_id" x-cloak>
+          <label>Reference transcript override (optional)</label>
+          <textarea x-model="gen.ref_transcript" rows="2"
+                    placeholder="Override the library's saved transcript. Leave blank to use the library's stored transcript (or '.' fallback if none)."></textarea>
+        </section>
+
+        <!-- ─── VoxCPM2-MLX: advanced knobs ─── -->
+        <details class="control-block" x-show="isVoxCPMMlx(gen.repo)" x-cloak>
+          <summary>Advanced VoxCPM2-MLX knobs</summary>
+          <div class="advanced-inner">
+            <label>Guidance (cfg_value)</label>
+            <div class="slider-row">
+              <input type="range" min="0.5" max="6.0" step="0.05" x-model.number="gen.cfg_value">
+              <input type="number" class="num-input" min="0.5" max="6.0" step="0.01" x-model.number="gen.cfg_value">
+            </div>
+            <p class="muted hint">Higher = stricter adherence to voice description + reference. VoxCPM2 default is 2.0. Type any float.</p>
+
+            <label class="advanced-label">Inference timesteps</label>
+            <div class="slider-row">
+              <input type="range" min="4" max="30" step="1" x-model.number="gen.inference_timesteps">
+              <input type="number" class="num-input" min="4" max="50" step="1" x-model.number="gen.inference_timesteps">
+            </div>
+            <p class="muted hint">VoxCPM2 default is 7 — meaningfully faster than v1's 10 while keeping quality.</p>
+          </div>
+        </details>
+
+        <!-- ─── Bark: voice preset picker ─── -->
+        <section class="control-block" x-show="isBark(gen.repo)" x-cloak>
+          <label>Voice preset</label>
+          <select x-model="gen.bark_voice_preset">
+            <option value="">🎲 Random voice (different each call)</option>
+            <template x-for="lang in Object.keys(barkPresetsByLang())" :key="lang">
+              <optgroup :label="(gen.lang_names[lang] || lang.toUpperCase())">
+                <template x-for="v in (barkPresetsByLang()[lang] || [])" :key="v.id">
+                  <option :value="v.id" x-text="v.label"></option>
+                </template>
+              </optgroup>
+            </template>
+          </select>
+          <p class="muted hint">
+            Bark ships 130+ preset speakers (10 per language). Speaker 6 in English is the popular default.
+            Pick "Random" to let Bark sample a different voice each generation — variety is part of Bark's vibe.
+          </p>
+          <p class="muted hint">
+            💡 Use the <strong>Bark tags</strong> chips below the text area to insert
+            <code>[laughter]</code>, <code>[singing]</code>, <code>♪ ♪</code> etc. directly into your text —
+            Bark interprets them as non-verbal cues.
+          </p>
+        </section>
+
+        <!-- ─── New mlx-audio family controls (Phase D) ─── -->
+        <!-- Kokoro-MLX / Orpheus / KittenTTS / VibeVoice: free-form voice picker. -->
+        <section class="control-block" x-show="isMlxVoicePicker(gen.repo)" x-cloak>
+          <label>Voice (preset name)</label>
+          <input type="text" class="prompt-input" x-model="gen.voice"
+                 placeholder="e.g. tara · af_bella · Jasper · en-Emma_woman">
+          <p class="muted hint">
+            <span x-show="isKokoroMlx(gen.repo)">
+              Kokoro-MLX uses the same voicepack names as PyTorch Kokoro
+              (<code>af_bella</code>, <code>am_michael</code>, <code>bf_emma</code>, etc.).
+            </span>
+            <span x-show="isOrpheus(gen.repo)">
+              Orpheus voices include <code>tara</code>, <code>dan</code>, <code>leah</code>,
+              <code>jess</code>, <code>leo</code>, <code>mia</code>, <code>zac</code>, <code>zoe</code>.
+              You can also embed emotion tags inline (<code>&lt;laugh&gt;</code>, <code>&lt;sigh&gt;</code>).
+            </span>
+            <span x-show="isKittenTts(gen.repo)">
+              KittenTTS voices: <code>Bella</code>, <code>Jasper</code>, <code>Luna</code>,
+              <code>Bruno</code>, <code>Rosie</code>, <code>Hugo</code>, <code>Kiki</code>, <code>Leo</code>.
+              Requires <code>espeak-ng</code> on the system — install with <code>brew install espeak-ng</code> if generation fails.
+            </span>
+            <span x-show="isVibeVoice(gen.repo)">
+              VibeVoice uses preset voices in <code>&lt;lang&gt;-&lt;name&gt;_&lt;gender&gt;</code> format —
+              <code>en-Emma_woman</code> is a known default. Check the model card on Hugging Face for the full voice list.
+            </span>
+          </p>
+        </section>
+
+        <!-- Chatterbox-MLX / Spark-TTS-MLX: voice cloning from the library. -->
+        <section class="control-block" x-show="isChatterboxMlx(gen.repo) || isSparkTtsMlx(gen.repo)" x-cloak>
+          <label>
+            Reference voice
+            <span x-show="isChatterboxMlx(gen.repo)" class="required">*</span>
+            <span x-show="isSparkTtsMlx(gen.repo)" class="muted small">(optional — zero-shot if blank)</span>
+          </label>
+          <select x-model="gen.voice_library_id">
+            <option value="">— pick a voice from your library —</option>
+            <template x-for="v in voices" :key="v.id">
+              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')'"></option>
+            </template>
+          </select>
+          <p class="muted hint" x-show="voices.length === 0">
+            Your <a class="link-accent" @click="tab='voices'">Voices library</a> is empty. Add a reference clip there first
+            (3–15 seconds of clean speech).
+          </p>
+          <p class="muted hint" x-show="voices.length > 0">
+            <span x-show="isChatterboxMlx(gen.repo)">
+              Chatterbox clones the picked voice. Manage clips in <a class="link-accent" @click="tab='voices'">Voices</a>.
+            </span>
+            <span x-show="isSparkTtsMlx(gen.repo)">
+              Spark-TTS works zero-shot or with a cloned voice. Manage clips in <a class="link-accent" @click="tab='voices'">Voices</a>.
+            </span>
+          </p>
+        </section>
+
+        <!-- Spark-TTS-MLX: optional natural-language style hint. -->
+        <section class="control-block" x-show="isSparkTtsMlx(gen.repo)" x-cloak>
+          <label>Style hint (optional)</label>
+          <input type="text" class="prompt-input" x-model="gen.voice_design_prompt"
+                 placeholder="e.g. 'cheerful young female, fast pace'">
+          <p class="muted hint">
+            Natural-language nudge for Spark-TTS — describe the voice character you want.
+            Combines with the reference clip if one is picked.
+          </p>
+        </section>
+
+        <!-- OmniVoice (MLX): required natural-language voice description. -->
+        <section class="control-block" x-show="isOmniVoice(gen.repo)" x-cloak>
+          <label>Voice description <span class="muted small">(required)</span></label>
+          <input type="text" class="prompt-input" x-model="gen.voice_design_prompt"
+                 placeholder="e.g. 'female, british accent, slow' · 'elderly man, raspy' · 'young woman, whispering'">
+          <p class="muted hint">
+            OmniVoice synthesizes a voice matching this description — 646 languages
+            supported. Non-verbal symbols like <code>[laughter]</code> /
+            <code>[cough]</code> can be embedded inline in the text above. Voice
+            cloning isn't yet wired on the MLX backend.
+          </p>
+        </section>
+
+        <!-- Chatterbox-MLX: exaggeration / intensity dial (reuses cfg_value). -->
+        <section class="control-block" x-show="isChatterboxMlx(gen.repo)" x-cloak>
+          <label>Exaggeration <span class="muted small">(0.0 – 1.0)</span></label>
+          <div class="slider-row">
+            <input type="range" min="0.0" max="1.0" step="0.01" x-model.number="gen.cfg_value">
+            <input type="number" class="num-input" min="0.0" max="1.0" step="0.01" x-model.number="gen.cfg_value">
+          </div>
+          <p class="muted hint">
+            0.0 = flat / neutral · 0.5 = natural · 0.7+ gets dramatic fast.
+            Pair high exaggeration with shorter text so it stays controlled.
+          </p>
+        </section>
+
+        <!-- Speed slider — all mlx-audio families that accept it (everything except Bark + VoxCPM v1). -->
+        <section class="control-block" x-show="isKokoro(gen.repo) || isMlxAudio(gen.repo) || isOmniVoice(gen.repo)" x-cloak>
+          <label>Speed</label>
+          <div class="slider-row">
+            <input type="range" min="0.5" max="2.0" step="0.01" x-model.number="gen.speed">
+            <input type="number" class="num-input" min="0.5" max="2.0" step="0.01" x-model.number="gen.speed">
+            <span class="slider-unit">×</span>
+          </div>
+          <p class="muted hint">
+            Below 0.8 → slower, more deliberate. Above 1.3 → faster, conversational. 1.0 is natural pacing.
+            All engines accept arbitrary float precision (e.g. 0.93) — type any value.
+          </p>
+        </section>
+
+        <!-- Seed — applies to all wired engines -->
+        <section class="control-block" x-show="isKokoro(gen.repo) || isMlxAudio(gen.repo) || isVoxCPM(gen.repo) || isBark(gen.repo)" x-cloak>
+          <label>Seed</label>
+          <div class="seed-row">
+            <input type="number" class="num-input" x-model.number="gen.seed" placeholder="-1 = random">
+            <button class="btn ghost" @click="gen.seed = -1">🎲 Random</button>
+          </div>
+          <p class="muted hint">
+            Same seed + same params = same output. -1 picks a fresh random seed each time.
+            <span x-show="isMlxAudio(gen.repo)">(Recorded in history; mlx-audio doesn't currently expose a seed kwarg.)</span>
+          </p>
+        </section>
+
+        <!-- Submit + batch -->
+        <section class="control-block submit-block">
+          <div class="submit-row">
+            <button class="btn primary big"
+                    :class="{ 'btn-warn': textHardCapExceeded }"
+                    :disabled="!canSubmit"
+                    @click="safeSubmit()">
+              <!-- Hard-cap soft-block: arm-then-confirm. First click flips
+                   gen.overCapConfirmed; second click actually submits. -->
+              <template x-if="textHardCapExceeded && !gen.overCapConfirmed">
+                <span>⚠ Click again to generate anyway</span>
+              </template>
+              <template x-if="!textHardCapExceeded || gen.overCapConfirmed">
+                <span>
+                  <span x-show="!gen.submitting && gen.batchCount === 1"
+                        x-text="(textHardCapExceeded ? '⚠ ' : '') + '🎙️ Generate Speech'"></span>
+                  <span x-show="!gen.submitting && gen.batchCount > 1"
+                        x-text="(textHardCapExceeded ? '⚠ ' : '') + '🎙️ Generate ×' + gen.batchCount"></span>
+                  <span x-show="gen.submitting">Queueing…</span>
+                </span>
+              </template>
+            </button>
+            <div class="batch-control" :title="'Submit this many jobs in a row. Pinned seeds → each gets seed, seed+1, seed+2…; random seed → each its own.'">
+              <label class="batch-label">Batch</label>
+              <input type="number" class="num-input batch-num" min="1" max="8" step="1"
+                     x-model.number="gen.batchCount">
+            </div>
+          </div>
+          <p class="muted hint" x-show="!canSubmit && !gen.submitting && gen.available && cachedModels.length > 0">
+            Type some text to enable Generate.
+          </p>
+          <p class="muted hint" x-show="gen.batchCount > 1 && canSubmit">
+            <span x-show="gen.seed >= 0">
+              💡 Batch of <span x-text="gen.batchCount"></span> — seeds <span x-text="gen.seed"></span>
+              → <span x-text="Number(gen.seed) + gen.batchCount - 1"></span> (reproducible variations of the same text).
+            </span>
+            <span x-show="gen.seed < 0">
+              💡 Batch of <span x-text="gen.batchCount"></span> — each job gets a fresh random seed.
+            </span>
+          </p>
+        </section>
+
+        <!-- ─── Queue panel — shows any jobs currently queued or running ─── -->
+        <section class="queue-panel" x-show="hasPending" x-cloak>
+          <div class="queue-header">
+            <h3>
+              ⏳ Queue
+              <span class="muted small">
+                <span x-show="runningJob"><span x-text="queuedCount"></span> queued · 1 running</span>
+                <span x-show="!runningJob"><span x-text="queuedCount"></span> queued</span>
+              </span>
+            </h3>
+          </div>
+          <div class="queue-list">
+            <template x-for="job in pendingJobs" :key="job.id">
+              <div class="queue-row" :class="{'queue-row-running': job.state === 'running'}">
+                <div class="queue-state-icon">
+                  <span x-show="job.state === 'running'" class="queue-spinner">●</span>
+                  <span x-show="job.state === 'queued'" class="queue-clock">◯</span>
+                </div>
+                <div class="queue-row-meta">
+                  <div class="queue-row-text" x-text="truncateText(job.params?.text || '(no text)', 80)"></div>
+                  <div class="queue-row-tags muted small">
+                    <span x-text="historyModelLabel(job)"></span>
+                    <span x-show="historyVoiceLabel(job)" x-text="' · ' + historyVoiceLabel(job)"></span>
+                    <span x-show="job.state === 'running'" class="queue-running-label"> · running…</span>
+                    <span x-show="job.state === 'queued'" class="queue-queued-label"> · waiting</span>
+                  </div>
+                </div>
+                <button class="btn ghost small" @click="cancelPending(job)"
+                        :title="job.state === 'running' ? 'Cancel the running job' : 'Cancel this queued job'">✕ Cancel</button>
+              </div>
+            </template>
+          </div>
+        </section>
+      </div>
+
+      <!-- Right column: text input + output -->
+      <div class="gen-output-pane">
+
+        <!-- Text input -->
+        <section class="control-block">
+          <label>Text to speak</label>
+
+          <!-- Per-family text-length guidance chip. Renders only when a model
+               is selected AND its family has guidance metadata. Color-codes by
+               chunking: green=unlimited, neutral=auto-split, amber=hard-cap. -->
+          <div class="text-guidance"
+               x-show="currentTextGuidance"
+               x-cloak
+               :class="{
+                 'text-guidance--unlimited': currentTextGuidance && currentTextGuidance.chunking === 'unlimited',
+                 'text-guidance--auto-split': currentTextGuidance && currentTextGuidance.chunking === 'auto-split',
+                 'text-guidance--hard-cap':  currentTextGuidance && currentTextGuidance.chunking === 'hard-cap',
+               }">
+            <span class="text-guidance__icon" x-text="currentTextGuidance && currentTextGuidance.chunking === 'unlimited' ? '∞' : currentTextGuidance && currentTextGuidance.chunking === 'hard-cap' ? '⚠' : '✂'"></span>
+            <span class="text-guidance__note" x-text="currentTextGuidance && currentTextGuidance.note"></span>
+          </div>
+
+          <textarea class="prompt-input tts-text"
+                    x-model="gen.text"
+                    rows="6"
+                    placeholder="Type or paste the text you want spoken. Multiple sentences are split into chunks automatically."></textarea>
+          <div class="prompt-meta">
+            <span class="muted"
+                  :class="{ 'text-counter--over': textOverSoftCap, 'text-counter--blocked': textHardCapExceeded }"
+                  x-text="(
+                    gen.text.length + ' chars · ~' + Math.ceil(gen.text.length / 15) + 's of audio'
+                    + (textHardCapExceeded
+                        ? ' · ⚠ exceeds ' + (selectedModel && (families[selectedModel.family]?.label || selectedModel.family)) + '’s ' + currentTextGuidance.soft_max_chars + '-char cap'
+                        : textOverSoftCap
+                          ? ' · over recommended ' + currentTextGuidance.soft_max_chars + '-char chunk size'
+                          : '')
+                  )"></span>
+            <button class="btn ghost small" @click="randomTextPrompt()">🎲 Random sample</button>
+          </div>
+
+          <!-- Bark tag inserter — only when a Bark model is selected. Clicking
+               a chip inserts the tag at the cursor position in the textarea above. -->
+          <div class="bark-tag-row" x-show="isBark(gen.repo) && gen.bark_tags.length > 0" x-cloak>
+            <span class="filter-label">Bark tags</span>
+            <template x-for="t in gen.bark_tags" :key="t.tag">
+              <button class="chip filter-chip bark-tag-chip"
+                      :class="'bark-tag-' + t.group"
+                      :title="t.label + ' — inserts ' + t.tag + ' at the cursor'"
+                      @click="insertBarkTag(t.tag)"
+                      x-text="t.label"></button>
+            </template>
+          </div>
+        </section>
+
+        <!-- Latest output -->
+        <section class="audio-output" x-show="latestJob" x-cloak>
+          <h3 x-text="latestJob?.state === 'done' ? '✅ Latest generation' : (latestJob?.state === 'running' ? '⏳ Generating…' : '⚠️ Last attempt')"></h3>
+          <div x-show="latestJob?.state === 'done' && latestJob?.output_url" x-cloak>
+            <audio :src="latestJob?.output_url" controls preload="auto"></audio>
+            <div class="audio-meta muted">
+              <span x-text="'Job ' + latestJob?.id"></span>
+              <span x-text="' · ' + formatDuration(latestJob?.duration_seconds) + ' to render'"></span>
+              <span x-show="latestJob?.resolved_seed" x-text="' · seed ' + latestJob?.resolved_seed"></span>
+            </div>
+            <div class="audio-actions">
+              <a class="btn ghost small" :href="latestJob?.output_url" :download="downloadFilename(latestJob)">⬇ Download WAV</a>
+              <button class="btn ghost small" @click="copyAudioUrl(latestJob)">🔗 Copy URL</button>
+              <button class="btn ghost small" @click="reuseParams(latestJob)">↻ Reuse params</button>
+            </div>
+          </div>
+          <div x-show="latestJob?.state === 'running'" x-cloak class="audio-placeholder">
+            <span class="muted">Generating speech…</span>
+          </div>
+          <div x-show="latestJob?.state === 'error'" x-cloak class="error-text">
+            <span x-text="latestJob?.error || 'Generation failed.'"></span>
+          </div>
+        </section>
+
+        <!-- Recent history (paginated) -->
+        <section class="audio-recent" x-show="historyJobs.length > 0" x-cloak>
+          <div class="audio-recent-header">
+            <h3>
+              Recent generations
+              <span class="muted small" x-text="'(' + historyJobs.length + ')'"></span>
+            </h3>
+            <button class="btn ghost small" @click="clearHistory()">Clear history</button>
+          </div>
+          <div class="audio-recent-grid">
+            <template x-for="job in pagedHistoryJobs" :key="job.id">
+              <div class="audio-recent-row">
+                <!-- Audio player (preload=metadata so duration shows immediately) -->
+                <audio :src="job.output_url" controls preload="metadata"
+                       x-show="job.state === 'done' && job.output_url"></audio>
+
+                <!-- Text + metadata row -->
+                <div class="history-meta">
+                  <div class="history-text" :title="job.params?.text || ''"
+                       x-text="(job.params?.text || '(no text)').slice(0, 100) + ((job.params?.text || '').length > 100 ? '…' : '')"></div>
+                  <div class="history-tags muted small">
+                    <span class="history-tag" x-text="historyModelLabel(job)"></span>
+                    <span class="history-tag" x-show="historyVoiceLabel(job)" x-text="historyVoiceLabel(job)"></span>
+                    <span class="history-tag" x-show="job.resolved_seed"
+                          x-text="'seed: ' + job.resolved_seed"></span>
+                    <span class="history-tag" x-show="job.duration_seconds"
+                          :title="'Render time (not audio length)'"
+                          x-text="formatDuration(job.duration_seconds) + ' to render'"></span>
+                  </div>
+                  <!-- Error state -->
+                  <div class="history-error error-text" x-show="job.state === 'error'"
+                       x-text="job.error || 'generation failed'"></div>
+                </div>
+
+                <div class="audio-actions">
+                  <button class="btn ghost small" @click="reuseParams(job)" title="Restore all params from this job">↻ Reuse</button>
+                  <a class="btn ghost small" :href="job.output_url" :download="downloadFilename(job)"
+                     title="Download WAV" x-show="job.output_url">⬇</a>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Pagination controls — only if there's more than one page -->
+          <div class="history-pager" x-show="historyPageCount > 1" x-cloak>
+            <button class="btn ghost small"
+                    :disabled="historyPage === 0"
+                    @click="historyPrevPage()">‹ Prev</button>
+            <span class="muted small">
+              Page <span x-text="historyPage + 1"></span> of <span x-text="historyPageCount"></span>
+            </span>
+            <button class="btn ghost small"
+                    :disabled="historyPage >= historyPageCount - 1"
+                    @click="historyNextPage()">Next ›</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- ─────────── MODELS ─────────── -->
+  <main x-show="tab==='models'" class="page">
+    <section class="page-head">
+      <h1>Models</h1>
+      <p class="muted">
+        Greyed-out rows are not yet downloaded. Click <em>Download</em> to fetch one to
+        your HF cache. Downloads resume automatically if interrupted.
+      </p>
+
+      <!-- ─── Your-Mac banner (v1.1 hardware fit) ─── -->
+      <div class="your-mac-banner" x-show="system.unified_memory_gb" x-cloak>
+        <span class="your-mac-icon">🖥</span>
+        <span>
+          Detected:
+          <strong x-text="system.chip || 'Apple Silicon'"></strong>
+          ·
+          <strong><span x-text="system.unified_memory_gb"></span> GB</strong> unified memory
+        </span>
+        <span class="muted small">
+          — fit chips below compare each model's memory floor against your hardware
+        </span>
+      </div>
+
+      <details class="primer">
+        <summary>📚 New here? Which TTS model should I pick?</summary>
+        <div class="primer-body">
+          <h3>Anatomy of a model name</h3>
+          <p>A name like <code>VoxCPM2 (4.4B)</code> tells you a few things:</p>
+          <ul>
+            <li><strong>VoxCPM2</strong> — the family + version. OpenBMB's multilingual TTS with voice cloning.</li>
+            <li><strong>4.4B</strong> — 4.4 billion parameters. More params usually means richer output but more memory and slower generation.</li>
+          </ul>
+
+          <h3>Picking a family</h3>
+          <ul>
+            <li><strong>Kokoro</strong> — tiny (82M), real-time, English-only, MIT license. The recommended starter for scripted narration with preset voices. No voice cloning.</li>
+            <li><strong>VoxCPM / VoxCPM2</strong> — multilingual (30+ languages), voice cloning, strong quality. The best default if you want one model that handles everything.</li>
+            <li><strong>F5-TTS</strong> — best-in-class English voice cloning from a short reference clip. Slower than VoxCPM but often more natural for English. Non-commercial license.</li>
+            <li><strong>Chatterbox</strong> — Resemble's voice cloning with an emotion-intensity slider. MIT licensed. Good for expressive / dramatic delivery.</li>
+            <li><strong>Spark-TTS</strong> — controllable zero-shot TTS with natural-language prompts ("a deep male voice, slow"). Apache-2.0 (commercial OK).</li>
+            <li><strong>Bark</strong> — unique tag system ([laughter], [singing], [MUSIC]). Slower and less precise, but uniquely expressive. MIT licensed.</li>
+            <li><strong>XTTS-v2</strong> — Coqui's classic multilingual voice cloning across 17 languages. License is non-commercial — fine for personal use only.</li>
+          </ul>
+
+          <h3>What does each chip mean?</h3>
+          <ul>
+            <li><span class="chip ok">cached</span> All files for this model are on disk and ready to generate from.</li>
+            <li><span class="chip warn">partial</span> Some files have downloaded but the model isn't usable yet. Click Download again to resume.</li>
+            <li><span class="chip">not downloaded</span> No files for this model are on disk. Click Download to fetch them.</li>
+            <li><span class="chip neutral">gated</span> The model's repo on Hugging Face requires you to accept a license. You'll be prompted for an HF token in the Download dialog.</li>
+            <li><span class="chip cap">tts</span> Basic text-to-speech with default or preset voices.</li>
+            <li><span class="chip cap">voice-cloning</span> Clones a target voice from a reference audio clip (3–15 seconds).</li>
+            <li><span class="chip cap">multilingual</span> Supports more than English.</li>
+            <li><span class="chip cap">expressive</span> Has emotion / style controls or special tags for non-speech (laughter, sighs, etc.).</li>
+            <li><span class="chip cap">streaming</span> Low-latency / real-time generation.</li>
+          </ul>
+
+          <h3>Which one should I pick first?</h3>
+          <p>
+            On any Apple Silicon Mac with ≥8 GB unified memory: start with
+            <code>hexgrad/Kokoro-82M</code>. Only ~340 MB, MIT, real-time. The bundled preset voices are surprisingly good for narration.
+          </p>
+          <p>
+            When you need voice cloning (clone a specific voice from a reference clip): pick
+            <code>openbmb/VoxCPM2</code> for multilingual, or <code>SWivid/F5-TTS</code> for the highest-quality English cloning.
+          </p>
+          <p>
+            For character voices / expressive delivery with non-speech tags: <code>suno/bark</code>.
+          </p>
+
+          <h3>A note on voice cloning ethics</h3>
+          <p>
+            All voice-cloning models in this catalog can imitate a target voice from a short reference clip.
+            <strong>Only clone voices you have permission to use.</strong> Cloning someone else's voice without consent
+            for fraud, harassment, or impersonation is illegal in most jurisdictions. Use these tools on your own
+            voice, public-domain recordings, or voices you've been explicitly licensed for.
+          </p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ─── Library filter toolbar ─── -->
+    <section class="library-toolbar" x-cloak>
+      <div class="library-toolbar-row">
+        <input type="search"
+               class="library-search"
+               x-model="modelFilters.search"
+               placeholder="🔍 Search by name, repo, or 'best for'…">
+        <select x-model="modelFilters.sortBy" class="library-sort">
+          <option value="default">Sort: default (family · size)</option>
+          <option value="name">Sort: name (A–Z)</option>
+          <option value="size-asc">Sort: size (small → large)</option>
+          <option value="size-desc">Sort: size (large → small)</option>
+        </select>
+        <div class="library-meta">
+          <span class="muted small" x-text="'Showing ' + filteredModelTotalCount + ' of ' + models.length"></span>
+          <button class="btn ghost small" x-show="hasActiveFilters" @click="clearAllFilters()">✕ Clear filters</button>
+          <button class="btn ghost small" @click="expandAllVisible()" title="Show details on every visible card">▾ Expand all</button>
+          <button class="btn ghost small" @click="collapseAllVisible()" title="Hide details on every card">▴ Collapse all</button>
+        </div>
+      </div>
+
+      <div class="library-toolbar-row filter-chips-row">
+        <span class="filter-label">Family</span>
+        <template x-for="fam in availableFamilies" :key="fam.id">
+          <button class="chip filter-chip"
+                  :class="{active: isFamilyFiltered(fam.id)}"
+                  @click="toggleFamilyFilter(fam.id)"
+                  x-text="fam.label"></button>
+        </template>
+      </div>
+
+      <div class="library-toolbar-row filter-chips-row">
+        <span class="filter-label">Status</span>
+        <button class="chip filter-chip status-cached"
+                :class="{active: isStatusFiltered('cached')}"
+                @click="toggleStatusFilter('cached')">✓ Cached</button>
+        <button class="chip filter-chip"
+                :class="{active: isStatusFiltered('partial')}"
+                @click="toggleStatusFilter('partial')">⏳ Partial</button>
+        <button class="chip filter-chip"
+                :class="{active: isStatusFiltered('absent')}"
+                @click="toggleStatusFilter('absent')">⚪ Not downloaded</button>
+        <button class="chip filter-chip status-ready"
+                :class="{active: isStatusFiltered('engine-ready')}"
+                @click="toggleStatusFilter('engine-ready')"
+                title="Cached AND the engine's runtime packages are installed">🚀 Ready to generate</button>
+      </div>
+
+      <div class="library-toolbar-row filter-chips-row" x-show="availableCapabilities.length > 0">
+        <span class="filter-label">Capability</span>
+        <template x-for="cap in availableCapabilities" :key="cap">
+          <button class="chip filter-chip"
+                  :class="{active: isCapFiltered(cap)}"
+                  @click="toggleCapabilityFilter(cap)"
+                  x-text="cap"></button>
+        </template>
+      </div>
+
+      <!-- ─── Hardware + format filters (v1.1.2) ─── -->
+      <!-- MLX chip auto-hides if the catalog has zero MLX-optimized entries
+           (would always match nothing and just clutter the UI). -->
+      <div class="library-toolbar-row filter-chips-row"
+           x-show="models.some(m => m.apple_optimized) || true">
+        <span class="filter-label">Quick</span>
+        <button class="chip filter-chip filter-chip-mlx"
+                x-show="models.some(m => m.apple_optimized)"
+                :class="{active: modelFilters.mlxOnly}"
+                @click="toggleMlxFilter()"
+                title="Show only models pre-quantized for Apple Silicon's MLX framework.">
+          🍎 Apple Silicon (MLX) only
+        </button>
+        <button class="chip filter-chip filter-chip-fit"
+                :class="{active: modelFilters.fitsMyMac}"
+                :disabled="!system.unified_memory_gb"
+                @click="toggleFitsMyMacFilter()"
+                :title="system.unified_memory_gb
+                          ? ('Hide models that exceed your ' + system.unified_memory_gb + ' GB unified memory. \"Tight\" models still show.')
+                          : 'Hardware detection unavailable.'">
+          🖥 Fits my Mac
+          <span class="muted small" x-show="system.unified_memory_gb"
+                x-text="'(' + system.unified_memory_gb + ' GB)'"></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Empty state when filters return nothing -->
+    <div class="library-empty" x-show="filteredModelTotalCount === 0 && models.length > 0" x-cloak>
+      <p class="muted">No models match your filters.</p>
+      <p class="library-empty-active-filters" x-show="activeFilterSummary().length > 0">
+        <span class="muted small">Active filters (click to remove):</span>
+        <template x-for="af in activeFilterSummary()" :key="af.label">
+          <button class="chip library-empty-chip"
+                  @click="af.removeFn()"
+                  :title="'Remove this filter: ' + af.label">
+            <span x-text="af.label"></span>
+            <span class="library-empty-chip-x">✕</span>
+          </button>
+        </template>
+      </p>
+      <button class="btn ghost" @click="clearAllFilters()">✕ Clear all filters</button>
+    </div>
+
+    <!-- Family sections — only render families that have surviving models -->
+    <template x-for="family in Object.values(families).filter(f => (filteredModelsByFamily[f.id]||[]).length > 0)" :key="family.id">
+      <section class="family">
+        <header class="family-head">
+          <button class="family-collapse-btn"
+                  @click="toggleFamilyCollapsed(family.id)"
+                  :title="isFamilyCollapsed(family.id) ? 'Expand' : 'Collapse'"
+                  x-text="isFamilyCollapsed(family.id) ? '▸' : '▾'"></button>
+          <div class="family-head-text">
+            <h2>
+              <span x-text="family.label"></span>
+              <span class="muted small" x-text="'(' + (filteredModelsByFamily[family.id]||[]).length + ')'"></span>
+            </h2>
+            <p class="muted" x-text="family.summary" x-show="!isFamilyCollapsed(family.id)"></p>
+          </div>
+        </header>
+
+        <div x-show="!isFamilyCollapsed(family.id)" x-cloak>
+          <details class="how">
+            <summary>How to use this family</summary>
+            <p x-text="family.how_to_use"></p>
+          </details>
+
+          <div class="model-list">
+            <template x-for="m in filteredModelsByFamily[family.id] || []" :key="m.repo">
+            <article class="model-card" :class="cardClass(m)">
+              <div class="model-meta">
+                <h3>
+                  <span x-text="m.label"></span>
+                  <span class="chip"
+                    :class="cacheChipClass(m.cache.state)"
+                    :title="chipExplain(m.cache.state)"
+                    x-text="cacheChipLabel(m.cache.state)"></span>
+                  <span class="chip neutral" x-show="m.gated"
+                    title="Hugging Face requires you to accept a license and provide a personal access token before downloading this repo.">gated</span>
+                  <span class="chip neutral" x-show="m.apple_optimized"
+                    title="Pre-quantized for Apple Silicon's MLX framework. Loads fast and uses unified memory efficiently on M-series chips.">MLX</span>
+                  <!-- Fit chip — green / yellow / red against detected RAM -->
+                  <span class="chip"
+                        x-show="m.fit && m.fit.state"
+                        :class="'fit-' + (m.fit?.state || 'unknown')"
+                        :title="m.fit?.hint"
+                        x-text="fitChipLabel(m.fit)"></span>
+                </h3>
+                <p class="repo"><code x-text="m.repo"></code></p>
+                <p class="size-line">
+                  <span class="size-big" x-text="formatGb(m.size_gb)"></span>
+                  <span class="muted">download</span>
+                  ·
+                  <span class="muted" x-text="'≥' + m.min_unified_memory_gb + ' GB unified mem'"></span>
+                </p>
+                <p class="hw" x-text="m.recommended_hardware"></p>
+                <p class="capabilities-row" x-show="m.capabilities && m.capabilities.length">
+                  <template x-for="c in (m.capabilities || [])" :key="c">
+                    <span class="chip cap" :title="capabilityHint(c)" x-text="capabilityLabel(c)"></span>
+                  </template>
+                  <!-- Engine status chip — 3 states: ready / deps-ok-but-not-wired / missing deps. -->
+                  <span class="chip engine-ready"
+                        x-show="m.cache.state==='cached' && isModelReady(m.repo)"
+                        title="This model's engine is installed and wired up. Ready to generate.">
+                    ✓ engine ready
+                  </span>
+                  <span class="chip engine-pending"
+                        x-show="m.cache.state==='cached' && !isModelReady(m.repo) && modelDepsOk(m.repo)"
+                        title="Packages are installed, but the backend worker for this family isn't shipped yet. Coming in a future Phase.">
+                    🕓 worker in roadmap
+                  </span>
+                  <span class="chip engine-missing"
+                        x-show="m.cache.state==='cached' && !modelDepsOk(m.repo)"
+                        :title="'Missing packages: ' + (modelMissingDeps(m.repo) || []).join(', ') + '. Click for details.'"
+                        @click="tab='generate'">
+                    ⚠ engine needs install
+                  </span>
+                </p>
+                <!-- ─── Collapsible details (v1.1.2) ─── -->
+                <!-- Cards default to compact; the toggle below expands to show
+                     best_for + use_cases + saved-loc. Keeps the gallery
+                     scannable when there are 25 models on screen. -->
+                <div class="model-details" x-show="isModelExpanded(m.repo)" x-cloak>
+                  <p class="best-for" x-show="m.best_for">
+                    <strong>Best for:</strong> <span x-text="m.best_for"></span>
+                  </p>
+
+                  <!-- Structured use cases — ✅ good / ⚠️ weak / ❌ avoid -->
+                  <ul class="use-case-list" x-show="m.use_cases && m.use_cases.length > 0">
+                    <template x-for="uc in (m.use_cases || [])" :key="uc.text">
+                      <li :class="'use-case-' + uc.kind">
+                        <span class="use-case-icon" x-text="useCaseIcon(uc.kind)"></span>
+                        <span x-text="uc.text"></span>
+                      </li>
+                    </template>
+                  </ul>
+
+                  <p class="saved-loc" x-show="m.cache.state==='cached' && m.cache.path">
+                    <small>📁 Saved at <code x-text="m.cache.path"></code></small>
+                    <button class="link small" @click="revealInFolder(m.cache.path)" title="Open this folder in Finder">📂 Reveal in Finder</button>
+                  </p>
+                </div>
+
+                <!-- Toggle — always visible, label flips with state -->
+                <button class="model-details-toggle"
+                        @click="toggleModelExpanded(m.repo)"
+                        :title="isModelExpanded(m.repo) ? 'Hide details' : 'Show \"best for\", use cases, and saved location'">
+                  <span x-show="!isModelExpanded(m.repo)">▾ Show details</span>
+                  <span x-show="isModelExpanded(m.repo)">▴ Hide details</span>
+                </button>
+              </div>
+              <div class="model-actions">
+                <template x-if="m.cache.state === 'cached'">
+                  <span class="ok-text">✓ cached</span>
+                </template>
+
+                <template x-if="m.cache.state !== 'cached' && !m.active_download">
+                  <button class="primary" @click="confirmDownload(m)">
+                    <span>⬇</span> Download
+                  </button>
+                </template>
+
+                <template x-if="m.active_download">
+                  <div class="dl-inline">
+                    <div class="bar"><div class="bar-fill" :style="`width:${m.active_download.percent || 0}%`"></div></div>
+                    <small x-text="downloadCaption(m.active_download)"></small>
+                    <button class="link danger" @click="cancelDownload(m.active_download.id)">cancel</button>
+                  </div>
+                </template>
+              </div>
+            </article>
+          </template>
+        </div>
+        </div><!-- /family-collapse wrapper -->
+      </section>
+    </template>
+  </main>
+
+  <!-- ─────────── DOWNLOADS ─────────── -->
+  <main x-show="tab==='downloads'" class="page">
+    <section class="page-head">
+      <div class="recent-head">
+        <h1>Downloads</h1>
+        <button class="link small" x-show="finishedDownloadCount > 0"
+                @click="clearFinishedDownloads()"
+                :title="`Remove ${finishedDownloadCount} finished/errored/cancelled rows from this list. Files on disk are untouched.`">
+          Clear <span x-text="finishedDownloadCount"></span> finished
+        </button>
+      </div>
+      <p class="muted">
+        Live state across all download jobs since the server started.
+        Cancel a job to pause it — the partial files stay on disk, and starting
+        the same model again will resume from where it left off.
+      </p>
+    </section>
+
+    <div class="downloads-table">
+      <div class="row head">
+        <div>Repo</div>
+        <div>State</div>
+        <div>Progress</div>
+        <div class="actions">Actions</div>
+      </div>
+      <template x-for="j in jobs" :key="j.id">
+        <div class="row">
+          <div><code x-text="j.repo"></code></div>
+          <div>
+            <span class="chip" :class="stateChipClass(j.state)" x-text="j.state"></span>
+            <small x-show="j.error" class="error-text" x-text="j.error"></small>
+          </div>
+          <div>
+            <div class="bar"><div class="bar-fill" :style="`width:${j.percent || 0}%`"></div></div>
+            <small x-text="downloadCaption(j)"></small>
+          </div>
+          <div class="actions">
+            <button class="link danger" x-show="['queued','running','cancelling'].includes(j.state)"
+                    @click="cancelDownload(j.id)">cancel</button>
+          </div>
+        </div>
+      </template>
+      <p x-show="jobs.length === 0" class="muted empty">No downloads yet.</p>
+    </div>
+  </main>
+
+  <!-- ─────────── IMPORT ─────────── -->
+  <main x-show="tab==='imports'" class="page">
+    <section class="page-head">
+      <h1>Import existing weights</h1>
+      <p class="muted">
+        Symlinks an existing HF-cache-style folder into this server's HF cache,
+        so you don't re-download models you already have on disk. No copying.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>What's the difference between Link and Move?</h2>
+      <ul class="import-explainer">
+        <li>
+          <strong>Link</strong> creates a symlink under our HF cache pointing at the
+          source. Instant, zero copy, but if you later <em>uninstall</em> the source app,
+          the link breaks. Best when you want to keep both Pinokio apps installed
+          and share the same on-disk cache.
+        </li>
+        <li>
+          <strong>Move</strong> physically relocates the folder into our HF cache.
+          On the same disk it's an instant rename (no copy), across disks it falls back
+          to copy+delete. Afterward, the source is gone — you can safely delete the
+          old launcher entirely. Best for migrating off MFLUX-WEBUI.
+        </li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Add by path</h2>
+      <p class="muted">
+        Paste an absolute path to a folder shaped like
+        <code>models--owner--name</code>. We'll figure out the repo from the name,
+        or you can override it.
+      </p>
+      <div class="form-row">
+        <input x-model="importForm.source_path" placeholder="/Users/you/old-hf-cache/hub/models--black-forest-labs--FLUX.1-schnell" />
+        <input x-model="importForm.repo" placeholder="owner/repo (optional)" />
+      </div>
+      <div class="form-row" style="margin-top:0">
+        <button class="primary" @click="submitImport('move')" title="Physically relocate so the source becomes free to delete">Move into HF cache</button>
+        <button class="ghost" @click="submitImport('link')" title="Create a symlink — keeps the source in place">Link only</button>
+      </div>
+
+      <!-- Inline result panel: green on success, red on error. Stays visible after the toast fades. -->
+      <div class="import-result" :class="importMessageKind" x-show="importMessage" x-cloak>
+        <p class="import-result-title" x-text="importMessage"></p>
+        <template x-if="importResult && importResult.target">
+          <div class="import-result-detail">
+            <div class="kv">
+              <span class="muted">Saved to</span>
+              <code x-text="importResult.target"></code>
+              <button class="link small" @click="copyText(importResult.target)" title="Copy destination path">copy</button>
+              <button class="link small" @click="revealInFolder(importResult.target)" title="Open this folder in Finder">📂 reveal</button>
+            </div>
+            <div class="kv" x-show="importResult.source_was">
+              <span class="muted">Moved from</span>
+              <code x-text="importResult.source_was"></code>
+            </div>
+            <div class="kv" x-show="importResult.source">
+              <span class="muted">Symlinked from</span>
+              <code x-text="importResult.source"></code>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Scan candidates</h2>
+      <p class="muted">
+        Folders listed in <code>VOICESTUDIO_EXTRA_MODEL_DIRS</code> are searched.
+        Set this in the ENVIRONMENT file (colon-separated paths) and restart the server.
+      </p>
+      <button class="ghost" @click="scanImports()">Re-scan</button>
+
+      <div class="candidates">
+        <template x-for="c in candidates" :key="c.source_path">
+          <article class="candidate">
+            <div class="candidate-body">
+              <strong x-text="c.repo"></strong>
+              <span class="chip" x-show="c.in_catalog">in catalog</span>
+              <p><code x-text="c.source_path"></code></p>
+            </div>
+            <div class="candidate-actions">
+              <button class="primary small" @click="moveCandidate(c)" title="Migrate — source disappears, target is real">Move</button>
+              <button class="ghost small" @click="linkCandidate(c)" title="Symlink only — keep the source where it is">Link</button>
+            </div>
+          </article>
+        </template>
+        <p x-show="candidates.length === 0" class="muted empty">
+          No candidates found. Configure <code>VOICESTUDIO_EXTRA_MODEL_DIRS</code> and re-scan.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ─────────── VOICES (Phase A) ─────────── -->
+  <main x-show="tab==='voices'" class="page" x-cloak>
+    <section class="page-head">
+      <h1>Voices</h1>
+      <p class="muted">
+        Reference clips for voice cloning. Used by cloning-capable engines (VoxCPM, F5-TTS, Chatterbox,
+        Spark-TTS, XTTS, Qwen3-TTS CustomVoice) when they ship in Phase 2.1+. Each clip is engine-agnostic —
+        upload once, use everywhere.
+      </p>
+
+      <div class="banner info" x-show="voices.length === 0" x-cloak>
+        <div>
+          <strong>No voices in your library yet.</strong>
+          <p class="muted">
+            Click <strong>+ Add voice</strong> below to upload a reference clip (3–15 seconds, WAV / MP3 /
+            M4A / FLAC / OGG). Each cloning engine will use this as the target voice to mimic.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <div class="voices-toolbar">
+      <button class="btn primary" @click="openVoiceUploader()">+ Add voice</button>
+      <button class="btn ghost" @click="openSeedCatalog()">🌐 Browse public-domain catalog</button>
+      <button class="btn ghost small" @click="refreshVoices()">↻ Refresh</button>
+      <span class="muted small" x-show="voices.length > 0" x-text="voices.length + ' voice' + (voices.length===1?'':'s') + ' in library'"></span>
+    </div>
+
+    <div class="voice-grid">
+      <template x-for="v in voices" :key="v.id">
+        <div class="voice-card">
+          <div class="voice-card-head">
+            <h3 x-text="v.name"></h3>
+            <button class="btn ghost danger small" @click="deleteVoice(v)" title="Remove this voice">✕</button>
+          </div>
+          <div class="voice-chips">
+            <span class="chip lang" x-text="v.language"></span>
+            <span class="chip gender" x-text="genderLabel(v.gender)"></span>
+            <span class="chip license" :class="'license-' + v.license" x-text="licenseLabel(v.license)"></span>
+            <span class="chip" x-show="v.has_transcript" title="Has transcript (works with F5-TTS)">📝 transcript</span>
+          </div>
+          <audio class="voice-audio" :src="v.audio_url" controls preload="metadata"></audio>
+          <div class="voice-meta muted small">
+            <span x-show="v.duration_seconds" x-text="(v.duration_seconds || 0).toFixed(1) + 's'"></span>
+            <span x-show="v.sample_rate" x-text="' · ' + (v.sample_rate/1000).toFixed(1) + ' kHz'"></span>
+            <span x-show="v.channels" x-text="' · ' + (v.channels === 1 ? 'mono' : 'stereo')"></span>
+            <span x-show="v.notes" class="voice-notes" x-text="' — ' + v.notes"></span>
+          </div>
+          <div class="voice-actions">
+            <a class="btn ghost small" :href="v.audio_url" :download="v.audio_filename">⬇ Download</a>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <details class="primer">
+      <summary>📚 Tips for great cloning reference clips</summary>
+      <div class="primer-body">
+        <ul>
+          <li><strong>Length</strong>: 5–15 seconds. Shorter = less voice character captured. Longer than 20s doesn't help any engine.</li>
+          <li><strong>Quality</strong>: clean room, no background music, no echo. Phone recordings in a quiet space work fine.</li>
+          <li><strong>Content</strong>: a few full sentences that vary in pitch. Reading a pangram (e.g. "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.") gives engines a broad phoneme set.</li>
+          <li><strong>Transcripts</strong>: F5-TTS specifically needs an exact transcript of the reference clip for alignment. Other engines don't require it. Toggle "Add transcript" in the upload dialog if you'll use F5.</li>
+          <li><strong>Ethics</strong>: only clone voices you have permission to use. Voice cloning of public figures, ex-partners, etc. without consent is illegal in many jurisdictions and harmful even where it isn't.</li>
+        </ul>
+      </div>
+    </details>
+  </main>
+
+  <!-- ─── ADD VOICE MODAL ─── -->
+  <!-- ─── Seed catalog modal ─── -->
+  <div class="modal-backdrop" x-show="seedCatalogOpen" x-cloak @click.self="closeSeedCatalog()">
+    <div class="modal voice-modal seed-modal">
+      <h2>Public-domain voice catalog</h2>
+      <p class="muted">
+        Curated voice clips from well-known TTS model repositories. All entries are explicitly
+        licensed for sharing — see each card's source link for attribution. Click <strong>+ Add to library</strong>
+        to download and add the clip as a normal library voice (you can then use it with any voice-cloning engine).
+      </p>
+
+      <div class="seed-loading" x-show="seedCatalogLoading && seedCatalog.length === 0" x-cloak>
+        <p class="muted">Loading…</p>
+      </div>
+
+      <div class="seed-empty" x-show="!seedCatalogLoading && seedCatalog.length === 0" x-cloak>
+        <p class="muted">No seed entries available right now.</p>
+      </div>
+
+      <div class="seed-grid" x-show="seedCatalog.length > 0" x-cloak>
+        <template x-for="entry in seedCatalog" :key="entry.id">
+          <div class="seed-card">
+            <h3 x-text="entry.name"></h3>
+            <div class="seed-chips">
+              <span class="chip lang" x-text="entry.language"></span>
+              <span class="chip gender" x-text="genderLabel(entry.gender)"></span>
+              <span class="chip license license-public-domain" x-text="licenseLabel(entry.license)"></span>
+            </div>
+            <audio :src="entry.audio_url" controls preload="none"></audio>
+            <p class="muted small" x-show="entry.notes" x-text="entry.notes"></p>
+            <p class="muted small">
+              <a :href="entry.source_url" target="_blank" rel="noopener noreferrer" x-text="entry.source_url"></a>
+            </p>
+            <button class="btn primary small"
+                    :disabled="seedCatalogAddingId === entry.id"
+                    @click="addFromSeed(entry)">
+              <span x-show="seedCatalogAddingId !== entry.id">+ Add to library</span>
+              <span x-show="seedCatalogAddingId === entry.id">Adding…</span>
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn ghost" @click="closeSeedCatalog()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Add Voice modal ─── -->
+  <div class="modal-backdrop" x-show="voiceUploader.open" x-cloak @click.self="closeVoiceUploader()">
+    <div class="modal voice-modal">
+      <h2>Add voice to library</h2>
+
+      <!-- Audio source — three tabs: upload / paste / record -->
+      <div class="control-block">
+        <label>Reference audio</label>
+        <div class="voice-source-tabs">
+          <button class="src-tab" :class="{active: voiceUploader.source==='upload'}"
+                  @click="setVoiceSource('upload')">📁 Upload / Drop / Paste</button>
+          <button class="src-tab" :class="{active: voiceUploader.source==='record'}"
+                  @click="setVoiceSource('record')">🔴 Record from mic</button>
+        </div>
+
+        <!-- Upload + drag-drop + paste-from-clipboard mode -->
+        <div x-show="voiceUploader.source === 'upload'" x-cloak>
+          <div class="voice-dropzone"
+               :class="{'dragover': voiceUploader.dragOver}"
+               @dragover.prevent="voiceUploader.dragOver = true"
+               @dragleave.prevent="voiceUploader.dragOver = false"
+               @drop.prevent="handleVoiceDrop($event)"
+               @click="$refs.voiceFileInput.click()">
+            <template x-if="!voiceUploader.audioBlob">
+              <div class="dropzone-empty">
+                <div class="dropzone-icon">🎙️</div>
+                <p>Drop an audio file here, paste from clipboard (⌘V), or click to pick</p>
+                <p class="muted small">WAV · MP3 · M4A · FLAC · OGG · OPUS · 3–15 seconds recommended</p>
+              </div>
+            </template>
+            <template x-if="voiceUploader.audioBlob">
+              <div class="dropzone-filled">
+                <div class="muted small" x-text="voiceUploader.audioFilename + ' · ' + (voiceUploader.audioSizeBytes/1024/1024).toFixed(2) + ' MB'"></div>
+                <audio :src="voiceUploader.audioPreviewUrl" controls preload="metadata"></audio>
+                <button class="btn ghost small" @click.stop="clearVoiceUploaderAudio()">✕ Remove</button>
+              </div>
+            </template>
+          </div>
+          <input type="file" x-ref="voiceFileInput" accept="audio/*" style="display:none"
+                 @change="handleVoiceFileInput($event)">
+        </div>
+
+        <!-- Record-from-microphone mode -->
+        <div x-show="voiceUploader.source === 'record'" x-cloak class="record-panel">
+          <!-- Idle: ready to start -->
+          <template x-if="voiceUploader.recordPhase === 'idle' && !voiceUploader.audioBlob">
+            <div class="record-idle">
+              <p class="muted">
+                Read a few sentences clearly. We'll record up to <strong x-text="voiceUploader.recordMaxSeconds + ' seconds'"></strong>,
+                then encode as 24 kHz mono WAV in your browser before upload.
+              </p>
+              <button class="btn primary big" @click="startRecording()">🔴 Start recording</button>
+              <p class="muted small">Your browser will ask for microphone permission the first time.</p>
+            </div>
+          </template>
+
+          <!-- Requesting mic permission -->
+          <template x-if="voiceUploader.recordPhase === 'requesting'">
+            <div class="record-status">
+              <p class="muted">Waiting for microphone permission…</p>
+            </div>
+          </template>
+
+          <!-- 3-2-1 countdown -->
+          <template x-if="voiceUploader.recordPhase === 'countdown'">
+            <div class="record-countdown" x-text="voiceUploader.recordCountdown"></div>
+          </template>
+
+          <!-- Live recording with VU meter -->
+          <template x-if="voiceUploader.recordPhase === 'recording'">
+            <div class="record-live">
+              <div class="record-vu">
+                <div class="record-vu-fill" :style="'width: ' + (voiceUploader.recordLevel * 100) + '%'"></div>
+              </div>
+              <div class="record-elapsed">
+                <span x-text="voiceUploader.recordElapsed.toFixed(1) + 's'"></span>
+                <span class="muted small" x-text="' / ' + voiceUploader.recordMaxSeconds + 's'"></span>
+              </div>
+              <button class="btn primary" @click="stopRecording()">⏹ Stop</button>
+            </div>
+          </template>
+
+          <!-- Preview the recording -->
+          <template x-if="voiceUploader.recordPhase === 'preview'">
+            <div class="record-preview">
+              <p class="muted small">
+                ✓ Recorded <strong x-text="(voiceUploader.audioSizeBytes/1024).toFixed(0) + ' KB'"></strong>
+                · 24 kHz mono WAV
+              </p>
+              <audio :src="voiceUploader.audioPreviewUrl" controls preload="metadata"></audio>
+              <div class="record-preview-actions">
+                <button class="btn ghost" @click="discardRecording()">✕ Discard + re-record</button>
+              </div>
+            </div>
+          </template>
+
+          <!-- Error state -->
+          <template x-if="voiceUploader.recordPhase === 'error'">
+            <div class="record-error">
+              <p class="error-text" x-text="voiceUploader.recordError"></p>
+              <button class="btn ghost" @click="voiceUploader.recordPhase='idle'">Try again</button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Name -->
+      <div class="control-block">
+        <label>Name <span class="required">*</span></label>
+        <input type="text" x-model="voiceUploader.name" placeholder="e.g. Myself — narration, Friend Bob, Karl Schmidt (LibriVox)">
+      </div>
+
+      <!-- Language + gender row -->
+      <div class="modal-row">
+        <div class="control-block">
+          <label>Language <span class="required">*</span></label>
+          <select x-model="voiceUploader.language">
+            <option value="en">English</option>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="es">Spanish</option>
+            <option value="it">Italian</option>
+            <option value="pt">Portuguese</option>
+            <option value="ru">Russian</option>
+            <option value="ar">Arabic</option>
+            <option value="hi">Hindi</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="control-block">
+          <label>Gender</label>
+          <div class="radio-row">
+            <label><input type="radio" name="gender" value="f" x-model="voiceUploader.gender"> Female</label>
+            <label><input type="radio" name="gender" value="m" x-model="voiceUploader.gender"> Male</label>
+            <label><input type="radio" name="gender" value="n" x-model="voiceUploader.gender"> Neutral / unknown</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- License -->
+      <div class="control-block">
+        <label>License / source <span class="required">*</span></label>
+        <div class="radio-col">
+          <label><input type="radio" name="license" value="self-owned" x-model="voiceUploader.license"> My own voice (I recorded this)</label>
+          <label><input type="radio" name="license" value="permission" x-model="voiceUploader.license"> Someone else gave me permission to clone their voice</label>
+          <label><input type="radio" name="license" value="public-domain" x-model="voiceUploader.license"> Public-domain recording (e.g. LibriVox, government source)</label>
+          <label><input type="radio" name="license" value="unknown" x-model="voiceUploader.license"> Unknown / other (won't be shared externally)</label>
+        </div>
+        <input type="text" x-model="voiceUploader.source_url" placeholder="Optional: source URL (LibriVox link, etc.)" class="thin-input">
+      </div>
+
+      <!-- Notes -->
+      <div class="control-block">
+        <label>Notes</label>
+        <textarea x-model="voiceUploader.notes" rows="2" placeholder="Optional: recording conditions, voice character, etc."></textarea>
+      </div>
+
+      <!-- Transcript (collapsible) -->
+      <details class="control-block">
+        <summary>Add transcript (required by F5-TTS, optional otherwise)</summary>
+        <textarea x-model="voiceUploader.transcript" rows="3"
+                  placeholder="Exact words spoken in the reference clip. Required only if you'll use F5-TTS with this voice."></textarea>
+      </details>
+
+      <!-- Ethics gate -->
+      <div class="control-block ethics-gate">
+        <label class="ethics-check">
+          <input type="checkbox" x-model="voiceUploader.permission_acknowledged">
+          <span>
+            <strong>I have permission to clone this voice.</strong>
+            <span class="muted small">
+              Confirms one of: I recorded it myself · explicit consent from the speaker ·
+              public-domain source. Cloning without permission is illegal in many jurisdictions.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn ghost" @click="closeVoiceUploader()">Cancel</button>
+        <button class="btn primary" :disabled="!canSubmitVoice || voiceUploader.uploading" @click="submitVoiceUpload()">
+          <span x-show="!voiceUploader.uploading">Add to library</span>
+          <span x-show="voiceUploader.uploading">Uploading…</span>
+        </button>
+      </div>
+      <p class="error-text" x-show="voiceUploader.error" x-text="voiceUploader.error"></p>
+    </div>
+  </div>
+
+  <!-- ─────────── API ─────────── -->
+  <main x-show="tab==='api'" class="page" x-cloak>
+    <section class="page-head">
+      <h1>API</h1>
+      <p class="muted">
+        Drive VoiceStudio from your main Mac (or any LAN device) over plain HTTP.
+        Permissive CORS is enabled so browser apps work too. For interactive
+        documentation with every endpoint and schema:
+        <a class="link-accent" :href="apiBase + '/docs'" target="_blank">Swagger UI</a>
+        ·
+        <a class="link-accent" :href="apiBase + '/redoc'" target="_blank">ReDoc</a>
+      </p>
+    </section>
+
+    <section class="card api-card">
+      <h2>Server URL</h2>
+      <p class="muted">
+        Use this as the base for all <code>/api/*</code> calls. For remote access from
+        your main Mac, set <code>PINOKIO_SHARE_LOCAL=true</code> in the <code>ENVIRONMENT</code>
+        file and restart — Pinokio will print a LAN URL alongside the local one.
+      </p>
+      <div class="code-block">
+        <pre><code x-text="apiBase"></code></pre>
+        <button class="ghost small copy-btn" @click="copyText(apiBase)">Copy</button>
+      </div>
+    </section>
+
+    <section class="card api-card">
+      <h2>Curl — generate an image end-to-end</h2>
+      <div class="code-block">
+        <pre><code x-text="curlExample"></code></pre>
+        <button class="ghost small copy-btn" @click="copyText(curlExample)">Copy</button>
+      </div>
+      <p class="muted hint">
+        The flow is <code>POST /api/generate/txt2img → poll /jobs/&lt;id&gt; → GET /jobs/&lt;id&gt;/image</code>.
+        Generation runs async so the POST returns instantly with a job id.
+      </p>
+    </section>
+
+    <section class="card api-card">
+      <h2>JavaScript (fetch)</h2>
+      <div class="code-block">
+        <pre><code x-text="jsExample"></code></pre>
+        <button class="ghost small copy-btn" @click="copyText(jsExample)">Copy</button>
+      </div>
+    </section>
+
+    <section class="card api-card">
+      <h2>Python (requests)</h2>
+      <div class="code-block">
+        <pre><code x-text="pythonExample"></code></pre>
+        <button class="ghost small copy-btn" @click="copyText(pythonExample)">Copy</button>
+      </div>
+    </section>
+
+    <section class="card api-card">
+      <h2>Re-download an old image</h2>
+      <p class="muted">
+        Every generation has a stable, persistent <code>job.id</code>. Save the id
+        from the POST response and you can re-fetch the image any time — even
+        after server restarts. History is kept for the most recent 200 generations.
+      </p>
+      <div class="code-block">
+        <pre><code x-text="reDownloadExample"></code></pre>
+        <button class="ghost small copy-btn" @click="copyText(reDownloadExample)">Copy</button>
+      </div>
+      <p class="muted hint">
+        💡 The PNG filename on disk is also <code>&lt;job_id&gt;.png</code> in
+        <code>app/output/</code>, so you can browse them with Finder too.
+      </p>
+    </section>
+
+    <section class="card api-card">
+      <h2>List all past jobs</h2>
+      <p class="muted">
+        Useful when you've lost a job id — you can browse recent history and grep
+        by prompt or seed.
+      </p>
+      <div class="code-block">
+        <pre><code x-text="listJobsExample"></code></pre>
+        <button class="ghost small copy-btn" @click="copyText(listJobsExample)">Copy</button>
+      </div>
+    </section>
+
+    <section class="card api-card">
+      <h2>Endpoint summary</h2>
+      <table class="endpoint-table">
+        <thead><tr><th>Method</th><th>Path</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>GET</td><td><code>/api/health</code></td><td>Liveness + HF_HOME info</td></tr>
+          <tr><td>GET</td><td><code>/api/catalog</code></td><td>All models + families + live cache state</td></tr>
+          <tr><td>GET</td><td><code>/api/cache/{repo}</code></td><td>Cache state for one repo</td></tr>
+          <tr><td>GET</td><td><code>/api/downloads</code></td><td>List download jobs</td></tr>
+          <tr><td>POST</td><td><code>/api/downloads</code></td><td>Start a download — body <code>{repo, token?}</code></td></tr>
+          <tr><td>DELETE</td><td><code>/api/downloads/{id}</code></td><td>Cancel a download</td></tr>
+          <tr><td>GET</td><td><code>/api/downloads/stream</code></td><td>SSE stream of download progress</td></tr>
+          <tr><td>GET</td><td><code>/api/imports/scan</code></td><td>List importable HF-cache folders</td></tr>
+          <tr><td>POST</td><td><code>/api/imports</code></td><td>Symlink a folder into HF_HOME</td></tr>
+          <tr><td>GET</td><td><code>/api/loras</code></td><td>List local LoRAs in <code>app/lora/</code></td></tr>
+          <tr><td>GET</td><td><code>/api/generate/availability</code></td><td>Is mflux installed? + aspect presets</td></tr>
+          <tr><td>POST</td><td><code>/api/generate/txt2img</code></td><td>Start text-to-image generation</td></tr>
+          <tr><td>GET</td><td><code>/api/generate/jobs</code></td><td>List generation jobs</td></tr>
+          <tr><td>GET</td><td><code>/api/generate/jobs/{id}</code></td><td>Poll one job</td></tr>
+          <tr><td>GET</td><td><code>/api/generate/jobs/{id}/image</code></td><td>Download the rendered PNG</td></tr>
+          <tr><td>DELETE</td><td><code>/api/generate/jobs/{id}</code></td><td>Cancel a job</td></tr>
+          <tr><td>GET</td><td><code>/api/generate/stream</code></td><td>SSE stream of generation jobs</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- ─────────── SETTINGS ─────────── -->
+  <main x-show="tab==='settings'" class="page" x-cloak>
+    <section class="page-head">
+      <h1>Settings</h1>
+      <p class="muted">
+        Persistent app-wide configuration. Stored in <code>app/backend/settings.json</code>
+        (gitignored, never leaves your machine).
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Hugging Face token</h2>
+      <p class="muted">
+        Status:
+        <strong x-show="settings.hf_token_set" class="ok-text">✓ Saved</strong>
+        <strong x-show="!settings.hf_token_set" class="warn-text">Not set</strong>
+        <span x-show="settings.hf_token_set" class="muted">
+          (<code x-text="settings.hf_token_masked"></code>)
+        </span>
+      </p>
+
+      <details class="control-help" open>
+        <summary>Why bother setting one?</summary>
+        <p>
+          A Hugging Face token is your personal pass to the HF model hub. Without one,
+          you're an anonymous downloader — which means:
+        </p>
+        <ul class="primer-body" style="padding-left:18px">
+          <li><strong>Lower rate limits.</strong> HF throttles anonymous traffic far more aggressively. Big downloads stall or hit caps.</li>
+          <li><strong>Slower CDN tier.</strong> Authenticated requests get priority routing to closer edge servers.</li>
+          <li><strong>No access to gated models.</strong> FLUX.2 dev, FLUX.2 klein base, FLUX.1 dev — all gated. Without a token you literally can't download them, even after accepting their license on the HF site.</li>
+          <li><strong>No access to your own private models.</strong> If you've trained or uploaded private LoRAs/checkpoints, the token gives you access here too.</li>
+        </ul>
+        <p class="muted">
+          The token is stored locally in <code>app/backend/settings.json</code>.
+          It never leaves your Mac except as an <code>Authorization</code> header sent
+          directly to <code>huggingface.co</code> during downloads. We never log it.
+        </p>
+      </details>
+
+      <details class="control-help" open>
+        <summary>How to get one (30 seconds)</summary>
+        <ol class="primer-body" style="padding-left:18px">
+          <li>Go to <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener" class="link-accent">huggingface.co/settings/tokens</a> (sign up free if you don't have an account)</li>
+          <li>Click <strong>Create new token</strong></li>
+          <li>Token type: <strong>Read</strong> is enough. Don't pick "Write" or "Fine-grained" unless you know you need them.</li>
+          <li>Name it something memorable (e.g. <code>voicestudio-mac</code>)</li>
+          <li>Copy the token (starts with <code>hf_…</code>) and paste it below</li>
+        </ol>
+        <p class="muted">
+          For gated repos like <code>black-forest-labs/FLUX.2-dev</code>, you also need
+          to visit each repo page once and click "Agree and access" to accept their license.
+          That's a one-time step per repo.
+        </p>
+      </details>
+
+      <div class="form-row" style="margin-top: 14px;">
+        <input :type="settings.showToken ? 'text' : 'password'"
+               x-model="settings.tokenInput"
+               placeholder="hf_…"
+               autocomplete="off"
+               spellcheck="false"
+               style="flex: 1 1 320px; font-family: 'JetBrains Mono', monospace; font-size: 13px;" />
+        <button class="ghost small" @click="settings.showToken = !settings.showToken"
+                x-text="settings.showToken ? '🙈 Hide' : '👁 Show'"></button>
+      </div>
+
+      <div class="form-row" style="margin-top: 0;">
+        <button class="primary" @click="saveSettings()" :disabled="settings.busy">
+          <span x-show="!settings.busy">Save</span>
+          <span x-show="settings.busy">Saving…</span>
+        </button>
+        <button class="ghost" @click="testToken()" :disabled="settings.busy || (!settings.tokenInput.trim() && !settings.hf_token_set)">
+          Test connection
+        </button>
+        <button class="ghost danger" @click="clearToken()" :disabled="settings.busy || !settings.hf_token_set"
+                title="Remove the saved token. Downloads will fall back to anonymous mode.">
+          Clear saved token
+        </button>
+      </div>
+
+      <p class="status-text" x-show="settings.message" :class="settings.messageKind"
+         x-text="settings.message" x-cloak></p>
+    </section>
+
+    <section class="card">
+      <h2>Network access — how to reach this app from another device</h2>
+      <p class="muted">
+        Where the API is currently reachable, auto-detected. Use these from your main
+        Mac, iPhone, scripts, or anywhere else on your LAN / Tailnet.
+      </p>
+
+      <div class="port-banner">
+        <div class="port-banner-label">Bound port</div>
+        <div class="port-banner-value">
+          <code x-text="conn.bind_port"></code>
+          <button class="link small" @click="copyText(String(conn.bind_port))">copy</button>
+        </div>
+        <p class="muted hint">
+          Hardcoded in <code>start.js</code> so it survives every restart. If you
+          ever want to change it, edit the <code>--port</code> arg there and Stop → Start.
+        </p>
+      </div>
+
+      <details class="control-help" open>
+        <summary>How does direct API access work here?</summary>
+        <p>
+          Our server is configured to bind on <strong>0.0.0.0</strong> at a fixed port
+          <strong x-text="conn.bind_port"></strong>, which means it listens on every
+          network interface (loopback + LAN + Tailscale). Any device that can reach
+          this Mac on that port can call the API directly — no Pinokio proxy needed,
+          no port-rotation surprises.
+        </p>
+        <p>
+          That's a deliberate trade-off from the "127.0.0.1-only secure default" you
+          might see in other apps:
+        </p>
+        <ul class="primer-body" style="padding-left: 18px;">
+          <li>
+            <strong>Pro:</strong> stable URL, lower latency, full
+            <code>/docs</code> Swagger access from any device, easy scripting.
+          </li>
+          <li>
+            <strong>Con:</strong> the API has no built-in authentication right now,
+            so <em>anything</em> on the network you bind to can call it. On a
+            personal Tailscale tailnet (only your own devices) that's fine — but
+            don't expose port <strong x-text="conn.bind_port"></strong> to the
+            public internet without adding an auth layer first.
+          </li>
+        </ul>
+        <p class="muted">
+          To revert to the "secure default" (loopback only), edit
+          <code>start.js</code> and change <code>--host 0.0.0.0</code> back to
+          <code>--host 127.0.0.1</code>. Then access becomes Pinokio-UI-only again.
+        </p>
+      </details>
+
+      <h3 class="net-h3">Reachable URLs — direct API access</h3>
+      <p class="muted">
+        Hit these from curl, Python, your main Mac's browser, anywhere on your
+        LAN/tailnet. <code>/docs</code> on any of them opens the Swagger UI.
+      </p>
+      <div class="net-urls">
+        <template x-for="addr in conn.addresses.filter(a => a.kind !== 'loopback')" :key="'direct-' + addr.ip">
+          <div class="net-row">
+            <span class="chip" :class="addr.kind === 'tailscale' ? 'ok' : (addr.kind === 'lan' ? '' : 'neutral')"
+                  x-text="addr.kind"></span>
+            <code x-text="'http://' + addr.ip + ':' + conn.bind_port"></code>
+            <button class="link small" @click="copyText('http://' + addr.ip + ':' + conn.bind_port)">copy</button>
+            <small class="muted">direct API</small>
+          </div>
+        </template>
+        <p x-show="conn.addresses.filter(a => a.kind !== 'loopback').length === 0" class="muted">
+          No external network interfaces detected — this Mac is offline or has only loopback.
+        </p>
+      </div>
+
+      <h3 class="net-h3">Reachable URLs — via Pinokio UI</h3>
+      <p class="muted">
+        These open the Pinokio launcher itself; click into VoiceStudio from
+        there to use the UI on a remote device. Use these for "I want the
+        interactive web UI", not for scripted API calls.
+      </p>
+      <div class="net-urls">
+        <template x-for="addr in conn.addresses.filter(a => a.kind !== 'loopback')" :key="'pinokio-' + addr.ip">
+          <div class="net-row">
+            <span class="chip" :class="addr.kind === 'tailscale' ? 'ok' : (addr.kind === 'lan' ? '' : 'neutral')"
+                  x-text="addr.kind"></span>
+            <code x-text="'http://' + addr.ip + ':' + conn.pinokio_ui_port"></code>
+            <button class="link small" @click="copyText('http://' + addr.ip + ':' + conn.pinokio_ui_port)">copy</button>
+            <small class="muted">Pinokio UI</small>
+          </div>
+        </template>
+      </div>
+
+      <h3 class="net-h3">Share proxy status</h3>
+      <p class="muted" x-show="!conn.share_local_enabled">
+        ⚠ <code>PINOKIO_SHARE_LOCAL=false</code>. Direct API access from other devices
+        is currently disabled. To enable: open <code>ENVIRONMENT</code> in this
+        launcher folder, change <code>PINOKIO_SHARE_LOCAL=false</code> to
+        <code>true</code>, then <strong>Stop → Start</strong> VoiceStudio in Pinokio.
+      </p>
+      <p class="ok-text" x-show="conn.share_local_enabled">
+        ✓ <code>PINOKIO_SHARE_LOCAL=true</code>. Pinokio is exposing this app on a
+        network port — look in the <strong>Terminal</strong> tab for the printed share URL.
+      </p>
+      <p class="muted" x-show="conn.share_local_enabled && conn.share_local_port_fixed">
+        Fixed share port: <code x-text="conn.share_local_port_fixed"></code> (set via <code>PINOKIO_SHARE_LOCAL_PORT</code>).
+      </p>
+      <p class="muted" x-show="conn.share_local_enabled && !conn.share_local_port_fixed">
+        💡 The share port is currently random per session. To pin it for stable
+        scripting, set <code>PINOKIO_SHARE_LOCAL_PORT=&lt;a-number&gt;</code> in
+        <code>ENVIRONMENT</code>.
+      </p>
+      <p class="muted" x-show="conn.share_passcode_set">
+        🔒 Share proxy is passcode-protected (<code>PINOKIO_SHARE_PASSCODE</code> is set).
+      </p>
+      <p class="muted" x-show="conn.share_local_enabled && !conn.share_passcode_set">
+        ⚠ No <code>PINOKIO_SHARE_PASSCODE</code> set — anyone on your LAN/Tailnet
+        can call the API with no auth. Fine on a personal tailnet, risky on shared networks.
+      </p>
+
+      <details class="control-help">
+        <summary>Are these addresses stable?</summary>
+        <ul class="primer-body" style="padding-left: 18px;">
+          <li>
+            <strong>App port (<span x-text="conn.bind_port"></span>):</strong>
+            <span class="ok-text">Yes — pinned in start.js.</span>
+            We hardcoded port <strong x-text="conn.bind_port"></strong> so it
+            survives restarts and scripts can reliably target it. If it ever clashes
+            with another app, change the number in <code>start.js</code>.
+          </li>
+          <li>
+            <strong>Pinokio UI port (42000):</strong>
+            <span class="ok-text">Yes — stable.</span>
+            Pinokio's hardcoded default. Use this as your remote-access entry point.
+          </li>
+          <li>
+            <strong>LAN IP (192.168.x.y / 10.x.x.x):</strong>
+            <span class="muted">Usually yes.</span>
+            Assigned by your router via DHCP, typically stable for days or weeks.
+            For permanence, set a DHCP reservation on your router.
+          </li>
+          <li>
+            <strong>Tailscale IP (100.x.x.x):</strong>
+            <span class="ok-text">Yes — permanent.</span>
+            Assigned by Tailscale per node, stable for the life of that machine in
+            your tailnet. Best choice for stable remote access.
+          </li>
+          <li>
+            <strong>Share proxy port:</strong>
+            <span class="muted">You control it.</span>
+            Set <code>PINOKIO_SHARE_LOCAL_PORT</code> in <code>ENVIRONMENT</code> for a
+            fixed value, leave it blank to let Pinokio pick random per session.
+          </li>
+        </ul>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Where settings live</h2>
+      <p class="muted">
+        <code>app/backend/settings.json</code> — JSON file, this server reads it on every
+        request. Changes apply immediately, no server restart needed.
+      </p>
+    </section>
+  </main>
+
+  <!-- ─────────── TOASTS ─────────── -->
+  <div class="toast-stack" aria-live="polite">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="toast" :class="t.kind" @click="dismissToast(t.id)">
+        <span class="toast-icon" x-text="t.icon"></span>
+        <div class="toast-body">
+          <strong x-text="t.title"></strong>
+          <p class="muted" x-show="t.body" x-text="t.body"></p>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- ─────────── DOWNLOAD CONFIRM MODAL ─────────── -->
+  <div class="modal-backdrop" x-show="pendingDownload" x-cloak @click.self="pendingDownload=null">
+    <div class="modal" x-show="pendingDownload">
+      <template x-if="pendingDownload">
+        <div>
+          <h2>Download this model?</h2>
+          <p>
+            <strong x-text="pendingDownload.label"></strong>
+            <br/>
+            <code x-text="pendingDownload.repo"></code>
+          </p>
+          <ul class="facts">
+            <li><span x-text="formatGb(pendingDownload.size_gb) + ' download'"></span></li>
+            <li><span x-text="'Needs ≥' + pendingDownload.min_unified_memory_gb + ' GB unified memory at runtime'"></span></li>
+            <li x-show="pendingDownload.gated">
+              Gated repo — you'll need a Hugging Face token with access.
+            </li>
+          </ul>
+          <p class="muted" x-text="pendingDownload.recommended_hardware"></p>
+
+          <div class="form-row" x-show="pendingDownload.gated">
+            <input type="password" x-model="downloadToken"
+                   :placeholder="settings.hf_token_set ? 'Leave blank to use saved Settings token' : 'HF token (hf_…)'" />
+          </div>
+          <p class="muted hint" x-show="pendingDownload.gated && settings.hf_token_set">
+            💡 Using your saved <a class="link-accent" @click="pendingDownload=null; tab='settings'">Settings token</a>
+            unless you paste an override above.
+          </p>
+          <p class="muted hint" x-show="pendingDownload.gated && !settings.hf_token_set">
+            💡 No default token saved. Set one in
+            <a class="link-accent" @click="pendingDownload=null; tab='settings'">Settings</a>
+            and you won't have to paste it for every gated download.
+          </p>
+
+          <div class="modal-actions">
+            <button class="ghost" @click="pendingDownload=null">Cancel</button>
+            <button class="primary" @click="startDownload()">Start download</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ─── App footer (Tier 1 versioning) ─── -->
+  <!-- Reads health.app_version which is populated by refreshHealth() on init.
+       Always rendered (no x-cloak) so first-paint shows "…" instead of layout
+       shift when the version arrives. -->
+  <footer class="app-footer">
+    <span class="app-footer-title">Voice Studio KH</span>
+    <span class="app-footer-sep">·</span>
+    <span class="app-footer-version">
+      v<span x-text="health.app_version || '…'"></span>
+    </span>
+  </footer>
+
+</body>
+</html>

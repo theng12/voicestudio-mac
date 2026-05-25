@@ -1,0 +1,12 @@
+{
+  "version": "3.6",
+  "title": "Voice Studio KH",
+  "description": "Apple Silicon TTS — Kokoro, VoxCPM, Bark, Qwen3-TTS, Orpheus, Chatterbox, Spark-TTS. PyTorch + MLX variants.",
+  "icon": "icon.png",
+  "platform": ["darwin"],
+  "arch": ["arm64"],
+  "links": {
+    "documentation": "README.md"
+  },
+  "tags": ["tts", "speech", "voice", "audio", "mac"]
+}

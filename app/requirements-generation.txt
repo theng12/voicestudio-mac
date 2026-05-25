@@ -1,0 +1,68 @@
+# Heavy generation dependencies — installed by install_generation.js, NOT install.js.
+# Splitting these out keeps the Phase 1 install fast and small.
+#
+# We deliberately AVOID Coqui TTS (deprecated and pins old torch) and
+# audiocraft (pins torch==2.1.0). Where a TTS model needs a custom runner
+# we'll vendor it under app/backend/voice_engines/<engine>.py instead.
+#
+# Engines covered by these deps alone (no extra installs needed):
+# - VoxCPM      → transformers
+# - Bark        → transformers
+# - F5-TTS      → diffusers + transformers + a small vendor module
+# - Chatterbox  → transformers
+# - Kokoro      → kokoro (ONNX-based, lightweight)
+# - Spark-TTS   → transformers
+# Engines needing extra installs (added when their family is enabled):
+# - Piper       → uses piper-tts wheel (added in Phase 2.1)
+# - XTTS-v2     → uses TTS package (Coqui — license-restricted; opt-in)
+
+torch>=2.6
+torchaudio>=2.6
+transformers>=4.55
+diffusers>=0.30
+accelerate>=0.30
+sentencepiece>=0.2
+soundfile>=0.12
+numpy>=1.26
+
+# ─── Phase 2.0: Kokoro ───
+# Pulls misaki[en] for English G2P (no espeak-ng needed for American/British).
+# Adding other languages (Japanese, Mandarin, etc.) means `pip install misaki[ja]`
+# plus `brew install espeak-ng` — we'll wire that up in a later phase.
+kokoro>=0.9
+
+# ─── Phase 2.1+: Qwen3-TTS (MLX-native) ───
+# mlx-audio is a git install (not on PyPI). It depends on mlx + mlx-lm, which
+# uv resolves transitively. These are needed for the qwen3-tts engine family.
+# The worker isn't shipped yet — including the deps now means Install Generation
+# only runs once when we wire up the worker in Phase 2.1.
+mlx>=0.20
+mlx-lm>=0.19
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git
+
+# ─── Phase 2.1: VoxCPM (transformers + custom audiovae) ───
+# Official OpenBMB inference package. Pulls torch + transformers (already pinned),
+# plus modelscope (for the optional denoiser — we currently load it with
+# load_denoiser=False so the denoiser model isn't a hard requirement).
+voxcpm>=0.4
+
+# ─── OmniVoice (MLX, experimental) ───
+# k2-fsa's 0.6B diffusion-LM TTS with 646-language support, ported to MLX by
+# ailuntx. The MLX backend runs the diffusion LM in MLX and keeps the Higgs
+# audio tokenizer on PyTorch/Transformers — both stacks already required by
+# other engines above. Import path is `omnivoice.mlx.OmniVoiceMLX`. Apache-2.0.
+# Note: voice cloning lives in the official PyTorch API but isn't yet exposed
+# in the MLX variant — current integration is voice-design-only.
+omnivoice @ git+https://github.com/ailuntx/OmniVoice-MLX.git
+
+# Lightweight TTS-specific helpers.
+#
+# IMPORTANT: do NOT declare `phonemizer` here. misaki (Kokoro's G2P) pulls
+# `phonemizer-fork` as a transitive dep — a fork that adds `EspeakWrapper.
+# set_data_path()` (the upstream phonemizer never had it). Both packages
+# install into the same `phonemizer/` namespace, so declaring vanilla
+# `phonemizer` causes pip to overwrite the fork → misaki crashes on import.
+# If you actually need plain phonemizer for some future engine, vendor it
+# under a different module name instead of co-installing.
+inflect>=7.0             # number → words normalization
+unidecode>=1.3           # romanize accented input for engines that need ASCII
