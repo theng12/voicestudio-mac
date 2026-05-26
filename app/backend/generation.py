@@ -135,6 +135,7 @@ def availability() -> dict:
     voxcpm_ok = _have_voxcpm()
     bark_ok = _have_bark()
     omnivoice_ok = _have_omnivoice()
+    f5_tts_ok = _have_f5_tts()
     wired = []
     if KOKORO_AVAILABLE:
         wired.append("kokoro")
@@ -149,6 +150,8 @@ def availability() -> dict:
         wired.append("bark")
     if omnivoice_ok:
         wired.append("omnivoice")
+    if f5_tts_ok:
+        wired.append("f5-tts")
     return {
         "available": TTS_AVAILABLE,
         "kokoro_available": KOKORO_AVAILABLE,
@@ -156,6 +159,7 @@ def availability() -> dict:
         "voxcpm_available": voxcpm_ok,
         "bark_available": bark_ok,
         "omnivoice_available": omnivoice_ok,
+        "f5_tts_available": f5_tts_ok,
         "diffusers_available": _have_diffusers(),
         "error": TTS_IMPORT_ERROR,
         "device": _detect_device() if TTS_AVAILABLE else None,
@@ -205,6 +209,17 @@ def _have_omnivoice() -> bool:
     aren't on the platform."""
     try:
         from omnivoice.mlx import OmniVoiceMLX  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _have_f5_tts() -> bool:
+    """F5-TTS (SWivid). Confirms the f5_tts package + the F5TTS class are
+    importable. The package pulls in vocos + cached_path + torchdiffeq + a
+    handful of other transitive deps via requirements-generation.txt."""
+    try:
+        from f5_tts.api import F5TTS  # noqa: F401
         return True
     except Exception:
         return False
@@ -293,6 +308,8 @@ _WIRED_FAMILIES = {
     "kittentts", "vibevoice",
     # Its own loader (ailuntx/OmniVoice-MLX) — separate worker.
     "omnivoice",
+    # Its own loader (f5_tts.api.F5TTS) — separate worker.
+    "f5-tts",
 }
 
 
@@ -613,6 +630,11 @@ class GenerationManager:
         # tokenizer on PyTorch.
         self._omnivoice_model = None
         self._omnivoice_model_repo: Optional[str] = None
+        # F5-TTS — single F5TTS instance cached per repo. Holds the flow-matching
+        # transformer + VoCoS vocoder (~1.5 GB on disk, more at runtime). Heavy
+        # cold-start because the vocoder also loads from HF.
+        self._f5_tts_model = None
+        self._f5_tts_model_repo: Optional[str] = None
         self._load_history()
 
     def is_available(self) -> bool:
@@ -756,10 +778,12 @@ class GenerationManager:
                 )
             self._generate_bark(job, model, output_path)
         elif family == "f5-tts":
-            raise NotImplementedError(
-                "F5-TTS isn't wired yet — its inference code needs to be "
-                "vendored into the backend. For now use Kokoro or VoxCPM2."
-            )
+            if not _have_f5_tts():
+                raise RuntimeError(
+                    "The `f5-tts` package isn't installed. Run 'Install Generation' "
+                    "from the Pinokio sidebar (this installs f5-tts + vocos + cached_path)."
+                )
+            self._generate_f5_tts(job, model, output_path)
         elif family in ("chatterbox", "spark-tts"):
             raise NotImplementedError(
                 f"The PyTorch worker for {family} isn't wired yet. The MLX "
@@ -1601,6 +1625,127 @@ class GenerationManager:
         sr = int(getattr(model, "sampling_rate", None) or model_entry.sample_rate_hz or 24000)
         sf.write(str(output_path), audio_np, sr, format="WAV", subtype="PCM_16")
         print(f"[gen] omnivoice saved WAV at {sr} Hz, {len(audio_np)/sr:.2f}s: {output_path}", flush=True)
+
+    # ----- F5-TTS (SWivid flow-matching) -----
+
+    def _f5_tts_get_model(self, repo: str, device: str):
+        """Lazy-load + cache an F5TTS instance. Evicts on repo switch — the
+        model + VoCoS vocoder together hold several GB of MPS memory.
+
+        Note: F5-TTS auto-resolves checkpoint files from HF_HOME based on the
+        `model` name argument ('F5TTS_v1_Base'). The catalog's `repo` field
+        (`SWivid/F5-TTS`) is informational here — F5-TTS doesn't take a repo
+        path; it has hardcoded model registry entries. Other F5-TTS variants
+        (E2-TTS, F5TTS_Base, F5TTS_v1_Base_no_zero_init, multilingual ones)
+        would need their `model=` string flipped per-entry."""
+        if self._f5_tts_model_repo == repo and self._f5_tts_model is not None:
+            return self._f5_tts_model
+
+        if self._f5_tts_model is not None:
+            print(f"[gen] evicting cached F5-TTS model ({self._f5_tts_model_repo})", flush=True)
+            try:
+                del self._f5_tts_model
+            except Exception:
+                pass
+            self._f5_tts_model = None
+            self._f5_tts_model_repo = None
+            _release_device_memory(device)
+
+        # F5-TTS reads from $HF_HOME / hf_cache_dir to find pre-downloaded
+        # checkpoints. Our env file sets HF_HOME=./cache/HF_HOME at server
+        # startup, so F5-TTS finds models--SWivid--F5-TTS without re-downloading.
+        from f5_tts.api import F5TTS
+        hf_cache = os.environ.get("HF_HOME")
+        print(f"[gen] loading F5-TTS (F5TTS_v1_Base) from {hf_cache or 'default HF cache'}", flush=True)
+        model = F5TTS(
+            model="F5TTS_v1_Base",
+            device=device,
+            hf_cache_dir=hf_cache,
+        )
+        self._f5_tts_model = model
+        self._f5_tts_model_repo = repo
+        return model
+
+    def _generate_f5_tts(self, job: GenerationJob, model_entry, output_path: Path) -> None:
+        """F5-TTS voice cloning. The engine has no zero-shot mode — a reference
+        audio clip + transcript are mandatory. Long text auto-chunks into
+        ~135-char windows internally (see f5_tts.infer.utils_infer.chunk_text),
+        each chunk crossfaded with the next at 0.15s. Output is a single
+        stitched WAV at 24 kHz."""
+        import soundfile as sf
+        from . import voices as voices_module
+
+        params = job.params
+        device = _detect_device()
+
+        text = (params.get("text") or "").strip()
+        if not text:
+            raise ValueError("text is required")
+
+        # F5-TTS requires voice cloning — no zero-shot mode.
+        voice_id = (params.get("voice_library_id") or "").strip()
+        if not voice_id:
+            raise ValueError(
+                "F5-TTS requires a reference voice (it has no zero-shot mode). "
+                "Pick a voice from your Voices library."
+            )
+
+        voice = voices_module.library.get(voice_id)
+        if voice is None:
+            raise ValueError(f"Voice {voice_id} not found in library")
+        ref_path = voices_module.library.reference_path(voice_id)
+        if ref_path is None or not ref_path.exists():
+            raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
+
+        # Transcript: prefer per-request override, fall back to library entry.
+        ref_text = (params.get("ref_transcript") or "").strip()
+        if not ref_text:
+            ref_text = (voices_module.library.transcript(voice_id) or "").strip()
+        if not ref_text:
+            raise ValueError(
+                "F5-TTS needs a transcript of the reference clip. Edit the voice "
+                "in your Voices library to add one, or provide a transcript "
+                "override in the Reference transcript field."
+            )
+
+        speed = float(params.get("speed", 1.0))
+        speed = max(0.5, min(speed, 2.0))
+
+        # F5-TTS knobs we surface via existing UI controls:
+        # - inference_timesteps → nfe_step (flow-matching steps, default 32)
+        # - cfg_value → cfg_strength (classifier-free guidance, default 2.0)
+        nfe_step = int(params.get("inference_timesteps", 32))
+        nfe_step = max(8, min(nfe_step, 64))
+        cfg_strength = float(params.get("cfg_value", 2.0))
+        cfg_strength = max(0.5, min(cfg_strength, 5.0))
+
+        seed = params.get("seed")
+        if seed is None or seed < 0:
+            import random
+            seed = random.randint(0, 2**32 - 1)
+        job.resolved_seed = int(seed)
+
+        if job.cancel_event.is_set():
+            return
+
+        model = self._f5_tts_get_model(model_entry.repo, device)
+
+        print(
+            f"[gen] f5-tts voice-clone ({len(text)} chars, ref={ref_path.name}, "
+            f"nfe={nfe_step}, cfg={cfg_strength}, speed={speed})",
+            flush=True,
+        )
+        wav, sr, _spec = model.infer(
+            ref_file=str(ref_path),
+            ref_text=ref_text,
+            gen_text=text,
+            nfe_step=nfe_step,
+            cfg_strength=cfg_strength,
+            speed=speed,
+            seed=int(seed),
+        )
+        sf.write(str(output_path), wav, sr, format="WAV", subtype="PCM_16")
+        print(f"[gen] f5-tts saved WAV at {sr} Hz, {len(wav)/sr:.2f}s: {output_path}", flush=True)
 
     # ----- persistence -----
 

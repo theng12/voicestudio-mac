@@ -588,6 +588,32 @@
           </p>
         </section>
 
+        <!-- F5-TTS: voice cloning is REQUIRED + transcript is REQUIRED. -->
+        <section class="control-block" x-show="isF5TTS(gen.repo)" x-cloak>
+          <label>
+            Reference voice
+            <span class="required">*</span>
+            <span class="muted small">(F5-TTS has no zero-shot mode — pick a voice)</span>
+          </label>
+          <select x-model="gen.voice_library_id">
+            <option value="">— pick a voice from your library —</option>
+            <template x-for="v in voices" :key="v.id">
+              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' + (v.has_transcript ? ' ✓ transcript' : ' ⚠ no transcript')"></option>
+            </template>
+          </select>
+          <p class="muted hint" x-show="voices.length === 0">
+            Your <a class="link-accent" @click="tab='voices'">Voices library</a> is empty. Add a reference clip there first (5–15 sec of clean speech + transcript).
+          </p>
+          <p class="muted hint" x-show="voices.length > 0">
+            F5-TTS needs both a reference clip <strong>and</strong> a transcript of what's spoken in it. If the picked voice has no stored transcript, fill in the override field below — generation will fail otherwise.
+          </p>
+        </section>
+        <section class="control-block" x-show="isF5TTS(gen.repo) && gen.voice_library_id" x-cloak>
+          <label>Reference transcript <span class="muted small">(override — falls back to library transcript if blank)</span></label>
+          <textarea x-model="gen.ref_transcript" rows="2"
+                    placeholder="What's said in the reference clip. Required if the library entry has no stored transcript."></textarea>
+        </section>
+
         <!-- Spark-TTS-MLX: optional natural-language style hint. -->
         <section class="control-block" x-show="isSparkTtsMlx(gen.repo)" x-cloak>
           <label>Style hint (optional)</label>
@@ -626,7 +652,7 @@
         </section>
 
         <!-- Speed slider — all mlx-audio families that accept it (everything except Bark + VoxCPM v1). -->
-        <section class="control-block" x-show="isKokoro(gen.repo) || isMlxAudio(gen.repo) || isOmniVoice(gen.repo)" x-cloak>
+        <section class="control-block" x-show="isKokoro(gen.repo) || isMlxAudio(gen.repo) || isOmniVoice(gen.repo) || isF5TTS(gen.repo)" x-cloak>
           <label>Speed</label>
           <div class="slider-row">
             <input type="range" min="0.5" max="2.0" step="0.01" x-model.number="gen.speed">

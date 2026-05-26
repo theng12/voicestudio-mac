@@ -75,6 +75,8 @@ function studio() {
       bark_tags: [],              // populated from /api/generate/availability
       // OmniVoice (experimental MLX, voice-design only for now)
       omnivoice_available: false,
+      // F5-TTS (SWivid flow-matching, voice-cloning only — no zero-shot mode)
+      f5_tts_available: false,
       // Batch / queue — Level 2 of the queue UX. Pinning a seed makes each
       // batch job get seed, seed+1, seed+2... (reproducible variations);
       // a random seed (-1) gives each its own fresh random.
@@ -684,6 +686,8 @@ function studio() {
       if (mode === "custom" && !this.gen.preset_speaker) return false;
       // OmniVoice requires a voice description on the MLX backend.
       if (this.isOmniVoice(this.gen.repo) && !this.gen.voice_design_prompt.trim()) return false;
+      // F5-TTS requires a library voice (voice cloning only — no zero-shot).
+      if (this.isF5TTS(this.gen.repo) && !this.gen.voice_library_id) return false;
       return true;
     },
 
@@ -1776,6 +1780,7 @@ function studio() {
         this.gen.bark_voice_presets = data.bark_voice_presets || [];
         this.gen.bark_tags = data.bark_tags || [];
         this.gen.omnivoice_available = !!data.omnivoice_available;
+        this.gen.f5_tts_available = !!data.f5_tts_available;
         this.gen.lang_names = data.lang_names || {};
         this.gen.wired_families = data.wired_families || [];
       } catch {
@@ -1825,6 +1830,10 @@ function studio() {
     isOmniVoice(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "omnivoice";
+    },
+    isF5TTS(repo) {
+      const m = (this.models || []).find(x => x.repo === repo);
+      return m?.family === "f5-tts";
     },
     isKittenTts(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
@@ -2211,9 +2220,10 @@ function studio() {
         const passesDesignPrompt = mode === "design" || this.isVoxCPMMlx(repo)
                                 || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo);
 
-        // Voice library: every cloner family + Qwen3 clone mode + VoxCPM v1.
+        // Voice library: every cloner family + Qwen3 clone mode + VoxCPM v1 + F5-TTS.
         const passesLibraryVoice = mode === "clone" || this.isVoxCPM(repo)
-                                || this.isMlxCloner(repo);
+                                || this.isMlxCloner(repo)
+                                || this.isF5TTS(repo);
 
         return {
           repo,

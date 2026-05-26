@@ -46,6 +46,13 @@ mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git
 # load_denoiser=False so the denoiser model isn't a hard requirement).
 voxcpm>=0.4
 
+# ─── F5-TTS (SWivid flow-matching, Phase 2.2) ───
+# Official PyPI package. Pulls vocos (vocoder), cached_path, torchdiffeq, and
+# x_transformers as transitive deps. Used by `_generate_f5_tts` worker; the
+# pre-downloaded SWivid/F5-TTS snapshot already in cache/HF_HOME is auto-found
+# via the HF_HOME env var. Non-commercial license — fine for personal use.
+f5-tts>=1.1.0
+
 # ─── OmniVoice (MLX, experimental) ───
 # k2-fsa's 0.6B diffusion-LM TTS with 646-language support, ported to MLX by
 # ailuntx. The MLX backend runs the diffusion LM in MLX and keeps the Higgs

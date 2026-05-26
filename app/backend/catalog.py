@@ -535,10 +535,11 @@ CATALOG: tuple[ModelEntry, ...] = (
             "F5TTS_v1_Base/*.pt",          # keep only .safetensors of v1_Base
         ),
         use_cases=(
-            ("good",  "Best-in-class voice cloning quality for English (when worker ships)"),
+            ("good",  "Best-in-class voice cloning quality for English"),
             ("good",  "Natural English prosody — often beats VoxCPM v1 on native English voices"),
+            ("good",  "Auto-chunks long text at ~135 chars + 0.15s crossfade — no manual splitting needed"),
+            ("weak",  "Voice cloning only — no zero-shot mode. Requires a library voice with transcript."),
             ("weak",  "Non-commercial license — personal projects only"),
-            ("avoid", "Today: worker not yet wired — catalog entry lets you queue the download in advance"),
         ),
     ),
 

@@ -10,6 +10,59 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.3.0] — 2026-05-26
+
+### Added — F5-TTS family wired (Phase 2.2)
+
+User reported all unwired engines they had downloaded — turned out F5-TTS was the only one they actually had cached (`SWivid/F5-TTS`). The other three unwired families (`chatterbox` PyTorch, `spark-tts` PyTorch, `xtts`) had no downloads and are covered by either their MLX siblings (chatterbox-mlx, spark-tts-mlx) or have license restrictions (XTTS). So this release focuses on F5-TTS only.
+
+**What's new:**
+- `_have_f5_tts()` import probe (`generation.py:198`) — checks for `f5_tts.api.F5TTS`.
+- `_f5_tts_get_model()` — lazy-load + cache an `F5TTS` instance per repo with proper eviction on switch. F5-TTS auto-resolves checkpoint files from `HF_HOME`, so no manual path wiring needed — the user's pre-downloaded `SWivid/F5-TTS` snapshot just works.
+- `_generate_f5_tts()` — full voice-cloning worker. Maps existing UI controls onto F5-TTS knobs (`inference_timesteps → nfe_step`, `cfg_value → cfg_strength`, `speed → speed`). Reuses the same voice-library + transcript loading pattern as other clone-capable engines.
+- Dispatch in `_dispatch_txt2speech` (`generation.py:780`) replaces the prior `NotImplementedError`.
+- `_WIRED_FAMILIES` now includes `f5-tts` — audit_truth.py: **NO DRIFT**, 16 families, 13 wired, 0 commission/omission lies.
+- `/api/generate/availability` now reports `f5_tts_available`.
+
+**Frontend:**
+- `isF5TTS(repo)` helper in `app.js`.
+- F5-TTS folded into `passesLibraryVoice` so the submit payload includes `voice_library_id` + `ref_transcript`.
+- `canSubmit` gates the Generate button when F5-TTS is selected without a library voice (engine has no zero-shot mode).
+- Dedicated UI block in `index.html` between the chatterbox-mlx/spark-mlx clone section and the spark style hint: voice picker + transcript override field. Voice options show `✓ transcript` / `⚠ no transcript` per entry so users know whether F5-TTS will accept it.
+- Speed slider folded in.
+- Catalog entry's `use_cases` updated to remove the "worker not yet wired" line and add: "Auto-chunks long text at ~135 chars + 0.15s crossfade — no manual splitting needed."
+
+### New dependency
+
+`requirements-generation.txt` adds:
+
+```
+f5-tts>=1.1.0
+```
+
+This transitively pulls in `vocos`, `cached_path`, `torchdiffeq`, `x_transformers`, `ema_pytorch`, `librosa`, `pydub`, and a handful of other deps. Most are small. `f5-tts` itself is actively maintained and modern-torch-compatible — no version pin conflicts expected with the existing torch 2.12 + transformers 5.9 + diffusers 0.37 stack.
+
+### How to use
+
+1. **Update from sidebar** → **Stop → Install Generation** (picks up `f5-tts` + transitive deps) → **Start**.
+2. The cached `SWivid/F5-TTS` snapshot (already on disk) is auto-found via `HF_HOME` — no re-download needed.
+3. In the Generate tab, pick `F5-TTS v1 Base` from the model dropdown.
+4. **Mandatory**: pick a voice from the Voices library. F5-TTS has no zero-shot mode — it MUST have a reference clip.
+5. **Mandatory**: that voice must have a transcript (either stored in the library OR provided as override in the Reference transcript field). Generation will fail with a clear error if both are missing.
+6. Hit Generate. Long text auto-chunks internally at ~135 chars with 0.15s crossfade.
+
+### Coverage update
+
+Catalog: 16 families. Wired: 13 (added f5-tts). Still-unwired NotImplementedError stubs: 3 (`chatterbox` PyTorch, `spark-tts` PyTorch, `xtts`). For the first two, MLX siblings (`chatterbox-mlx`, `spark-tts-mlx`) cover the use case at higher quality-per-byte. XTTS is intentionally not wired — Coqui's `TTS` package pins old torch versions and would break voxcpm/qwen3/etc.
+
+### Notes
+
+- MINOR bump (1.2.8 → 1.3.0) — new engine family + new Python dep, per `README.md` versioning rules. Requires re-running Install Generation.
+- F5-TTS `text_guidance.soft_max_chars` stays `null` (unlimited) — engine auto-chunks transparently per the v1.2.4 audit. No change to chip text or UI hint.
+- If `Install Generation` fails on `f5-tts` install, log the pip error and we'll add a constraint or git+ install. Most likely cause would be a transitive dep (e.g. `gradio>=6.0.0` if a newer gradio breaks something), but our env doesn't use gradio so it should install side-by-side without issues.
+
+---
+
 ## [1.2.8] — 2026-05-26
 
 ### Fixed — Spark-TTS dispatch (`ValueError: Model type qwen2 not supported for tts`)
