@@ -512,7 +512,12 @@ def diagnostics() -> dict:
 
 
 def _release_device_memory(device: str) -> None:
-    """Free GPU/MPS memory between generations so the next load doesn't OOM."""
+    """Free GPU/MPS/MLX memory between generations so the next call doesn't OOM.
+
+    Important on 16 GB M-series Macs: MLX maintains its own Metal allocation
+    cache separate from PyTorch's MPS cache. Without clearing both, sequential
+    voxcpm-mlx jobs accumulate activation tensors across calls and eventually
+    blow past Metal's per-buffer cap (~9.5 GB on M4 16 GB) — see v1.2.7 fix."""
     try:
         import gc
         gc.collect()
@@ -524,6 +529,18 @@ def _release_device_memory(device: str) -> None:
             torch.mps.empty_cache()
         elif device == "cuda":
             torch.cuda.empty_cache()
+    except Exception:
+        pass
+    # MLX-specific cache release. mlx.metal.clear_cache() was added around
+    # mlx 0.18; older versions don't have it and the import fails silently.
+    # Without this, MLX retains buffers from the previous generation and the
+    # next mlx-audio call's activations stack on top → Metal alloc OOM.
+    try:
+        import mlx.core as mx
+        if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
+            mx.metal.clear_cache()
+        elif hasattr(mx, "clear_cache"):
+            mx.clear_cache()
     except Exception:
         pass
 
@@ -1025,6 +1042,14 @@ class GenerationManager:
                 shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
                 pass
+            # Release MLX Metal cache + Python refs so the NEXT job starts from
+            # a clean memory baseline. Without this, sequential VoxCPM2-mlx
+            # voice-cloning calls accumulate activation tensors across jobs and
+            # the second/third call hits Metal's per-buffer cap (~9.5 GB on M4
+            # 16 GB) → Abort trap: 6. The cached `self._mlx_audio_model` stays
+            # loaded (model weights are not the OOM trigger); only the
+            # per-generation activation buffers get freed. See v1.2.7 fix.
+            _release_device_memory("mps")
 
     def _resolve_mlx_kwargs(self, mode: str, family: str, model_entry, params: dict,
                             gen_kwargs: dict) -> str:

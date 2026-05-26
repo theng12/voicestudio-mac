@@ -10,6 +10,51 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.2.7] — 2026-05-26
+
+### Fixed — MLX cache leak between sequential mlx-audio jobs (real root cause of the OOM)
+
+Story studio's follow-up test exposed the actual root cause behind the v1.2.6 OOM, not just a "the cap was too high" symptom:
+
+**The data point that broke v1.2.6's assumption:**
+- Story studio submitted two sequential requests, both UNDER the v1.2.6 cap of 1500 chars:
+  - Job `2181b6a957f1` — 1330 chars → ✅ Done (the 1 WAV the user got)
+  - Job `ee3ec2687a51` — 1450 chars → 💀 **Metal OOM mid-gen** (`alloc 11.89 GB > 9.5 GB cap`)
+- Same machine, same engine, same precision. The cap should have protected both. It didn't, because the cap isn't what's actually constraining things.
+
+**Root cause: MLX has its own allocation cache that survives across `generate_audio()` calls.** Each sequential VoxCPM2-mlx voice-cloning call stacks fresh activation tensors on top of the previous call's residue. Job 1 leaves ~7 GB of buffers cached; job 2 adds ~5 GB of its own; total exceeds the M4's 9.5 GB per-Metal-buffer cap → process aborts.
+
+**`_release_device_memory()` already existed but didn't help here** — it only cleared PyTorch's MPS cache (`torch.mps.empty_cache()`). MLX's cache is a separate allocator and was never being cleared. And it was only called on *repo switch* (in `_mlx_audio_get_model` when loading a different model), not between successive calls to the same repo.
+
+**The fix (two parts):**
+
+1. **`_release_device_memory()` now also clears MLX's cache.** Best-effort import of `mlx.core` and call `mx.metal.clear_cache()` (or `mx.clear_cache()` for older MLX versions). Silently no-ops if MLX isn't installed. ~10 LOC at `generation.py:514`.
+
+2. **`_generate_mlx_audio()` calls `_release_device_memory("mps")` in its `finally` block** so memory is released after every job, not just on repo switch. The cached `self._mlx_audio_model` stays loaded (model weights aren't the OOM trigger; activation buffers are). Only the per-generation buffers get freed. ~3 LOC at `generation.py:1024`.
+
+### Changed — `voxcpm` + `voxcpm-mlx` soft cap 1500 → 800 (quality cliff, not just memory)
+
+User listened to the 1330-char output that DID succeed and reported the voice **becomes jibberish past ~30 sec of generated audio**. So the practical per-call ceiling isn't the Metal cap — it's voice consistency. ~30 sec audio @ ~13 chars/sec speech ≈ ~400 chars; soft cap set to 800 (~60 sec) as a reasonable upper bound (slight quality degradation but still usable for most content). Users who care about consistency should target ~400-500 chars per chunk.
+
+Updated notes accordingly:
+
+> **Best at ~800 chars (~60 sec audio) per call. Past ~30 sec, voice tends to drift / become jibberish — split into multiple shorter requests.**
+
+Source comments in catalog.py distinguish **engine ceiling** (4096 tokens / 11 min audio per OpenBMB), **hardware ceiling** (Metal per-buffer cap on M4 16 GB), and **quality ceiling** (~30 sec audio empirical from user testing) so future audits don't conflate these three.
+
+### What's still NOT fixed
+
+API callers can still bypass the soft cap (story studio's chunking ignores chip text — it just hits `/api/generate/txt2speech` with whatever it has). The proper structural fix is still the **runtime memory gate**: a per-family `estimate_memory_bytes(input_chars)` that raises `RuntimeError` BEFORE `generate_audio()` even attempts the alloc, so one bad request fails its own job instead of crashing the server. Still flagged as P1 TODO.
+
+The v1.2.7 cache-clearing makes that gate less urgent — sequential calls now start clean. Combined with the lower cap, story studio's chunked workflow should now work end-to-end without crashing. If you hit another OOM, paste the new log line — the math (alloc-bytes-requested vs Metal-cap) will tell us what number to use for the runtime gate.
+
+### Notes
+
+- PATCH bump (1.2.6 → 1.2.7) — adds 2 small code blocks to `generation.py` + catalog cap drop. No new deps, no schema. Run `Update` from the Pinokio sidebar, then Stop → Start (server restart is required to load the new `_release_device_memory` + finally block).
+- Other mlx-audio families (kokoro-mlx, chatterbox-mlx, spark-tts-mlx, qwen3-tts, orpheus, kittentts, vibevoice) ALL benefit from the cache-clear since they share `_generate_mlx_audio` — they just weren't triggering the OOM because their activation footprints are smaller. The fix is universal across the family.
+
+---
+
 ## [1.2.6] — 2026-05-26
 
 ### Fixed — VoxCPM soft cap lowered 3000 → 1500 (Metal OOM on 16 GB Macs)

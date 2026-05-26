@@ -59,14 +59,17 @@ FAMILIES: dict[str, Family] = {
             "default voice. Great for narration and conversational TTS."
         ),
         # Audit (v1.2.4): voxcpm/core.py:189 max_len=4096 audio tokens @ 6.25 Hz ≈ 11 min ENGINE max.
-        # Hardware fix (v1.2.6): the engine ceiling isn't the M-series Mac ceiling. Diffusion
-        # activation buffers grow with audio duration; on 16 GB M4, 2755 chars in voice-cloning
-        # mode triggered a 13.1 GB Metal alloc vs the ~9.5 GB per-buffer cap → server crash.
-        # Cap dropped from 3000 → 1500 (~2× safety margin) until we add runtime memory gating.
+        # Hardware fix (v1.2.6 → 1.2.7): TWO ceilings hit simultaneously on 16 GB Macs:
+        #   1) Metal per-buffer cap (~9.5 GB on M4): sequential voice-cloning jobs accumulated
+        #      activation tensors across calls → OOM at 2nd job. Fixed by clearing MLX cache
+        #      after each job in _generate_mlx_audio (v1.2.7).
+        #   2) Quality cliff: user-reported voice drift / jibberish past ~30 sec of generated
+        #      audio per call. Engine architecturally supports more but output quality fails.
+        # Cap now reflects #2 (~60 sec @ ~13 chars/sec speech), with safety margin under #1.
         text_guidance=TextGuidance(
-            soft_max_chars=1500,
+            soft_max_chars=800,
             chunking="auto-split",
-            note="Best at ~1500 chars (~90 sec audio) per call. On 16 GB Macs, longer voice-cloning calls can OOM Metal — split into multiple requests.",
+            note="Best at ~800 chars (~60 sec audio) per call. Past ~30 sec, voice tends to drift / become jibberish — split into multiple shorter requests.",
         ),
     ),
     "kokoro": Family(
@@ -214,14 +217,16 @@ FAMILIES: dict[str, Family] = {
             "can also combine the description + library voice for stylized cloning."
         ),
         # Audit (v1.2.4): mlx_audio voxcpm/voxcpm.py:259 max_tokens=4096 @ 6.25 Hz ≈ 11 min ENGINE max.
-        # Hardware fix (v1.2.6): on 16 GB M4, 2755 chars in voice-cloning mode caused a 13.1 GB
-        # Metal alloc vs the ~9.5 GB per-buffer cap → Abort trap: 6 / full server crash.
-        # Diffusion activation buffers grow linearly with audio duration. Cap dropped from
-        # 3000 → 1500 (~2× safety margin) until runtime memory gating exists.
+        # Hardware fix (v1.2.6 → 1.2.7): TWO ceilings hit on 16 GB Macs:
+        #   1) Metal per-buffer cap (~9.5 GB on M4): sequential voice-cloning jobs accumulated
+        #      activations across calls → OOM at 2nd call. Fixed by clearing MLX cache after
+        #      each job in _generate_mlx_audio (v1.2.7).
+        #   2) Quality cliff: user-reported voice drift / jibberish past ~30 sec audio per call.
+        # Cap now reflects the quality cliff (~60 sec @ ~13 chars/sec) with safety margin.
         text_guidance=TextGuidance(
-            soft_max_chars=1500,
+            soft_max_chars=800,
             chunking="auto-split",
-            note="Best at ~1500 chars (~90 sec audio) per call. On 16 GB Macs, longer voice-cloning calls can OOM Metal — split into multiple requests.",
+            note="Best at ~800 chars (~60 sec audio) per call. Past ~30 sec, voice tends to drift / become jibberish — split into multiple shorter requests.",
         ),
     ),
     "qwen3-tts": Family(
