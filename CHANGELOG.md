@@ -10,6 +10,74 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.3.2] — 2026-05-27
+
+### Fixed — Diagnostics page falsely reporting F5-TTS as `Missing: f5_tts vocos`
+
+User ran Install Generation after the v1.3.0 update, the install completed successfully (`f5-tts==1.1.20`, `vocos==0.1.0`, `cached-path==1.8.10`, etc. all installed per the pip log), but the Generate-tab diagnostics page still showed:
+
+> ⛔ **f5-tts** · Missing: `f5_tts vocos` · Requires: `f5_tts torch vocos soundfile`
+
+while every other engine was Ready.
+
+**Root cause:** the diagnostics endpoint has two separate data structures:
+
+1. `_PACKAGE_CHECKLIST` — the list of packages to actually probe with `_probe_package` (i.e. try importing).
+2. `_ENGINE_REQUIREMENTS` — what packages each engine needs.
+
+The "missing" check (`generation.py:506`) does `if not pkg_status.get(p)` — a package not in the **checklist** returns `None` from `pkg_status.get()`, which is falsy → falsely flagged as missing. When I added F5-TTS in v1.3.0, I added `f5_tts` and `vocos` to `_ENGINE_REQUIREMENTS["f5-tts"]` but **forgot to add them to `_PACKAGE_CHECKLIST`**. The diagnostics never actually probed them, just defaulted them to "missing."
+
+Same bug for **3 other engines that were entirely invisible** in the diagnostics table: `kittentts`, `vibevoice`, `omnivoice`. They work fine (anyone can use them via the model picker), but they had no entry in `_ENGINE_REQUIREMENTS` at all, so the engine-readiness table just didn't include them. v1.2.0 (omnivoice) and v1.2.1 (kittentts + vibevoice) added the families and dispatch but skipped the diagnostics-side bookkeeping.
+
+### Changes (both in `app/backend/generation.py`)
+
+**`_PACKAGE_CHECKLIST`** — added 3 entries so the probe actually runs against them:
+
+```python
+("f5_tts",    "F5-TTS flow-matching TTS engine"),
+("vocos",     "VoCoS vocoder used by F5-TTS"),
+("omnivoice", "OmniVoice diffusion-LM TTS (ailuntx/OmniVoice-MLX)"),
+```
+
+**`_ENGINE_REQUIREMENTS`** — added 3 rows:
+
+```python
+"kittentts":  ["mlx", "mlx_audio", "soundfile", "numpy"],
+"vibevoice":  ["mlx", "mlx_audio", "soundfile", "numpy"],
+"omnivoice":  ["omnivoice", "torch", "transformers", "soundfile", "numpy"],
+```
+
+### Verification
+
+Running `diagnostics()` inside the conda env now reports:
+
+```
+engines: 13, ready: 13/13
+  kokoro             ✅ READY
+  voxcpm             ✅ READY
+  voxcpm-mlx         ✅ READY
+  bark               ✅ READY
+  qwen3-tts          ✅ READY
+  kokoro-mlx         ✅ READY
+  chatterbox-mlx     ✅ READY
+  spark-tts-mlx      ✅ READY
+  orpheus            ✅ READY
+  kittentts          ✅ READY
+  vibevoice          ✅ READY
+  omnivoice          ✅ READY
+  f5-tts             ✅ READY
+```
+
+**All 13 engines fully ready.** Was 10 visible engines, 9 ready in the user's screenshot before the fix.
+
+### Notes
+
+- PATCH bump (1.3.1 → 1.3.2) — pure bookkeeping fix in `generation.py`. No catalog change, no schema change, no new deps. `Update` → Stop → Start (server restart needed to reload `_PACKAGE_CHECKLIST` and `_ENGINE_REQUIREMENTS` at module load).
+- F5-TTS was actually working all along since v1.3.0 + the user's Install Generation succeeded — only the diagnostics view was lying. Same for omnivoice / kittentts / vibevoice: they just weren't being reported.
+- A nicer long-term fix would be auto-deriving `_PACKAGE_CHECKLIST` from `_ENGINE_REQUIREMENTS.values()` (union of all packages mentioned). Would have prevented this bug in the first place. Not done in this patch — out of scope, but flagged.
+
+---
+
 ## [1.3.1] — 2026-05-26
 
 ### Removed — Dead `chatterbox`, `spark-tts`, `xtts` family stubs

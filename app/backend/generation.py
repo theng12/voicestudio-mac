@@ -276,6 +276,11 @@ _PACKAGE_CHECKLIST = [
     ("mlx_audio",     "MLX inference wrapper for audio models (Prince Canuma's mlx-audio)"),
     # VoxCPM (OpenBMB) — PyTorch + custom audiovae, official inference wrapper.
     ("voxcpm",        "VoxCPM TTS engine (OpenBMB official inference package)"),
+    # F5-TTS (SWivid) — flow-matching voice cloning.
+    ("f5_tts",        "F5-TTS flow-matching TTS engine"),
+    ("vocos",         "VoCoS vocoder used by F5-TTS"),
+    # OmniVoice (ailuntx's MLX port) — diffusion-LM TTS with 646-language support.
+    ("omnivoice",     "OmniVoice diffusion-LM TTS (ailuntx/OmniVoice-MLX)"),
 ]
 
 _ENGINE_REQUIREMENTS = {
@@ -290,6 +295,10 @@ _ENGINE_REQUIREMENTS = {
     "chatterbox-mlx": ["mlx", "mlx_audio", "soundfile", "numpy"],
     "spark-tts-mlx":  ["mlx", "mlx_audio", "soundfile", "numpy"],
     "orpheus":        ["mlx", "mlx_audio", "soundfile", "numpy"],
+    "kittentts":      ["mlx", "mlx_audio", "soundfile", "numpy"],
+    "vibevoice":      ["mlx", "mlx_audio", "soundfile", "numpy"],
+    # OmniVoice (ailuntx/OmniVoice-MLX) — separate worker, hybrid MLX + PyTorch stack.
+    "omnivoice":      ["omnivoice", "torch", "transformers", "soundfile", "numpy"],
     # F5-TTS (PyTorch, flow-matching). Wired in v1.3.0.
     "f5-tts":     ["f5_tts", "torch", "vocos", "soundfile"],
 }
