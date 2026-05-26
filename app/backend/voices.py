@@ -286,6 +286,92 @@ class VoiceLibrary:
             permission_acknowledged=True,   # seed catalog entries are PD by construction
         )
 
+    def update(
+        self,
+        voice_id: str,
+        *,
+        name: Optional[str] = None,
+        language: Optional[str] = None,
+        gender: Optional[str] = None,
+        license: Optional[str] = None,
+        notes: Optional[str] = None,
+        source_url: Optional[str] = None,
+        transcript: Optional[str] = None,
+    ) -> Optional[Voice]:
+        """Update a voice's metadata. Audio file is never touched — only the
+        metadata.json + transcript.txt on disk. Pass None for any field to
+        leave it unchanged. Pass an empty string to CLEAR a field (notes /
+        source_url / transcript).
+
+        Returns the updated Voice, or None if voice_id not found.
+
+        Validates the same way `add()` does for fields that are provided
+        (name length, license/gender enum membership). Doesn't re-validate
+        permission_acknowledged — only the original upload sets that.
+        """
+        with self._lock:
+            current = self.get(voice_id)
+            if current is None:
+                return None
+
+            # Validate provided fields (skip None = no change).
+            if name is not None:
+                if not name.strip():
+                    raise ValueError("name cannot be empty")
+                if len(name) > 200:
+                    raise ValueError("name must be at most 200 characters")
+            if language is not None and not language.strip():
+                raise ValueError("language cannot be empty")
+            if license is not None and license not in ALLOWED_LICENSES:
+                raise ValueError(
+                    f"license must be one of {sorted(ALLOWED_LICENSES)}"
+                )
+            if gender is not None and gender not in ALLOWED_GENDERS:
+                raise ValueError(
+                    f"gender must be one of {sorted(ALLOWED_GENDERS)}"
+                )
+
+            d = VOICES_DIR / voice_id
+            # Transcript lives in its own file, not metadata.json. Treat
+            # empty string as "delete the transcript file".
+            transcript_path = d / TRANSCRIPT_FILENAME
+            has_transcript = current.has_transcript
+            if transcript is not None:
+                cleaned = transcript.strip()
+                if cleaned:
+                    transcript_path.write_text(cleaned)
+                    has_transcript = True
+                else:
+                    # Empty string → remove transcript.
+                    if transcript_path.exists():
+                        transcript_path.unlink()
+                    has_transcript = False
+
+            # Build the updated voice. Apply only the fields the caller passed.
+            updated = Voice(
+                id=current.id,
+                name=name.strip() if name is not None else current.name,
+                language=language.strip() if language is not None else current.language,
+                gender=gender if gender is not None else current.gender,
+                notes=(notes.strip() if notes is not None else current.notes),
+                license=license if license is not None else current.license,
+                source_url=(
+                    (source_url.strip() or None) if source_url is not None
+                    else current.source_url
+                ),
+                permission_acknowledged=current.permission_acknowledged,
+                has_transcript=has_transcript,
+                audio_extension=current.audio_extension,
+                duration_seconds=current.duration_seconds,
+                sample_rate=current.sample_rate,
+                channels=current.channels,
+                created_at=current.created_at,
+            )
+            (d / METADATA_FILENAME).write_text(
+                json.dumps(asdict(updated), indent=2, default=str)
+            )
+            return updated
+
     def delete(self, voice_id: str) -> bool:
         if not voice_id or "/" in voice_id or "\\" in voice_id or voice_id.startswith("."):
             return False

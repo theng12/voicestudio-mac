@@ -1052,6 +1052,38 @@ input.num-input-wide { width: 130px; }
   gap: 6px;
 }
 
+/* Edit + delete buttons grouped on the right side of the card header. */
+.voice-card-head-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Orange "Download WAV" button on each voice card — the v1.3.0 'btn ghost
+   small' version was unreadable on dark mode. This gives it a real button
+   appearance with a distinct color so users can find it at a glance. */
+.btn.download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f3b562;                /* matches --warn (orange) */
+  border: 1px solid #f3b562;
+  color: #1a1a1a;                     /* dark text on bright bg for AA contrast */
+  font-weight: 600;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: filter 0.12s ease;
+}
+.btn.download-btn:hover {
+  filter: brightness(1.08);
+  text-decoration: none;
+}
+.btn.download-btn:active {
+  filter: brightness(0.95);
+}
+
 /* ──────── Add-voice modal ──────── */
 .modal-backdrop {
   position: fixed;

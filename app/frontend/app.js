@@ -144,6 +144,23 @@ function studio() {
       permission_acknowledged: false,
     },
 
+    // Edit-existing-voice modal (separate from upload — no audio change). Used
+    // most commonly to add a transcript to a clip that was uploaded without
+    // one, so it works with F5-TTS (which requires a transcript).
+    voiceEditor: {
+      open: false,
+      saving: false,
+      error: "",
+      voice: null,        // the Voice being edited (read-only reference)
+      // editable fields — pre-populated from voice on open
+      name: "",
+      language: "en",
+      gender: "f",
+      license: "self-owned",
+      notes: "",
+      transcript: "",
+    },
+
     // Internal recording handles — kept off voiceUploader to avoid Alpine
     // reactivity churn on every audio sample.
     _rec_stream: null,
@@ -1713,6 +1730,85 @@ function studio() {
         this.pushToast({ kind: "error", icon: "✗", title: "Couldn't add voice", body: String(e) });
       } finally {
         this.seedCatalogAddingId = null;
+      }
+    },
+
+    // ── Voice editor (PATCH /api/voices/{id}) ──
+    // Most common use case: a voice was uploaded without a transcript, and
+    // the user now wants to use it with F5-TTS (which requires a transcript).
+    // Also lets users fix typos in name / change license / etc. without
+    // re-uploading the audio.
+    async openVoiceEditor(voice) {
+      // Fetch the transcript fresh from the API so we get current state
+      // (the listing response doesn't include the transcript body).
+      let transcript = "";
+      try {
+        const r = await fetch("/api/voices/" + encodeURIComponent(voice.id));
+        if (r.ok) {
+          const data = await r.json();
+          // GET /api/voices/{id} returns the voice flat at the top level
+          // and tucks the transcript into a separate `transcript` field.
+          transcript = data.transcript || "";
+        }
+      } catch {}
+      Object.assign(this.voiceEditor, {
+        open: true,
+        saving: false,
+        error: "",
+        voice,
+        name: voice.name || "",
+        language: voice.language || "en",
+        gender: voice.gender || "f",
+        license: voice.license || "self-owned",
+        notes: voice.notes || "",
+        transcript,
+      });
+    },
+    closeVoiceEditor() {
+      this.voiceEditor.open = false;
+      this.voiceEditor.voice = null;
+    },
+    async submitVoiceEdit() {
+      const e = this.voiceEditor;
+      if (!e.voice) return;
+      e.saving = true;
+      e.error = "";
+      try {
+        // PATCH with only the editable fields. Backend treats missing keys
+        // as "unchanged" and empty strings as "clear" (for notes/transcript).
+        const body = {
+          name: e.name,
+          language: e.language,
+          gender: e.gender,
+          license: e.license,
+          notes: e.notes,
+          transcript: e.transcript,
+        };
+        const r = await fetch("/api/voices/" + encodeURIComponent(e.voice.id), {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          e.error = this._formatApiError(err, r.status);
+          return;
+        }
+        const data = await r.json();
+        // Replace the local entry with the updated server copy.
+        const updated = data.voice;
+        const idx = this.voices.findIndex(v => v.id === updated.id);
+        if (idx >= 0) this.voices.splice(idx, 1, updated);
+        this.pushToast({
+          kind: "info", icon: "✓",
+          title: "Voice updated",
+          body: updated.name + (updated.has_transcript ? " · transcript saved" : ""),
+        });
+        this.closeVoiceEditor();
+      } catch (err) {
+        e.error = String(err);
+      } finally {
+        e.saving = false;
       }
     },
 

@@ -1386,7 +1386,10 @@
         <div class="voice-card">
           <div class="voice-card-head">
             <h3 x-text="v.name"></h3>
-            <button class="btn ghost danger small" @click="deleteVoice(v)" title="Remove this voice">✕</button>
+            <div class="voice-card-head-actions">
+              <button class="btn ghost small" @click="openVoiceEditor(v)" title="Edit name / language / transcript">✏️</button>
+              <button class="btn ghost danger small" @click="deleteVoice(v)" title="Remove this voice">✕</button>
+            </div>
           </div>
           <div class="voice-chips">
             <span class="chip lang" x-text="v.language"></span>
@@ -1402,7 +1405,7 @@
             <span x-show="v.notes" class="voice-notes" x-text="' — ' + v.notes"></span>
           </div>
           <div class="voice-actions">
-            <a class="btn ghost small" :href="v.audio_url" :download="v.audio_filename">⬇ Download</a>
+            <a class="btn download-btn" :href="v.audio_url" :download="v.audio_filename" title="Download the reference clip">⬇ Download WAV</a>
           </div>
         </div>
       </template>
@@ -1467,6 +1470,66 @@
 
       <div class="modal-actions">
         <button class="btn ghost" @click="closeSeedCatalog()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Edit Voice modal ─── -->
+  <!-- Reuses the same modal chrome as the add-voice modal but doesn't touch
+       audio. Most common use case: add a transcript to a clip that was
+       uploaded without one (F5-TTS requires a transcript per ref clip). -->
+  <div class="modal-backdrop" x-show="voiceEditor.open" x-cloak @click.self="closeVoiceEditor()">
+    <div class="modal voice-modal" x-show="voiceEditor.open">
+      <h2>Edit voice <span class="muted small" x-text="voiceEditor.voice && voiceEditor.voice.name"></span></h2>
+      <p class="muted small" x-show="voiceEditor.voice">
+        Audio file is unchanged — only metadata. To replace the reference clip itself, remove this voice and add a new one.
+      </p>
+
+      <p class="error-text" x-show="voiceEditor.error" x-text="voiceEditor.error"></p>
+
+      <div class="modal-form">
+        <label>Name</label>
+        <input type="text" x-model="voiceEditor.name" maxlength="200" placeholder="e.g. 'Sophie (calm narrator)'">
+
+        <div class="modal-row">
+          <div>
+            <label>Language</label>
+            <input type="text" x-model="voiceEditor.language" maxlength="40" placeholder="en">
+          </div>
+          <div>
+            <label>Gender</label>
+            <select x-model="voiceEditor.gender">
+              <option value="f">Female</option>
+              <option value="m">Male</option>
+              <option value="n">Neutral / unspecified</option>
+            </select>
+          </div>
+        </div>
+
+        <label>License</label>
+        <select x-model="voiceEditor.license">
+          <option value="self-owned">Self-owned (I recorded it / have written permission)</option>
+          <option value="public-domain">Public domain</option>
+          <option value="cc0">CC0</option>
+          <option value="cc-by">CC BY</option>
+          <option value="cc-by-sa">CC BY-SA</option>
+          <option value="other">Other (described in notes)</option>
+        </select>
+
+        <label>Notes <span class="muted small">(optional)</span></label>
+        <textarea x-model="voiceEditor.notes" rows="2" placeholder="Recording conditions, voice character, etc."></textarea>
+
+        <label>Transcript <span class="muted small">(required for F5-TTS — exact words spoken in the clip)</span></label>
+        <textarea x-model="voiceEditor.transcript" rows="3"
+                  placeholder="Type or paste the exact transcript of what's said in the reference clip. Leave blank to remove an existing transcript."></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn ghost" @click="closeVoiceEditor()" :disabled="voiceEditor.saving">Cancel</button>
+        <button class="btn primary" @click="submitVoiceEdit()" :disabled="voiceEditor.saving">
+          <span x-show="!voiceEditor.saving">Save changes</span>
+          <span x-show="voiceEditor.saving">Saving…</span>
+        </button>
       </div>
     </div>
   </div>

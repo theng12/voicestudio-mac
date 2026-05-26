@@ -10,6 +10,41 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.3.3] — 2026-05-27
+
+### Added — Voice library edit + orange Download button
+
+User feedback after F5-TTS landed:
+
+1. **No way to retrofit a transcript onto an existing voice.** F5-TTS requires a transcript per reference clip. Voices uploaded before v1.3.0 typically don't have one — and the only fix was deleting and re-uploading. Now there's an Edit button.
+2. **The Download button on each voice card was unreadable on dark mode.** It used `btn ghost small` styling — basically transparent. Now it's a real orange button.
+
+### Added — `PATCH /api/voices/{voice_id}` endpoint
+
+- New `VoiceLibrary.update()` method in `voices.py` (alongside the existing `add()` / `delete()` / `get()`). Accepts any subset of: `name`, `language`, `gender`, `license`, `notes`, `source_url`, `transcript`. Fields not in the request are left unchanged; empty string clears clearable fields (notes / source_url / transcript).
+- `update_voice()` route in `main.py` with an `UpdateVoiceBody` pydantic model. Returns 400 on validation errors (bad license/gender enum, name too long, etc.) and 404 if the voice_id doesn't exist.
+- Audio file is **never** touched. Only `metadata.json` + `transcript.txt` on disk get rewritten. Voice ID, audio_extension, duration_seconds, sample_rate, channels, created_at, and permission_acknowledged all stay frozen — by design.
+
+### Added — Edit UI on each voice card
+
+- New ✏️ button next to the existing ✕ delete button in the card header.
+- Click opens a modal pre-populated with the voice's current metadata (name, language, gender, license, notes, transcript).
+- Transcript field is the big win — the modal fetches the current transcript via `GET /api/voices/{id}` on open so users can edit instead of retype.
+- Save calls `PATCH /api/voices/{voice_id}`, replaces the local entry with the server response, and toasts confirmation.
+
+### Changed — Voice card "Download" button is now orange
+
+- Was: `<a class="btn ghost small" ...>⬇ Download</a>` — basically invisible on dark mode.
+- Now: `<a class="btn download-btn" ...>⬇ Download WAV</a>` with dedicated CSS using `--warn` (`#f3b562` orange) as the background. Dark text on bright background for ≥AA contrast. Real button affordance.
+
+### Notes
+
+- PATCH bump (1.3.2 → 1.3.3) — backend addition + frontend addition, no schema breakage, no new deps. Run `Update` → Stop → Start (server restart picks up the new PATCH route).
+- The Edit modal intentionally doesn't let you change the audio file. Audio changes mean a new reference clip with different waveform characteristics — should be a new library entry, not an in-place update. If a clip is bad, delete + re-add.
+- The transcript file lives at `cache/voices/<voice_id>/transcript.txt` (separate from `metadata.json`). Editing to an empty string deletes the file and sets `has_transcript=false`; engines that require a transcript (F5-TTS) will then reject the voice.
+
+---
+
 ## [1.3.2] — 2026-05-27
 
 ### Fixed — Diagnostics page falsely reporting F5-TTS as `Missing: f5_tts vocos`

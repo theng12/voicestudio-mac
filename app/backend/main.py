@@ -521,6 +521,41 @@ def delete_voice(voice_id: str) -> dict:
     return {"deleted": voice_id}
 
 
+class UpdateVoiceBody(BaseModel):
+    """All fields optional — only the ones present in the request body get
+    updated. Pass an empty string to CLEAR a clearable field (notes /
+    source_url / transcript). Audio file is never touched by this endpoint."""
+    name: Optional[str] = None
+    language: Optional[str] = None
+    gender: Optional[str] = None
+    license: Optional[str] = None
+    notes: Optional[str] = None
+    source_url: Optional[str] = None
+    transcript: Optional[str] = None
+
+
+@app.patch("/api/voices/{voice_id}")
+def update_voice(voice_id: str, body: UpdateVoiceBody) -> dict:
+    """Edit a voice's metadata (most commonly: add a transcript to a clip
+    that was uploaded without one — required for F5-TTS compatibility)."""
+    try:
+        updated = voice_library.update(
+            voice_id,
+            name=body.name,
+            language=body.language,
+            gender=body.gender,
+            license=body.license,
+            notes=body.notes,
+            source_url=body.source_url,
+            transcript=body.transcript,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"voice {voice_id} not found")
+    return {"voice": updated.serialize()}
+
+
 # ──── public-domain seed catalog ────
 
 @app.get("/api/voices/seed-catalog")
