@@ -10,6 +10,114 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.2.5] — 2026-05-24
+
+### Fixed — Hint chip text shortened from dev-grade docs to user-friendly one-liners
+
+The v1.2.4 audit landed correct numbers but a side effect was that every `text_guidance.note` ballooned into a multi-sentence source citation (XTTS hit **455 chars**, F5-TTS **421 chars**, Orpheus **431 chars**). Those notes flow straight into the chip above the textarea, so users were seeing a wall of dev-speak instead of a usable hint.
+
+All 16 notes rewritten to **80-121 chars**, action-first. The audit citation moved to a Python comment immediately above each `TextGuidance(...)` block so the source trail stays in `catalog.py` for anyone reading the file.
+
+Before / after example (Bark):
+
+> **Before (361 chars):** Hard cap from upstream. Suno's own FAQ states 'output is limited to ~13-14 seconds' because Bark is GPT-style with a fixed 1024-token semantic/coarse context window. ~150 chars maps to that ceiling at neutral narration pace; past it, output hallucinates or goes silent. Our worker feeds the whole text in one shot, so the cliff is real — split into short lines.
+>
+> **After (103 chars):** Hard cap ~150 chars (~13 sec). Past the cap, Bark hallucinates or goes silent — split into short lines.
+
+Same information density user actually needs (cap, what happens past it, what to do); citation now lives in a `# Audit (v1.2.4): ...` comment above the block.
+
+### Length stats
+
+| family | new char count |
+|---|---:|
+| spark-tts / spark-tts-mlx | 81 |
+| kokoro / kokoro-mlx | 92 |
+| voxcpm / voxcpm-mlx | 96 |
+| chatterbox / chatterbox-mlx | 101 |
+| bark | 103 |
+| kittentts | 105 |
+| xtts | 107 |
+| orpheus | 108 |
+| vibevoice | 113 |
+| qwen3-tts | 114 |
+| f5-tts | 115 |
+| omnivoice | 121 |
+
+Median ~104 chars. No note over 121 chars. The chip block can now fit comfortably in one or two visual lines.
+
+### Notes
+
+- PATCH bump (1.2.4 → 1.2.5) — pure copy edit on `text_guidance.note` fields + comment additions. No schema, no value changes, no new deps. Run `Update` from the Pinokio sidebar, then Stop → Start.
+- The Generate-button warning and counter line under the textarea also already auto-pull from `text_guidance` — they update with the new values transparently. No frontend code changes.
+- Full audit trail (file paths, line numbers, formulas) is preserved in v1.2.4's CHANGELOG entry above and in `# Audit (v1.2.4):` comments throughout `catalog.py`.
+
+---
+
+## [1.2.4] — 2026-05-24
+
+### Fixed — All 16 family `text_guidance.soft_max_chars` audited against upstream source
+
+Followup to v1.2.3 (where VoxCPM was the only family fixed). The remaining 14 families have now all been verified against either upstream docs, the model card, or — most reliably — the actual code in the installed `mlx-audio`, `transformers`, or `voxcpm` packages. Notes now cite the exact file, line, or constant the cap comes from, so future audits don't have to redo this work.
+
+**Changed values (engine could handle far more than the guess admitted):**
+
+| Family | Old | New | Source |
+|---|---:|---:|---|
+| `qwen3-tts` | 400 | **3000** | `mlx_audio/tts/models/qwen3_tts/qwen3_tts.py:1149` — `max_tokens=4096` per segment @ 12 Hz token rate ≈ 5.7 min audio. Plus `split_pattern="\n"` for transparent text splitting. |
+| `spark-tts` / `spark-tts-mlx` | 400 | **750** | `mlx_audio/tts/models/spark/spark.py:229` — `max_tokens=3000` per call @ BiCodec ~50 Hz ≈ 60 sec audio ≈ ~780 chars in English. |
+| `f5-tts` | 400 | **null (unlimited)** | `f5_tts/infer/utils_infer.py` — `chunk_text(max_chars=135)` internally splits any input into 135-char chunks and stitches with 0.15 sec crossfade. The engine handles long-form transparently; soft cap was meaningless. |
+| `omnivoice` | 600 | **null (unlimited)** | `mlx_audio/tts/models/omnivoice/omnivoice.py:483` — flow-matching (diffusion), not autoregressive. Takes explicit `duration_s` or estimates from text + ref clip via `RuleDurationEstimator`. No per-call cliff. |
+
+**Guesses that landed correct (kept as-is, only the `note` was updated to cite the source):**
+
+| Family | Cap | Source |
+|---|---:|---|
+| `bark` | 150 | Suno's official GitHub FAQ: *"output is limited to ~13-14 seconds — Bark is GPT-style with a fixed context window"* + transformers `BarkSemanticConfig.block_size=1024`. |
+| `orpheus` | 170 | `mlx_audio/tts/models/llama/llama.py:367, 525` — `max_tokens=1200` per segment. Orpheus emits ~85 SNAC tokens/sec → 1200 tokens ≈ 14 sec audio. |
+| `xtts` | 250 | Coqui's `TTS/tts/layers/xtts/tokenizer.py` — `char_limits` dict hardcodes per-language caps. English=250 (exact match). Note now lists all 16 language caps including CJK floor (ja=71). |
+| `chatterbox` / `chatterbox-mlx` | 500 | `mlx_audio/tts/models/chatterbox_turbo/chatterbox_turbo.py:859` — `max_chars_per_chunk = (max_tokens // 8) * 4`. Default `max_tokens=1000` → exactly 500 chars per chunk. |
+
+**Kept null/unlimited (engine auto-chunks transparently, soft cap would mislead):**
+
+- `kokoro`, `kokoro-mlx`: KPipeline sentence-chunks via `split_pattern=r"\n+"`. Unchanged from v1.1.8.
+- `kittentts`: `mlx_audio/tts/models/kitten_tts/kitten_tts.py:42` — `chunk_text(max_len=400)`. Per-chunk ceiling exists (400 chars) but engine auto-chunks; tiny model makes long-form cheap. Note now cites the source.
+- `vibevoice`: `mlx_audio/tts/models/vibevoice/vibevoice.py:397` — `max_tokens=512` per segment (~500 chars / ~43 sec). Streaming architecture multi-segments transparently. Note now warns: if you hit voice drift on very long calls, break manually.
+
+### Side observations (not fixed in this version, flagged for follow-up)
+
+- **OmniVoice voice cloning now works upstream**: `mlx_audio/tts/models/omnivoice/omnivoice.py:483` exposes `ref_audio` + `ref_text` parameters. Our `_generate_omnivoice` worker (added in v1.2.0) raises `NotImplementedError` when `voice_library_id` is set — that error message is stale now that mlx-audio's port supports cloning. Worth wiring up in a future PATCH.
+- **mlx-audio's OmniVoice port supersedes the `ailuntx/OmniVoice-MLX` git install**: our `requirements-generation.txt` pulls in `ailuntx/OmniVoice-MLX` as a separate package, but mlx-audio now ships its own port. Consolidating onto mlx-audio's path would remove a dependency. Not urgent — both work.
+
+### Notes
+
+- PATCH bump (1.2.3 → 1.2.4) — pure soft-cap corrections + note enrichment, no code path changes, no new deps. Run `Update` from the Pinokio sidebar, then Stop → Start.
+- All notes now reference specific file paths + line numbers so the audit trail is captured in-source.
+- `audit_truth.py` still reports **NO DRIFT** — 16 families, 12 wired, 0 commission/omission lies.
+
+---
+
+## [1.2.3] — 2026-05-24
+
+### Fixed — VoxCPM `text_guidance.soft_max_chars` raised from 600 → 3000 (was a guess)
+
+The 600-char soft cap I shipped in v1.1.8 for both `voxcpm` and `voxcpm-mlx` wasn't from any official source — I picked it as a conservative "one paragraph" heuristic. After verifying against upstream:
+
+- **OpenBMB model card** (openbmb/VoxCPM2): documents an 8192-token architecture max and 6.25 Hz LM token rate. No char-level cap published. Only qualitative warning: *"Occasional instability may occur with very long or highly expressive inputs."*
+- **`voxcpm` Python package** (PyTorch reference, `core.py:189`): generation defaults to `max_len=4096` audio tokens.
+- **`mlx-audio` voxcpm worker** (`mlx_audio/tts/models/voxcpm/voxcpm.py:259`): same `max_tokens=4096` default. Config also exposes `max_length=8192` as the architecture cap.
+
+4096 audio tokens at 6.25 Hz ≈ **655 seconds ≈ 11 minutes of audio per call** — roughly 8,000-10,000 characters of English text. Our 600-char cap was ~7% of what the engine actually supports.
+
+New value: **3000 chars (~3 minutes audio)** for both `voxcpm` and `voxcpm-mlx`. Well under the 4096-token ceiling, but high enough to cover a full audiobook chapter section in one call. The `note` field now cites the official numbers (token rate + architecture max) so future audits don't have to redo this work.
+
+### Notes
+
+- PATCH bump (1.2.2 → 1.2.3) — pure soft-cap correction, no code path changes. Run `Update` from the Pinokio sidebar.
+- **The same audit hasn't been done for the other 14 families.** Numbers I cited for Bark (150), Orpheus (170), XTTS (250), F5-TTS (400), Chatterbox (500), Spark-TTS (400), Qwen3-TTS (400), and OmniVoice (600) were also rough heuristics — Bark / Orpheus / XTTS are at least grounded in well-known training-window constraints, but the others deserve the same source-checking pass if you start running into the soft cap on them. Ping me when you do.
+- "Unlimited" families (Kokoro, Kokoro-MLX) stay as-is — KPipeline really does sentence-chunk to arbitrary length.
+
+---
+
 ## [1.2.2] — 2026-05-24
 
 ### Fixed — Phantom `Spark-TTS-0.5B-4bit` catalog entry replaced with real variants

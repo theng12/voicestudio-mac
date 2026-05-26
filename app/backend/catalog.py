@@ -58,10 +58,12 @@ FAMILIES: dict[str, Family] = {
             "voice cloning, and pick a language. Without a reference, it uses a "
             "default voice. Great for narration and conversational TTS."
         ),
+        # Audit (v1.2.4): voxcpm/core.py:189 max_len=4096 audio tokens @ 6.25 Hz ≈ 11 min ceiling.
+        # Soft cap held well under that to dodge OpenBMB's "instability on very long inputs" warning.
         text_guidance=TextGuidance(
-            soft_max_chars=600,
+            soft_max_chars=3000,
             chunking="auto-split",
-            note="Best at one paragraph at a time (~600 chars · ~40s). Longer text still works but seams between chunks may be audible.",
+            note="Best at ~3000 chars (~3 min audio) per call. Longer text still works but may show prosody seams.",
         ),
     ),
     "kokoro": Family(
@@ -78,10 +80,11 @@ FAMILIES: dict[str, Family] = {
             "Generation finishes in under a second per sentence. Best for "
             "scripted narration where you don't need to clone a specific voice."
         ),
+        # Audit (v1.2.4): KPipeline auto-chunks on `split_pattern=r"\n+"` — no per-call ceiling.
         text_guidance=TextGuidance(
             soft_max_chars=None,
             chunking="unlimited",
-            note="No practical length limit — long text is split into sentences and stitched automatically.",
+            note="No practical length limit — long text auto-splits into sentences and stitches transparently.",
         ),
     ),
     "f5-tts": Family(
@@ -97,10 +100,12 @@ FAMILIES: dict[str, Family] = {
             "generate. Quality is among the best open-source for voice cloning. "
             "Slower than Kokoro — expect 5–10 seconds of compute per sentence."
         ),
+        # Audit (v1.2.4): f5_tts/infer/utils_infer.py chunk_text(max_chars=135) auto-splits +
+        # 0.15s crossfade. Engine handles long-form transparently; soft cap would mislead.
         text_guidance=TextGuidance(
-            soft_max_chars=400,
-            chunking="auto-split",
-            note="Best at one paragraph (~400 chars · ~30s) per call. Splits longer text by sentence — keep the reference clip short to avoid voice drift on long inputs.",
+            soft_max_chars=None,
+            chunking="unlimited",
+            note="No practical length limit — auto-chunks long text and crossfades segments. Keep ref clip 5-15 sec for best results.",
         ),
     ),
     "chatterbox": Family(
@@ -115,10 +120,12 @@ FAMILIES: dict[str, Family] = {
             "exaggeration slider for more or less expressive delivery. Good "
             "default if you want personality in the output."
         ),
+        # Audit (v1.2.4): mlx_audio chatterbox_turbo.py:859 hardcodes max_chars_per_chunk =
+        # (max_tokens // 8) * 4. Default max_tokens=1000 → 500 chars. Turbo uses 800 → 400.
         text_guidance=TextGuidance(
             soft_max_chars=500,
             chunking="auto-split",
-            note="Best at ~500 chars · ~40s per call. Splits longer text by sentence — exaggeration may vary across chunks.",
+            note="Best at ~500 chars (~40 sec) per call. Auto-chunks longer text; exaggeration may drift across chunks.",
         ),
     ),
     "spark-tts": Family(
@@ -133,10 +140,12 @@ FAMILIES: dict[str, Family] = {
             "voice. Supports prompt-based control of gender / pitch / speed via "
             "natural-language tags. Newer model — community ecosystem still growing."
         ),
+        # Audit (v1.2.4): mlx_audio spark/spark.py:229 max_tokens=3000 audio tokens. BiCodec
+        # local stream ~50 Hz → 60 sec audio per call ≈ ~780 chars.
         text_guidance=TextGuidance(
-            soft_max_chars=400,
+            soft_max_chars=750,
             chunking="auto-split",
-            note="Best at ~400 chars · ~30s per call. Auto-splits longer text by sentence.",
+            note="Best at ~750 chars (~60 sec audio) per call. Auto-chunks longer text by sentence.",
         ),
     ),
     "bark": Family(
@@ -153,10 +162,12 @@ FAMILIES: dict[str, Family] = {
             "or use the random default. Great for character voices and dramatic "
             "delivery; less precise than F5-TTS for plain narration."
         ),
+        # Audit (v1.2.4): Suno's FAQ — "output limited to ~13-14 seconds" (GPT-style with
+        # 1024-token semantic/coarse context). Our _generate_bark feeds whole text one-shot.
         text_guidance=TextGuidance(
             soft_max_chars=150,
             chunking="hard-cap",
-            note="Hard cap. Bark was trained on ~13-second clips — past ~150 chars (~25 words) output hallucinates or goes silent. Split into short lines.",
+            note="Hard cap ~150 chars (~13 sec). Past the cap, Bark hallucinates or goes silent — split into short lines.",
         ),
     ),
     "xtts": Family(
@@ -172,10 +183,14 @@ FAMILIES: dict[str, Family] = {
             "supported language. Best multilingual voice cloning in the open "
             "ecosystem, but the license rules out commercial use."
         ),
+        # Audit (v1.2.4): TTS/tts/layers/xtts/tokenizer.py char_limits dict. English=250.
+        # Per-language: de=253, fr=273, nl=251, es=239, tr=226, pl=224, hu=224, it=213,
+        # pt=203, cs=186, ru=182, ar=166, ko=95, zh=82, ja=71. Tokenizer truncates past these.
+        # When the XTTS worker lands, pass `enable_text_splitting=True` for long-form support.
         text_guidance=TextGuidance(
             soft_max_chars=250,
             chunking="hard-cap",
-            note="Hard cap ~250 chars (~16s) per call. Past that, output truncates or degrades — split the text yourself by sentence.",
+            note="Hard cap ~250 chars per call (English). CJK languages have lower caps — Chinese 82, Japanese 71, Korean 95.",
         ),
     ),
     "voxcpm-mlx": Family(
@@ -195,10 +210,12 @@ FAMILIES: dict[str, Family] = {
             "library → voice cloning (transcript optional but recommended). You "
             "can also combine the description + library voice for stylized cloning."
         ),
+        # Audit (v1.2.4): mlx_audio voxcpm/voxcpm.py:259 max_tokens=4096 @ 6.25 Hz ≈ 11 min.
+        # Soft cap stays under that to dodge the "instability with very long inputs" zone.
         text_guidance=TextGuidance(
-            soft_max_chars=600,
+            soft_max_chars=3000,
             chunking="auto-split",
-            note="Best at one paragraph at a time (~600 chars · ~40s). mlx-audio splits longer text by sentence.",
+            note="Best at ~3000 chars (~3 min audio) per call. Longer text still works but may show prosody seams.",
         ),
     ),
     "qwen3-tts": Family(
@@ -217,10 +234,12 @@ FAMILIES: dict[str, Family] = {
             "voice without needing audio. 1.7B variants are noticeably better; "
             "0.6B is faster on lower-memory Macs."
         ),
+        # Audit (v1.2.4): mlx_audio qwen3_tts/qwen3_tts.py:1149 max_tokens=4096 per segment
+        # @ 12 Hz ≈ 5.7 min. Default split_pattern="\n" for transparent text splitting.
         text_guidance=TextGuidance(
-            soft_max_chars=400,
+            soft_max_chars=3000,
             chunking="auto-split",
-            note="Best at ~400 chars · ~30s per call. mlx-audio auto-splits longer text by sentence.",
+            note="Best at ~3000 chars (~5.7 min audio) per call. Auto-splits on newlines — use \\n between paragraphs for clean cuts.",
         ),
     ),
     "kokoro-mlx": Family(
@@ -238,10 +257,11 @@ FAMILIES: dict[str, Family] = {
             "this over PyTorch Kokoro if you'd rather keep the PyTorch stack "
             "uninstalled — mlx-audio is your only dep."
         ),
+        # Audit (v1.2.4): mlx-audio's kokoro auto-chunks at sentence boundaries — no per-call ceiling.
         text_guidance=TextGuidance(
             soft_max_chars=None,
             chunking="unlimited",
-            note="No practical length limit — long text is split into sentences and stitched automatically.",
+            note="No practical length limit — long text auto-splits into sentences and stitches transparently.",
         ),
     ),
     "chatterbox-mlx": Family(
@@ -259,10 +279,12 @@ FAMILIES: dict[str, Family] = {
             "(values above 0.7 get dramatic fast). Recommended over PyTorch "
             "Chatterbox on M-series Macs — same quality, smaller memory budget."
         ),
+        # Audit (v1.2.4): mlx_audio chatterbox_turbo.py:859 max_chars_per_chunk =
+        # (max_tokens // 8) * 4. Default max_tokens=1000 → 500. Turbo uses 800 → 400.
         text_guidance=TextGuidance(
             soft_max_chars=500,
             chunking="auto-split",
-            note="Best at ~500 chars · ~40s per call. mlx-audio auto-splits longer text by sentence.",
+            note="Best at ~500 chars (~40 sec) per call. Auto-chunks longer text; exaggeration may drift across chunks.",
         ),
     ),
     "spark-tts-mlx": Family(
@@ -279,10 +301,12 @@ FAMILIES: dict[str, Family] = {
             "Spark also accepts natural-language style hints — feed them via "
             "the voice description field."
         ),
+        # Audit (v1.2.4): same as spark-tts — mlx_audio spark/spark.py:229 max_tokens=3000
+        # audio tokens, BiCodec local stream ~50 Hz → ~60 sec audio ≈ ~780 chars.
         text_guidance=TextGuidance(
-            soft_max_chars=400,
+            soft_max_chars=750,
             chunking="auto-split",
-            note="Best at ~400 chars · ~30s per call. mlx-audio auto-splits longer text by sentence.",
+            note="Best at ~750 chars (~60 sec audio) per call. Auto-chunks longer text by sentence.",
         ),
     ),
     "orpheus": Family(
@@ -300,10 +324,12 @@ FAMILIES: dict[str, Family] = {
             "expressive delivery. 4-bit is the recommended pick for most users; "
             "bf16 only if you want maximum fidelity."
         ),
+        # Audit (v1.2.4): mlx_audio llama/llama.py:367,525 max_tokens=1200 per segment.
+        # Orpheus emits ~85 SNAC tokens/sec → ~14 sec audio. Architecture max is 8192 tokens.
         text_guidance=TextGuidance(
             soft_max_chars=170,
             chunking="hard-cap",
-            note="Hard cap. Orpheus has a ~14-second per-call window — past ~170 chars (~30 words) output degrades. Split into shorter lines.",
+            note="Hard cap ~170 chars (~14 sec). Past the cap, Orpheus output degrades or silences — split into shorter lines.",
         ),
     ),
     "kittentts": Family(
@@ -322,10 +348,12 @@ FAMILIES: dict[str, Family] = {
             "absolute lightest option for embedded / demo use. Requires "
             "espeak-ng on the system (`brew install espeak-ng` on macOS)."
         ),
+        # Audit (v1.2.4): mlx_audio kitten_tts/kitten_tts.py:42 chunk_text(max_len=400)
+        # auto-splits on sentence boundaries. Per-chunk ceiling 400 chars; engine auto-chunks.
         text_guidance=TextGuidance(
             soft_max_chars=None,
             chunking="unlimited",
-            note="No practical length limit — mlx-audio's generate yields sentence chunks. The model is so small that long-form is cheap.",
+            note="No practical length limit — tiny model auto-chunks at ~400 chars per sentence and stitches transparently.",
         ),
     ),
     "vibevoice": Family(
@@ -341,10 +369,12 @@ FAMILIES: dict[str, Family] = {
             "Built for streaming / long-form speech with sub-realtime latency. "
             "4-bit is the recommended pick; fp16 only if you have headroom."
         ),
+        # Audit (v1.2.4): mlx_audio vibevoice/vibevoice.py:397 max_tokens=512 per segment
+        # (~43 sec @ 12 Hz). Streaming architecture multi-segments transparently.
         text_guidance=TextGuidance(
             soft_max_chars=None,
             chunking="unlimited",
-            note="Designed for long-form / streaming — no practical length limit. mlx-audio handles chunking automatically.",
+            note="Designed for streaming. No practical length limit — auto-segments long text. May drift on very long single takes.",
         ),
     ),
     "omnivoice": Family(
@@ -365,10 +395,12 @@ FAMILIES: dict[str, Family] = {
             "MLX loader exposes ref_audio. 4-bit is the recommended starter; "
             "fp32 only if you want maximum fidelity."
         ),
+        # Audit (v1.2.4): mlx_audio omnivoice/omnivoice.py:483 — flow-matching (diffusion).
+        # Takes explicit duration_s or estimates via RuleDurationEstimator. No GPT-style cliff.
         text_guidance=TextGuidance(
-            soft_max_chars=600,
-            chunking="auto-split",
-            note="Best at one paragraph at a time (~600 chars · ~40s). The diffusion LM handles long-form by chunking internally.",
+            soft_max_chars=None,
+            chunking="unlimited",
+            note="No practical length limit. For multi-minute renders, splitting into multiple calls usually gives more consistent results.",
         ),
     ),
 }
