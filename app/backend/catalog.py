@@ -58,12 +58,15 @@ FAMILIES: dict[str, Family] = {
             "voice cloning, and pick a language. Without a reference, it uses a "
             "default voice. Great for narration and conversational TTS."
         ),
-        # Audit (v1.2.4): voxcpm/core.py:189 max_len=4096 audio tokens @ 6.25 Hz ≈ 11 min ceiling.
-        # Soft cap held well under that to dodge OpenBMB's "instability on very long inputs" warning.
+        # Audit (v1.2.4): voxcpm/core.py:189 max_len=4096 audio tokens @ 6.25 Hz ≈ 11 min ENGINE max.
+        # Hardware fix (v1.2.6): the engine ceiling isn't the M-series Mac ceiling. Diffusion
+        # activation buffers grow with audio duration; on 16 GB M4, 2755 chars in voice-cloning
+        # mode triggered a 13.1 GB Metal alloc vs the ~9.5 GB per-buffer cap → server crash.
+        # Cap dropped from 3000 → 1500 (~2× safety margin) until we add runtime memory gating.
         text_guidance=TextGuidance(
-            soft_max_chars=3000,
+            soft_max_chars=1500,
             chunking="auto-split",
-            note="Best at ~3000 chars (~3 min audio) per call. Longer text still works but may show prosody seams.",
+            note="Best at ~1500 chars (~90 sec audio) per call. On 16 GB Macs, longer voice-cloning calls can OOM Metal — split into multiple requests.",
         ),
     ),
     "kokoro": Family(
@@ -210,12 +213,15 @@ FAMILIES: dict[str, Family] = {
             "library → voice cloning (transcript optional but recommended). You "
             "can also combine the description + library voice for stylized cloning."
         ),
-        # Audit (v1.2.4): mlx_audio voxcpm/voxcpm.py:259 max_tokens=4096 @ 6.25 Hz ≈ 11 min.
-        # Soft cap stays under that to dodge the "instability with very long inputs" zone.
+        # Audit (v1.2.4): mlx_audio voxcpm/voxcpm.py:259 max_tokens=4096 @ 6.25 Hz ≈ 11 min ENGINE max.
+        # Hardware fix (v1.2.6): on 16 GB M4, 2755 chars in voice-cloning mode caused a 13.1 GB
+        # Metal alloc vs the ~9.5 GB per-buffer cap → Abort trap: 6 / full server crash.
+        # Diffusion activation buffers grow linearly with audio duration. Cap dropped from
+        # 3000 → 1500 (~2× safety margin) until runtime memory gating exists.
         text_guidance=TextGuidance(
-            soft_max_chars=3000,
+            soft_max_chars=1500,
             chunking="auto-split",
-            note="Best at ~3000 chars (~3 min audio) per call. Longer text still works but may show prosody seams.",
+            note="Best at ~1500 chars (~90 sec audio) per call. On 16 GB Macs, longer voice-cloning calls can OOM Metal — split into multiple requests.",
         ),
     ),
     "qwen3-tts": Family(

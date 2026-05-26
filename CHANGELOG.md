@@ -10,6 +10,47 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.2.6] — 2026-05-26
+
+### Fixed — VoxCPM soft cap lowered 3000 → 1500 (Metal OOM on 16 GB Macs)
+
+Story studio hit voicestudio with a 2755-char voice-cloning request on `mlx-community/VoxCPM2-4bit`. The job ran ~3-4 minutes then **crashed the entire server**:
+
+```
+[metal::malloc] Attempting to allocate 13133537280 bytes which is greater than
+the maximum allowed buffer size of 9534832640 bytes.
+Abort trap: 6
+```
+
+= 13.1 GB requested vs the M4's ~9.5 GB **per-Metal-buffer cap**. Process aborted instantly; full server crash (not a job failure).
+
+**Root cause of my v1.2.4 miscall**: I bumped `voxcpm` + `voxcpm-mlx` soft caps to 3000 chars based on OpenBMB's documented architecture (`max_tokens=4096` audio tokens @ 6.25 Hz ≈ 11 min audio). But "engine architecture allows it" ≠ "your 16 GB Mac can hold it." VoxCPM is diffusion-based — activation buffers grow linearly with output audio length, and at ~3 minutes of generation the working tensors spike past Metal's per-buffer ceiling. The audit grounded the cap in the engine's spec, but should have grounded it in the *machine's* spec.
+
+**The math from the crash data:**
+- 2755 chars triggered 13.13 GB request → exceeds 9.53 GB Metal cap by 38%.
+- Ratio of safe (9.53) ÷ requested (13.13) = 0.73.
+- 2755 × 0.73 ≈ ~2000 chars as a tight ceiling. With safety margin for other apps: **~1500**.
+
+**Changes:**
+- `voxcpm` family `text_guidance.soft_max_chars`: 3000 → **1500**
+- `voxcpm-mlx` family `text_guidance.soft_max_chars`: 3000 → **1500**
+- Both notes now warn explicitly: *"On 16 GB Macs, longer voice-cloning calls can OOM Metal — split into multiple requests."*
+- Source comments above each `TextGuidance` block now distinguish **engine ceiling** (4096 tokens / 11 min) from **hardware ceiling** (~1500 chars on M-series 16 GB).
+
+### What this does NOT yet fix
+
+The fix is preventive — the soft cap blocks the chip text from misleading users. But it's still a *soft* cap. A caller hitting the API directly (e.g., story studio's API integration) can ignore the chip and submit any length. The proper fix is a **runtime memory gate** in `_generate_voxcpm` / `_generate_mlx_audio` that estimates Metal buffer need from input length × engine factor and raises a clear `RuntimeError` BEFORE the alloc attempt — so a single bad request fails its own job instead of crashing the server.
+
+Flagged as TODO. Approach: introduce `MAX_ALLOC_BYTES = 9_500_000_000` (M-series per-buffer Metal cap) and a per-family `estimate_memory_bytes(input_chars)` function. When over the cap, raise before calling `generate_audio()`. Won't ship until we have empirical data on the linear coefficient.
+
+### Notes
+
+- PATCH bump (1.2.5 → 1.2.6) — pure cap correction + note rewrite. No schema, no code path, no new deps. Run `Update` from the Pinokio sidebar, then Stop → Start.
+- The other 14 families' caps stay where v1.2.4 set them — they're either far below their hardware ceilings already, or don't have the diffusion-activation-growth profile that triggers this kind of OOM.
+- This is the third time this exact Metal OOM has shown up in the project history. v1.2.2 documented it as a workaround note. v1.2.4 inadvertently re-opened it by raising the cap. v1.2.6 closes it for VoxCPM specifically. The right structural fix is the runtime memory gate — file as P1 for next iteration.
+
+---
+
 ## [1.2.5] — 2026-05-24
 
 ### Fixed — Hint chip text shortened from dev-grade docs to user-friendly one-liners
