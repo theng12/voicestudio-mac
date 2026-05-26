@@ -7,7 +7,7 @@
   <!-- Cache-busters: bump the ?v= string whenever the static assets are updated
        so Pinokio's webview can't keep serving a stale build. The backend also
        sends Cache-Control: no-store for these paths as a belt-and-braces. -->
-  <link rel="stylesheet" href="/assets/style.css?v=phase2-logo-1" />
+  <link rel="stylesheet" href="/assets/style.css?v=__APP_VERSION__" />
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -16,9 +16,9 @@
        defer, Alpine otherwise starts immediately when its own tag executes,
        which is before app.js loads. prompts.js sets window.SAMPLE_PROMPTS
        and must load before app.js references it. -->
-  <script defer src="/assets/prompts.js?v=phase2-queue-1"></script>
-  <script defer src="/assets/app.js?v=phase2-repo-persist-1"></script>
-  <script defer src="/assets/alpine.min.js?v=phase2-queue-1"></script>
+  <script defer src="/assets/prompts.js?v=__APP_VERSION__"></script>
+  <script defer src="/assets/app.js?v=__APP_VERSION__"></script>
+  <script defer src="/assets/alpine.min.js?v=__APP_VERSION__"></script>
 </head>
 <body x-data="studio()" x-init="init()">
 

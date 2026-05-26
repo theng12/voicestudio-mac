@@ -26,7 +26,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -688,6 +688,14 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 if FRONTEND_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR), html=False), name="assets")
 
-    @app.get("/")
-    def index() -> FileResponse:
-        return FileResponse(str(FRONTEND_DIR / "index.html"))
+    @app.get("/", response_class=Response)
+    def index() -> Response:
+        # Read index.html and substitute __APP_VERSION__ tokens with the
+        # current VERSION. This auto-bumps cache-buster query strings on
+        # every release so users never see stale JS/CSS in Pinokio's
+        # aggressively-caching webview — see v1.3.6 fix where the manual
+        # `?v=phase2-...` strings hadn't been bumped since v1.1.8 and
+        # users were running the wrong app.js for 5+ patch releases.
+        html = (FRONTEND_DIR / "index.html").read_text()
+        html = html.replace("__APP_VERSION__", APP_VERSION)
+        return Response(content=html, media_type="text/html")

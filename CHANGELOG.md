@@ -10,6 +10,51 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.3.6] — 2026-05-27
+
+### Fixed — Voice library Edit button + orange Download button invisible due to stale browser cache
+
+User restarted the server after v1.3.3 (which added the ✏️ Edit button and the orange Download button), but the Edit button "doesn't work." Server logs were clean. The actual cause:
+
+The HTML `<script>` and `<link>` tags had **manually-set cache-bust query strings** (`?v=phase2-repo-persist-1`, `?v=phase2-logo-1`) that **hadn't been bumped since v1.1.8**. Pinokio's embedded webview (and any modern browser) caches assets based on URL — so with the URL unchanged across 5 patch releases, the browser kept serving the cached v1.1.8 `app.js` that has no `openVoiceEditor` function. The `✏️` button rendered but its `@click="openVoiceEditor(v)"` resolved to `undefined` and silently did nothing.
+
+The `NoCacheStaticMiddleware` (which sets `Cache-Control: no-store, no-cache, must-revalidate`) is in place but Pinokio's WKWebView ignores it. Cache-busting query strings are the bulletproof signal.
+
+### Fixed (proper structural fix, not just a one-off bump)
+
+Rather than manually bumping the cache-bust strings every release and hoping I don't forget next time, the `/` route now reads `index.html` and **substitutes `__APP_VERSION__` tokens with the current `APP_VERSION`** at request time:
+
+```python
+@app.get("/", response_class=Response)
+def index() -> Response:
+    html = (FRONTEND_DIR / "index.html").read_text()
+    html = html.replace("__APP_VERSION__", APP_VERSION)
+    return Response(content=html, media_type="text/html")
+```
+
+And the HTML now uses sentinel tokens:
+
+```html
+<link rel="stylesheet" href="/assets/style.css?v=__APP_VERSION__" />
+<script defer src="/assets/prompts.js?v=__APP_VERSION__"></script>
+<script defer src="/assets/app.js?v=__APP_VERSION__"></script>
+<script defer src="/assets/alpine.min.js?v=__APP_VERSION__"></script>
+```
+
+Every VERSION bump now auto-busts all browser caches. Never have to remember to manually bump a cache-bust string again.
+
+### Notes
+
+- PATCH bump (1.3.5 → 1.3.6) — 2-line addition to `main.py`, 4-line edit to `index.html`. No new deps, no schema change. Run `Update` → Stop → Start.
+- **One special instruction for this update**: after restarting, do a **hard refresh of the Voice Studio page** (⌘⇧R in most browsers, or click Pinokio's refresh button while holding ⇧). The current cached HTML still has the old `?v=phase2-...` URLs — once you hard-refresh, you get the new HTML with `?v=1.3.6` URLs, which will then auto-bust every future release.
+- After v1.3.6, all of v1.3.3's UI changes (Edit button, orange Download button) become visible. v1.3.4's F5-TTS fix and v1.3.5's path-standard refactors were backend-only and were never affected.
+
+### Lesson archived
+
+The lesson "always bump cache-bust strings on frontend changes" is now structurally enforced — there's nothing to remember. Added to my cross-session memory notes for this project.
+
+---
+
 ## [1.3.5] — 2026-05-27
 
 ### Codified — Worker model-loading standard (defense-in-depth across all workers)
