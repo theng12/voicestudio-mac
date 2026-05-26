@@ -949,7 +949,17 @@ class GenerationManager:
         from mlx_audio.tts.utils import load_model
         snapshot_path = self._mlx_audio_snapshot_path(repo)
         print(f"[gen] loading mlx-audio model from {snapshot_path}", flush=True)
-        model = load_model(str(snapshot_path))
+        # IMPORTANT: pass the Path object, NOT str(snapshot_path).
+        # mlx-audio's get_model_name_parts walks Path.parts to extract name
+        # hints (finds the `models--mlx-community--Spark-TTS-...` segment and
+        # parses "spark", "tts", etc.). When given a string it only takes the
+        # last "/" segment — which is just the snapshot hash like
+        # "be15d8bf101a4a400c568b387fb69dce0d37239b" — and the dispatch falls
+        # back to config.json's model_type. Spark-TTS reports `qwen2` there
+        # (its LM backbone), no `mlx_audio.tts.models.qwen2` exists, and you
+        # get `ValueError: Model type qwen2 not supported for tts.`
+        # See v1.2.8 fix.
+        model = load_model(snapshot_path)
         self._mlx_audio_model = model
         self._mlx_audio_model_repo = repo
         return model

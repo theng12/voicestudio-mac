@@ -10,6 +10,46 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.2.8] — 2026-05-26
+
+### Fixed — Spark-TTS dispatch (`ValueError: Model type qwen2 not supported for tts`)
+
+User downloaded `mlx-community/Spark-TTS-0.5B-6bit`, tried to generate, got:
+
+```
+ValueError: Model type qwen2 not supported for tts.
+ModuleNotFoundError: No module named 'mlx_audio.tts.models.qwen2'
+```
+
+Bug was in **our** `_mlx_audio_get_model()`. It called `load_model(str(snapshot_path))` — stringified the Path. mlx-audio's `get_model_name_parts()` behaves differently for `str` vs `Path`:
+
+- **`Path`**: walks `.parts`, finds the `models--mlx-community--Spark-TTS-0.5B-6bit` segment, parses → `["spark", "tts", "0.5b", "6bit", ...]`. Dispatch sees `"spark"` in available models → routes to `mlx_audio.tts.models.spark`. ✅
+- **`str`**: just lowercases and takes the last `/` segment. For our cache layout, that's the snapshot hash → `["be15d8bf101a4a400c568b387fb69dce0d37239b"]`. Dispatch falls back to `config.json`'s `model_type`. ❌
+
+Spark-TTS uniquely depends on the name-parts fallback because its `config.json` reports `model_type: "qwen2"` (just the LM backbone — Spark wraps Qwen2.5-0.5B). All other mlx-audio families work because their `config.json` reports a recognized model_type directly (e.g. `voxcpm2`, `qwen3_tts`, `kokoro`).
+
+Fix: **drop the `str()` wrapper** — pass `snapshot_path` directly. One-line change in `generation.py:952`, plus an explanatory comment so this doesn't regress.
+
+Verified empirically by reproducing mlx-audio's `get_model_name_parts()` against the actual cached snapshot path — Path form returns `["spark", "tts", "0.5b", "05b", "6bit", "spark_tts", ...]` and dispatch correctly resolves `model_type="spark"`.
+
+### Affects
+
+All 4 mlx-community Spark-TTS variants in our catalog were broken by this:
+
+- `mlx-community/Spark-TTS-0.5B-4-6bit`
+- `mlx-community/Spark-TTS-0.5B-6bit`
+- `mlx-community/Spark-TTS-0.5B-8bit`
+- `mlx-community/Spark-TTS-0.5B-bf16`
+
+After v1.2.8 + restart, all should dispatch correctly. No re-download needed — the cached snapshots are fine; only the loader was wrong.
+
+### Notes
+
+- PATCH bump (1.2.7 → 1.2.8) — one-line `generation.py` fix + 9-line explanatory comment. No schema, no new deps. Run `Update` → Stop → Start.
+- The `str()` wrapper has been there since the initial commit. It went undetected because every other mlx-audio family happens to have a recognized `model_type` in its `config.json`, so the name-parts fallback was never the deciding factor. Spark-TTS is the only one in our catalog that needed it.
+
+---
+
 ## [1.2.7] — 2026-05-26
 
 ### Fixed — MLX cache leak between sequential mlx-audio jobs (real root cause of the OOM)
