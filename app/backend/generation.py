@@ -25,6 +25,63 @@ Removed in v1.3.1:
 - spark-tts (PyTorch) — spark-tts-mlx covers it on Apple Silicon
 - xtts (Coqui)         — TTS pip package pins old torch + non-commercial license
 
+═════════════════════════════════════════════════════════════════════════
+WORKER MODEL-LOADING STANDARD (established v1.3.5)
+═════════════════════════════════════════════════════════════════════════
+
+THE RULE: in every worker added to this file, resolve the local HF Hub
+snapshot path and pass it EXPLICITLY to the loader. Never pass a HF repo
+ID string when the loader will accept an absolute filesystem path.
+
+THE PATTERN:
+
+    def _engine_get_model(self, repo: str, device: str):
+        # ... eviction-on-repo-switch boilerplate ...
+
+        snapshot_path = self._mlx_audio_snapshot_path(repo)   # generic walker
+        # Optional: validate critical files exist, raise clean RuntimeError
+        ckpt = snapshot_path / "subfolder" / "model.safetensors"
+        if not ckpt.exists():
+            raise RuntimeError(
+                f"<Engine> file missing at {ckpt}. "
+                "Re-download <repo> from the Models tab."
+            )
+
+        model = SomeEngine.from_pretrained(
+            str(snapshot_path),
+            local_files_only=True,                            # belt + suspenders
+            # ... engine-specific args
+        )
+        return model
+
+WHY THIS EXISTS: different upstream libraries use different cache backends.
+The standard `huggingface_hub` cache lives at
+    ${HF_HOME}/hub/models--<org>--<repo>/...
+But some libraries — notably `cached_path` (used by F5-TTS) — have their
+OWN cache layout that doesn't share with HF Hub. When a worker passes a
+repo string and the library internally uses `cached_path`, it looks in
+the wrong directory and silently re-downloads even when the file is
+already cached. This actually happened with F5-TTS in v1.3.0 → v1.3.4
+(1.35 GB re-downloaded into a duplicate location). Passing an absolute
+path bypasses the library's cache lookup entirely.
+
+EXCEPTIONS — loaders that don't accept a path argument:
+- KPipeline(lang_code=…) for Kokoro: no path API. Must trust HF_HOME env.
+  Document the limitation in the worker comment.
+
+COMPLIANCE TABLE (keep current when adding workers):
+
+| Worker                | Pattern                                                       | Status |
+|-----------------------|---------------------------------------------------------------|--------|
+| _generate_mlx_audio   | load_model(snapshot_path)  Path not str (v1.2.8)              | OK     |
+| _generate_omnivoice   | OmniVoiceMLX.from_pretrained(str(snapshot_path))              | OK     |
+| _generate_f5_tts      | F5TTS(ckpt_file=…, vocab_file=…)  (v1.3.4)                    | OK     |
+| _generate_voxcpm      | voxcpm.VoxCPM.from_pretrained(str(snapshot_path), local_files_only=True) | OK |
+| _generate_bark        | BarkModel.from_pretrained(str(snapshot_path), local_files_only=True)     | OK |
+| _generate_kokoro      | KPipeline(lang_code=…)  — no path API, trusts HF_HOME         | LIMIT  |
+
+═════════════════════════════════════════════════════════════════════════
+
 Outputs land in `app/output/<job_id>.wav` and are persisted to
 `app/output/.history.json` (same shape as MusicStudio's gen history) so they
 survive server restarts.
@@ -1265,18 +1322,25 @@ class GenerationManager:
             _release_device_memory(device)
 
         import voxcpm
-        print(f"[gen] loading VoxCPM model from HF hub: {repo} on {device}", flush=True)
+        # v1.3.5 — explicit-path standard. Resolve our HF Hub cache snapshot
+        # and pass it as the local path instead of the repo string. This
+        # bypasses voxcpm's internal HF lookup entirely, so we're immune to
+        # the kind of cache-layout drift that bit F5-TTS in v1.3.4 (where
+        # cached_path has a non-HF-Hub layout). transformers' from_pretrained
+        # accepts both repo strings and local paths interchangeably.
+        snapshot_path = self._mlx_audio_snapshot_path(repo)
+        print(f"[gen] loading VoxCPM model from {snapshot_path} on {device}", flush=True)
         # load_denoiser=False keeps the model self-contained — the modelscope
         # zipenhancer denoiser is several hundred MB and we don't currently
         # surface a denoise toggle. Re-enable when wiring the denoise UI.
         # optimize=False skips torch.compile — compile takes 30-60s on first
         # generation and benefits batch use more than one-off generations.
         model = voxcpm.VoxCPM.from_pretrained(
-            repo,
+            str(snapshot_path),
             optimize=False,
             load_denoiser=False,
             device=device,
-            local_files_only=True,   # we've already cached via Import / Download
+            local_files_only=True,
         )
         self._voxcpm_model = model
         self._voxcpm_model_repo = repo
@@ -1419,9 +1483,13 @@ class GenerationManager:
             _release_device_memory(device)
 
         from transformers import AutoProcessor, BarkModel
-        print(f"[gen] loading Bark from HF hub: {repo} on {device}", flush=True)
-        processor = AutoProcessor.from_pretrained(repo)
-        model = BarkModel.from_pretrained(repo)
+        # v1.3.5 — explicit-path standard. Resolve our HF Hub cache snapshot
+        # and pass it as the local path instead of the repo string. See the
+        # F5-TTS v1.3.4 fix for the failure mode this defends against.
+        snapshot_path = self._mlx_audio_snapshot_path(repo)
+        print(f"[gen] loading Bark from {snapshot_path} on {device}", flush=True)
+        processor = AutoProcessor.from_pretrained(str(snapshot_path), local_files_only=True)
+        model = BarkModel.from_pretrained(str(snapshot_path), local_files_only=True)
         model = model.to(device)
         model.eval()
         self._bark_model = model

@@ -10,6 +10,61 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.3.5] — 2026-05-27
+
+### Codified — Worker model-loading standard (defense-in-depth across all workers)
+
+Following the F5-TTS re-download bug (v1.3.4), establishing a project-wide standard so this class of bug doesn't recur in future workers.
+
+**The rule:** every worker in `app/backend/generation.py` must resolve the local HF Hub snapshot path and pass it **explicitly** to the loader. Never pass a HF repo ID string when the loader will accept an absolute path.
+
+**Why:** different upstream libraries use different cache backends. The standard `huggingface_hub` cache lives at `${HF_HOME}/hub/models--<org>--<repo>/...`, but some libraries — notably `cached_path` (used by F5-TTS) — have their own cache layout. When a worker passes a repo string and the library internally uses `cached_path`, it looks in the wrong directory and silently re-downloads. Passing an explicit absolute path bypasses the library's cache lookup entirely.
+
+### Refactored — `_voxcpm_get_model` and `_bark_get_model`
+
+Both workers previously passed the HF repo ID:
+
+```python
+# Before (works today via huggingface_hub, but one upstream change away from the F5-TTS bug)
+voxcpm.VoxCPM.from_pretrained(repo, local_files_only=True, ...)
+BarkModel.from_pretrained(repo)
+```
+
+Now they resolve the snapshot path via the existing `_mlx_audio_snapshot_path()` walker (which is generic — works for any HF Hub repo, not just mlx-audio ones) and pass it explicitly:
+
+```python
+# After
+snapshot_path = self._mlx_audio_snapshot_path(repo)
+voxcpm.VoxCPM.from_pretrained(str(snapshot_path), local_files_only=True, ...)
+BarkModel.from_pretrained(str(snapshot_path), local_files_only=True)
+AutoProcessor.from_pretrained(str(snapshot_path), local_files_only=True)
+```
+
+Both transformers' `from_pretrained` and voxcpm's `from_pretrained` accept absolute local paths interchangeably with repo IDs. The behavior is identical when the cache is healthy; the difference is **what happens when something goes wrong** — repo IDs can trigger surprise downloads, local paths can't.
+
+### Documented — `voicestudio-mac/CLAUDE.md`
+
+Added a new section: **"Worker Model-Loading Standard (added v1.3.5)"** that codifies the rule, explains why, shows the pattern, and lists every existing worker's compliance status:
+
+| Worker | Pattern | Status |
+|---|---|---|
+| `_generate_mlx_audio` | `load_model(snapshot_path)` (Path, not str — v1.2.8) | ✅ |
+| `_generate_omnivoice` | `OmniVoiceMLX.from_pretrained(str(snapshot_path))` | ✅ |
+| `_generate_f5_tts` | `F5TTS(ckpt_file=…, vocab_file=…)` (v1.3.4) | ✅ |
+| `_generate_voxcpm` | `voxcpm.VoxCPM.from_pretrained(str(snapshot_path), local_files_only=True)` (v1.3.5) | ✅ |
+| `_generate_bark` | `BarkModel.from_pretrained(str(snapshot_path), local_files_only=True)` (v1.3.5) | ✅ |
+| `_generate_kokoro` | `KPipeline(lang_code=…)` — no path API, trusts HF_HOME | 🔒 limitation |
+
+Kokoro is the only exception — KPipeline doesn't accept a path argument, so it must trust HF_HOME via env var. Documented in the worker comment.
+
+### Notes
+
+- PATCH bump (1.3.4 → 1.3.5) — defensive refactor of two existing workers + documentation. No new deps, no schema change, no behavior change when cache is healthy. Run `Update` → Stop → Start.
+- Workers behave identically when everything is in order; the change matters when an upstream library updates and starts using a different cache backend. We're now insulated from that.
+- New workers in the future MUST follow this pattern — see `CLAUDE.md` for the boilerplate. Adding a `🔒 limitation` row to the table is fine if the loader genuinely doesn't take a path; silently passing a repo ID is not.
+
+---
+
 ## [1.3.4] — 2026-05-27
 
 ### Fixed — F5-TTS re-downloading the 1.35 GB checkpoint even when already cached
