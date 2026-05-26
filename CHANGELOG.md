@@ -10,6 +10,38 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.3.1] — 2026-05-26
+
+### Removed — Dead `chatterbox`, `spark-tts`, `xtts` family stubs
+
+The catalog had 3 families that have never had a working worker — they always raised `NotImplementedError` when picked. Cleaning them out so the catalog reflects only what actually works.
+
+**Dropped families + their single ModelEntry each:**
+
+- `chatterbox` (`ResembleAI/chatterbox`) — PyTorch original of Chatterbox. Fully covered by the `chatterbox-mlx` family (7 entries: chatterbox-mlx-4bit / -8bit, chatterbox-4bit / -8bit / -fp16, chatterbox-turbo-4bit / -8bit). On Apple Silicon the MLX variants are smaller, faster, same MIT license, and offer the exact same voice-cloning + exaggeration knob. No reason to keep the PyTorch stub around.
+- `spark-tts` (`SparkAudio/Spark-TTS-0.5B`) — PyTorch original of Spark-TTS. Fully covered by the `spark-tts-mlx` family (4 entries: 4-6bit, 6bit, 8bit, bf16). Same reasoning as Chatterbox.
+- `xtts` (`coqui/XTTS-v2`) — Coqui multilingual voice cloning. **The license isn't the deciding factor** (F5-TTS is also CPML / non-commercial and we just wired it in v1.3.0). The deciding factor is the `TTS` pip package: it **pins old torch versions** that would break the existing voxcpm / qwen3 / etc. stack. Re-adding it would mean a separate venv, vendored inference code, or both. Not worth the maintenance for a single non-commercial family when VoxCPM2 covers most of the same multilingual ground.
+
+### Code cleanup
+
+- Removed 3 `Family(...)` entries from `FAMILIES` dict in `catalog.py`.
+- Removed 3 `ModelEntry(...)` rows from `CATALOG` tuple.
+- Removed the `elif family in ("chatterbox", "spark-tts"):` and `elif family == "xtts":` branches from `_dispatch_txt2speech` in `generation.py`.
+- Removed dead entries from `_ENGINE_REQUIREMENTS` dict (the `chatterbox` / `spark-tts` / `xtts` requirements were used to display "needs these packages" UI hints — useless for families that don't exist).
+- Updated the module-level docstring to reflect the new wired list (13 families) + an explicit "Removed in v1.3.1" section so future devs don't accidentally re-add them.
+
+### Audit
+
+`audit_truth.py`: **NO DRIFT.** 13 families, **13 wired**, **0 unwired**. First time the catalog is 100% wired since the project started.
+
+### Notes
+
+- PATCH bump (1.3.0 → 1.3.1) — pure catalog cleanup. No functionality lost since these stubs never worked. No new deps, no schema change. Run `Update` from the Pinokio sidebar, then Stop → Start.
+- If anyone had localStorage prefs (per-model presets from v1.1.8) pointing at the removed repos, those entries become orphaned but harmless — the frontend's `_initGenPersistence()` validates the stored `lastRepo` against the live catalog before restoring, and unknown repos just fall back to the default-selected model.
+- The HF cache (if you ever downloaded `ResembleAI/chatterbox`, `SparkAudio/Spark-TTS-0.5B`, or `coqui/XTTS-v2`) is left on disk. Catalog removal doesn't delete files. You can manually purge them from `cache/HF_HOME/hub/` to reclaim disk space — they'd be wasted otherwise.
+
+---
+
 ## [1.3.0] — 2026-05-26
 
 ### Added — F5-TTS family wired (Phase 2.2)

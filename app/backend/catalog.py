@@ -114,46 +114,6 @@ FAMILIES: dict[str, Family] = {
             note="No practical length limit — auto-chunks long text and crossfades segments. Keep ref clip 5-15 sec for best results.",
         ),
     ),
-    "chatterbox": Family(
-        id="chatterbox",
-        label="Chatterbox",
-        summary=(
-            "Resemble AI's open voice-cloning TTS. Expressive — has a controllable "
-            "exaggeration / emotion intensity dial. MIT licensed."
-        ),
-        how_to_use=(
-            "Provide text + a short reference voice (3–10 seconds). Tune the "
-            "exaggeration slider for more or less expressive delivery. Good "
-            "default if you want personality in the output."
-        ),
-        # Audit (v1.2.4): mlx_audio chatterbox_turbo.py:859 hardcodes max_chars_per_chunk =
-        # (max_tokens // 8) * 4. Default max_tokens=1000 → 500 chars. Turbo uses 800 → 400.
-        text_guidance=TextGuidance(
-            soft_max_chars=500,
-            chunking="auto-split",
-            note="Best at ~500 chars (~40 sec) per call. Auto-chunks longer text; exaggeration may drift across chunks.",
-        ),
-    ),
-    "spark-tts": Family(
-        id="spark-tts",
-        label="Spark-TTS",
-        summary=(
-            "SparkAudio's controllable zero-shot TTS. 0.5B parameter LLM-based "
-            "architecture with a wav2vec2 reference encoder. Apache-2.0 license."
-        ),
-        how_to_use=(
-            "Voice cloning from a reference clip, or generate with the default "
-            "voice. Supports prompt-based control of gender / pitch / speed via "
-            "natural-language tags. Newer model — community ecosystem still growing."
-        ),
-        # Audit (v1.2.4): mlx_audio spark/spark.py:229 max_tokens=3000 audio tokens. BiCodec
-        # local stream ~50 Hz → 60 sec audio per call ≈ ~780 chars.
-        text_guidance=TextGuidance(
-            soft_max_chars=750,
-            chunking="auto-split",
-            note="Best at ~750 chars (~60 sec audio) per call. Auto-chunks longer text by sentence.",
-        ),
-    ),
     "bark": Family(
         id="bark",
         label="Suno Bark",
@@ -174,29 +134,6 @@ FAMILIES: dict[str, Family] = {
             soft_max_chars=150,
             chunking="hard-cap",
             note="Hard cap ~150 chars (~13 sec). Past the cap, Bark hallucinates or goes silent — split into short lines.",
-        ),
-    ),
-    "xtts": Family(
-        id="xtts",
-        label="Coqui XTTS",
-        summary=(
-            "Coqui's multilingual voice-cloning TTS — supports 17 languages with a "
-            "single model. License is restrictive (CPML, non-commercial), so use "
-            "only for personal projects."
-        ),
-        how_to_use=(
-            "Upload a reference clip (3–6 seconds) and provide text in any "
-            "supported language. Best multilingual voice cloning in the open "
-            "ecosystem, but the license rules out commercial use."
-        ),
-        # Audit (v1.2.4): TTS/tts/layers/xtts/tokenizer.py char_limits dict. English=250.
-        # Per-language: de=253, fr=273, nl=251, es=239, tr=226, pl=224, hu=224, it=213,
-        # pt=203, cs=186, ru=182, ar=166, ko=95, zh=82, ja=71. Tokenizer truncates past these.
-        # When the XTTS worker lands, pass `enable_text_splitting=True` for long-form support.
-        text_guidance=TextGuidance(
-            soft_max_chars=250,
-            chunking="hard-cap",
-            note="Hard cap ~250 chars per call (English). CJK languages have lower caps — Chinese 82, Japanese 71, Korean 95.",
         ),
     ),
     "voxcpm-mlx": Family(
@@ -543,60 +480,6 @@ CATALOG: tuple[ModelEntry, ...] = (
         ),
     ),
 
-    # ──────────── Chatterbox ────────────
-    ModelEntry(
-        repo="ResembleAI/chatterbox",
-        label="Chatterbox (English)",
-        family="chatterbox",
-        # Repo is 10.95 GB — ships multiple t3_*.safetensors variants
-        # (v2, v3, 23lang, cfg) plus .pt dupes. Keep just t3_cfg.safetensors
-        # + s3gen + ve + tokenizer.
-        size_gb=3.1,
-        gated=False,
-        min_unified_memory_gb=12,
-        recommended_hardware="M1 Pro / M2 16 GB recommended.",
-        capabilities=("tts", "voice-cloning", "expressive"),
-        best_for="Resemble's voice cloning with an emotion-intensity slider. Pick this when you want more personality / drama in the output and a short voice reference clip to clone from. MIT licensed.",
-        sample_rate_hz=24000,
-        languages=("en",),
-        ignore_patterns=(
-            "t3_mtl23ls_v2.safetensors",
-            "t3_mtl23ls_v3.safetensors",
-            "t3_23lang.safetensors",
-            "t3_cfg.pt",
-            "s3gen.pt",
-            "ve.pt",
-        ),
-        use_cases=(
-            ("good",  "PyTorch original — full precision Chatterbox quality (when worker ships)"),
-            ("good",  "MIT licensed — commercial use OK"),
-            ("good",  "Voice cloning with expressivity dial"),
-            ("avoid", "Today: PyTorch worker not yet wired. Use 'Chatterbox (MLX) 4-bit' instead — same capabilities, smaller memory footprint, IS wired"),
-        ),
-    ),
-
-    # ──────────── Spark-TTS ────────────
-    ModelEntry(
-        repo="SparkAudio/Spark-TTS-0.5B",
-        label="Spark-TTS (0.5B)",
-        family="spark-tts",
-        # Repo is 3.67 GB, no duplicates — keep all components.
-        size_gb=3.7,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        capabilities=("tts", "voice-cloning", "expressive"),
-        best_for="Controllable zero-shot TTS — use natural-language tags to set gender, pitch, and speed without a reference clip, OR clone from a reference. Apache-2.0 license (commercial use OK).",
-        sample_rate_hz=16000,
-        languages=("en", "zh"),
-        use_cases=(
-            ("good",  "PyTorch original at full precision (when worker ships)"),
-            ("good",  "Apache-2.0 — commercial use OK"),
-            ("avoid", "Today: PyTorch worker not yet wired. Use 'Spark-TTS (MLX) 4-bit' instead — IS wired"),
-            ("weak",  "16 kHz output — lower fidelity than Kokoro / VoxCPM2 (24 / 48 kHz)"),
-        ),
-    ),
-
     # ──────────── Bark ────────────
     ModelEntry(
         repo="suno/bark",
@@ -641,29 +524,6 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Faster iteration than full Bark (smaller model)"),
             ("weak",  "Lower fidelity than full Bark — final renders should use the full variant"),
             ("avoid", "Anything except experimentation — full Bark is the production-grade tier"),
-        ),
-    ),
-
-    # ──────────── Coqui XTTS-v2 ────────────
-    ModelEntry(
-        repo="coqui/XTTS-v2",
-        label="XTTS v2 (multilingual)",
-        family="xtts",
-        # Repo is 1.95 GB, no duplicates.
-        size_gb=2.0,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        capabilities=("tts", "voice-cloning", "multilingual"),
-        best_for="Multilingual voice cloning across 17 languages from a single model. License is non-commercial (CPML) — fine for personal use, not redistributable in products. Now superseded by VoxCPM2 for new projects, but XTTS still has a large community-trained voice library.",
-        sample_rate_hz=24000,
-        languages=("en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "ar", "zh", "ja", "hu", "ko", "hi"),
-        use_cases=(
-            ("good",  "Access to Coqui's large community-trained voice library (when worker ships)"),
-            ("good",  "17 language support from one model"),
-            ("weak",  "License is non-commercial (CPML) — personal projects only"),
-            ("avoid", "New projects — VoxCPM2 covers most of the same ground with permissive license"),
-            ("avoid", "Today: worker not yet wired"),
         ),
     ),
 

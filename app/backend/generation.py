@@ -12,18 +12,18 @@ Currently wired (workers exist):
 - voxcpm-mlx      → mlx-audio worker
 - kokoro-mlx      → mlx-audio worker
 - qwen3-tts       → mlx-audio worker (custom / design / clone modes by repo)
-- chatterbox-mlx  → mlx-audio worker (use this instead of PyTorch chatterbox)
-- spark-tts-mlx   → mlx-audio worker (use this instead of PyTorch spark-tts)
+- chatterbox-mlx  → mlx-audio worker
+- spark-tts-mlx   → mlx-audio worker
 - orpheus         → mlx-audio worker
 - kittentts       → mlx-audio worker
 - vibevoice       → mlx-audio worker
 - omnivoice       → ailuntx/OmniVoice-MLX (separate worker)
+- f5-tts          → f5_tts.api.F5TTS (separate worker)
 
-Not yet wired (PyTorch-side TTS engines waiting on vendored inference code):
-- f5-tts          → vendored flow-matching inference
-- chatterbox      → PyTorch worker (the MLX variant IS wired — use that)
-- spark-tts       → PyTorch worker (the MLX variant IS wired — use that)
-- xtts            → vendored XTTS inference
+Removed in v1.3.1:
+- chatterbox (PyTorch) — chatterbox-mlx covers it on Apple Silicon
+- spark-tts (PyTorch) — spark-tts-mlx covers it on Apple Silicon
+- xtts (Coqui)         — TTS pip package pins old torch + non-commercial license
 
 Outputs land in `app/output/<job_id>.wav` and are persisted to
 `app/output/.history.json` (same shape as MusicStudio's gen history) so they
@@ -290,11 +290,8 @@ _ENGINE_REQUIREMENTS = {
     "chatterbox-mlx": ["mlx", "mlx_audio", "soundfile", "numpy"],
     "spark-tts-mlx":  ["mlx", "mlx_audio", "soundfile", "numpy"],
     "orpheus":        ["mlx", "mlx_audio", "soundfile", "numpy"],
-    # Roadmap PyTorch engines (no worker yet).
-    "f5-tts":     ["torch", "diffusers", "soundfile"],
-    "chatterbox": ["torch", "transformers", "soundfile"],
-    "spark-tts":  ["torch", "transformers", "soundfile"],
-    "xtts":       ["torch", "transformers", "soundfile"],
+    # F5-TTS (PyTorch, flow-matching). Wired in v1.3.0.
+    "f5-tts":     ["f5_tts", "torch", "vocos", "soundfile"],
 }
 
 # Which engines have an actual worker implemented in this app — i.e. picking
@@ -784,18 +781,6 @@ class GenerationManager:
                     "from the Pinokio sidebar (this installs f5-tts + vocos + cached_path)."
                 )
             self._generate_f5_tts(job, model, output_path)
-        elif family in ("chatterbox", "spark-tts"):
-            raise NotImplementedError(
-                f"The PyTorch worker for {family} isn't wired yet. The MLX "
-                f"variant ({family}-mlx) IS wired and is smaller + faster on "
-                "Apple Silicon — use that instead."
-            )
-        elif family == "xtts":
-            raise NotImplementedError(
-                "XTTS-v2 isn't wired yet — its inference code needs to be "
-                "vendored into the backend. For now use VoxCPM2 (covers most "
-                "of the same multilingual ground with a permissive license)."
-            )
         elif family in MLX_AUDIO_FAMILIES:
             if not _have_mlx_audio():
                 raise RuntimeError(
