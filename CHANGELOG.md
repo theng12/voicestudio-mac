@@ -10,6 +10,70 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.3.4] — 2026-05-27
+
+### Fixed — F5-TTS re-downloading the 1.35 GB checkpoint even when already cached
+
+User noticed the terminal log showed F5-TTS downloading `F5TTS_v1_Base/model_1250000.safetensors` (1.35 GB) after the v1.3.3 generate attempt — even though `SWivid/F5-TTS` was already in the HF cache via the Models-tab download. Two cache copies ended up on disk, wasting ~1.3 GB.
+
+### Root cause
+
+F5-TTS's `F5TTS.__init__` uses **`cached_path`** (a separate library from `huggingface_hub`) to fetch its main checkpoint:
+
+```python
+# f5_tts/api.py:80
+cached_path(f"hf://SWivid/{repo_name}/{model}/model_{ckpt_step}.{ckpt_type}", cache_dir=hf_cache_dir)
+```
+
+`cached_path` has **its own cache layout** that's incompatible with the standard HF Hub format:
+
+| Cache type | Layout |
+|---|---|
+| Standard HF Hub (what `snapshot_download` uses) | `{HF_HOME}/`**`hub/`**`models--<org>--<repo>/snapshots/<hash>/...` |
+| `cached_path` (what F5-TTS uses) | `{cache_dir}/models--<org>--<repo>/snapshots/<hash>/...` (no `hub/` segment) |
+
+So when v1.3.0 passed `hf_cache_dir={HF_HOME}` to `F5TTS()`, `cached_path` looked for `{HF_HOME}/models--SWivid--F5-TTS/...` (no `hub/`), didn't find it, downloaded fresh. The existing files at `{HF_HOME}/hub/models--SWivid--F5-TTS/...` were invisible to `cached_path` because of the layout mismatch.
+
+This wasn't a regression — F5-TTS has always had this behavior. v1.3.0 just didn't account for it.
+
+### Fix
+
+In `_f5_tts_get_model()`, locate the checkpoint + vocab files in our standard HF Hub cache (via the existing `_mlx_audio_snapshot_path()` walker) and pass them **explicitly** to F5TTS via `ckpt_file=` and `vocab_file=`. F5TTS skips `cached_path` entirely when these are non-empty:
+
+```python
+snapshot_path = self._mlx_audio_snapshot_path(repo)
+ckpt_file = snapshot_path / "F5TTS_v1_Base" / "model_1250000.safetensors"
+vocab_file = snapshot_path / "F5TTS_v1_Base" / "vocab.txt"
+# ... validate they exist, raise clean RuntimeError if not ...
+F5TTS(model="F5TTS_v1_Base", ckpt_file=str(ckpt_file), vocab_file=str(vocab_file), ...)
+```
+
+The VoCoS vocoder (~50 MB) still auto-downloads on first load via `hf_hub_download`, which **does** respect `HF_HOME` correctly — small enough to leave alone.
+
+### Cleanup task for users
+
+If you generated with F5-TTS on v1.3.0 / v1.3.1 / v1.3.2 / v1.3.3, your cache likely has **two copies of the checkpoint**:
+
+```
+cache/HF_HOME/hub/models--SWivid--F5-TTS/     ← original (1.3 GB), keep this
+cache/HF_HOME/models--SWivid--F5-TTS/         ← duplicate (1.3 GB), safe to delete
+```
+
+After updating to v1.3.4, you can reclaim ~1.3 GB with:
+
+```bash
+rm -rf cache/HF_HOME/models--SWivid--F5-TTS/
+```
+
+(Note: NO `hub/` in that path — that's the duplicate from `cached_path`.) The original at `cache/HF_HOME/hub/...` is what v1.3.4 uses.
+
+### Notes
+
+- PATCH bump (1.3.3 → 1.3.4) — one function rewrite in `generation.py`. No new deps, no schema change. Run `Update` → Stop → Start.
+- Verified the fix doesn't break first-time-install flow: if the user runs `F5-TTS` without having downloaded `SWivid/F5-TTS` first, the explicit path check raises a clean `RuntimeError("F5-TTS checkpoint missing at ... — Re-download SWivid/F5-TTS from the Models tab")` instead of silently triggering a 1.35 GB out-of-band download. Forcing the through-the-Models-tab flow makes downloads visible, resumable, and cancellable.
+
+---
+
 ## [1.3.3] — 2026-05-27
 
 ### Added — Voice library edit + orange Download button

@@ -1645,16 +1645,48 @@ class GenerationManager:
             self._f5_tts_model_repo = None
             _release_device_memory(device)
 
-        # F5-TTS reads from $HF_HOME / hf_cache_dir to find pre-downloaded
-        # checkpoints. Our env file sets HF_HOME=./cache/HF_HOME at server
-        # startup, so F5-TTS finds models--SWivid--F5-TTS without re-downloading.
+        # F5-TTS's api uses `cached_path` (a separate library, not huggingface_hub)
+        # for the main checkpoint. cached_path has its OWN cache layout that
+        # doesn't share with HF Hub's standard `hub/models--<org>--<repo>/...`
+        # structure — it creates `models--<org>--<repo>/` directly under the
+        # passed cache_dir, no `hub/` segment. So even though our HF Hub cache
+        # has the SWivid/F5-TTS files at:
+        #   {HF_HOME}/hub/models--SWivid--F5-TTS/snapshots/<hash>/F5TTS_v1_Base/
+        # passing hf_cache_dir={HF_HOME} (or even {HF_HOME}/hub) wouldn't make
+        # cached_path find them — the layouts are incompatible.
+        #
+        # v1.3.4 fix: locate the existing checkpoint + vocab files in our HF
+        # Hub cache and pass them explicitly via ckpt_file= and vocab_file=.
+        # F5TTS skips cached_path entirely when these args are non-empty.
+        # The VoCoS vocoder is still auto-downloaded via hf_hub_download (which
+        # DOES respect HF_HOME correctly) — small enough (~50 MB) to ignore.
         from f5_tts.api import F5TTS
+        snapshot_path = self._mlx_audio_snapshot_path(repo)   # reuses HF Hub layout walker
+        ckpt_file = snapshot_path / "F5TTS_v1_Base" / "model_1250000.safetensors"
+        vocab_file = snapshot_path / "F5TTS_v1_Base" / "vocab.txt"
+        if not ckpt_file.exists():
+            raise RuntimeError(
+                f"F5-TTS checkpoint missing at {ckpt_file}. "
+                "Re-download SWivid/F5-TTS from the Models tab."
+            )
+        if not vocab_file.exists():
+            raise RuntimeError(
+                f"F5-TTS vocab file missing at {vocab_file}. "
+                "Re-download SWivid/F5-TTS from the Models tab."
+            )
         hf_cache = os.environ.get("HF_HOME")
-        print(f"[gen] loading F5-TTS (F5TTS_v1_Base) from {hf_cache or 'default HF cache'}", flush=True)
+        print(
+            f"[gen] loading F5-TTS from local ckpt {ckpt_file.name} "
+            f"({ckpt_file.stat().st_size / 1e9:.2f} GB); "
+            f"vocoder auto-downloads to {hf_cache or 'default HF cache'}",
+            flush=True,
+        )
         model = F5TTS(
             model="F5TTS_v1_Base",
+            ckpt_file=str(ckpt_file),
+            vocab_file=str(vocab_file),
             device=device,
-            hf_cache_dir=hf_cache,
+            hf_cache_dir=hf_cache,                 # for the VoCoS vocoder download path
         )
         self._f5_tts_model = model
         self._f5_tts_model_repo = repo
