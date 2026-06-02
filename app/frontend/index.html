@@ -30,6 +30,7 @@
     </div>
     <nav class="tabs">
       <button :class="{active: tab==='generate'}" @click="tab='generate'">Generate</button>
+      <button :class="{active: tab==='subtitles'}" @click="tab='subtitles'; refreshTranscribe()">Subtitles</button>
       <button :class="{active: tab==='models'}" @click="tab='models'">Models</button>
       <button :class="{active: tab==='downloads'}" @click="tab='downloads'">
         Downloads
@@ -40,7 +41,6 @@
         Voices
         <span class="badge" x-show="voices.length > 0" x-text="voices.length"></span>
       </button>
-      <button :class="{active: tab==='subtitles'}" @click="tab='subtitles'; refreshTranscribe()">Subtitles</button>
       <button :class="{active: tab==='api'}" @click="tab='api'">API</button>
       <button :class="{active: tab==='settings'}" @click="tab='settings'; refreshSettings()">Settings</button>
     </nav>
@@ -973,6 +973,34 @@
           </p>
         </div>
       </details>
+    </section>
+
+    <!-- ─── Subtitle models (Whisper STT) — separate registry from the TTS
+         catalog below, surfaced here so all downloads live in one place. ─── -->
+    <section class="stt-models-section" x-show="stt.models.length > 0" x-cloak>
+      <div class="stt-models-head">
+        <h2>🎬 Subtitle models <span class="muted small">(Whisper · speech-to-text)</span></h2>
+        <span class="muted small">Powers the <a class="link-accent" @click="tab='subtitles'; refreshTranscribe()">Subtitles</a> tab + <code>/api/transcribe</code>. Download one to transcribe audio.</span>
+      </div>
+      <div class="stt-models-grid">
+        <template x-for="m in stt.models" :key="m.repo">
+          <div class="stt-model-card" :class="{ cached: m.cached }">
+            <div class="stt-model-card-head">
+              <strong x-text="m.label"></strong>
+              <span class="chip" :class="m.cached ? 'ok' : 'neutral'" x-text="m.cached ? '✓ ready' : 'not downloaded'"></span>
+            </div>
+            <code class="stt-model-repo" x-text="m.repo"></code>
+            <p class="muted small" x-text="m.size_gb + ' GB' + (m.recommended ? ' · recommended' : '')"></p>
+            <p class="muted small stt-model-note" x-text="m.note"></p>
+            <button class="btn download-btn" x-show="!m.cached"
+                    :disabled="stt.downloading"
+                    @click="downloadWhisperModel(m.repo)">
+              <span x-show="!(stt.downloading && stt.model === m.repo)">⬇ Download</span>
+              <span x-show="stt.downloading && stt.model === m.repo">Downloading…</span>
+            </button>
+          </div>
+        </template>
+      </div>
     </section>
 
     <!-- ─── Library filter toolbar ─── -->

@@ -1943,3 +1943,42 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
   margin-top: 10px;
   align-items: center;
 }
+
+/* ──────── Subtitle models section (Models tab) ──────── */
+.stt-models-section {
+  margin: 0 0 22px;
+  padding: 16px;
+  border: 1px solid var(--border, #2a2a32);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+.stt-models-head { margin-bottom: 12px; }
+.stt-models-head h2 { margin: 0 0 2px; font-size: 15px; }
+.stt-models-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.stt-model-card {
+  border: 1px solid var(--border, #2a2a32);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel);
+  opacity: 0.78;
+}
+.stt-model-card.cached { opacity: 1; border-color: color-mix(in srgb, var(--ok, #4ade80) 40%, transparent); }
+.stt-model-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.stt-model-repo {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin: 2px 0 6px;
+  word-break: break-all;
+}
+.stt-model-note { margin: 4px 0 10px; }

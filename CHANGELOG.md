@@ -10,6 +10,35 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.4.2] — 2026-05-27
+
+### Changed — Subtitles tab moved next to Generate + Whisper models surfaced in Models tab
+
+Two bits of feedback after v1.4.1:
+
+1. **"I couldn't find the Whisper models in the Models tab."** Correct — the
+   Whisper models live in their own registry (`WHISPER_MODELS` in
+   `transcription.py`), separate from the TTS `catalog.py` that drives the Models
+   grid. They were only downloadable from the Subtitles tab. Now they're surfaced
+   in the Models tab too, where users expect all downloads to live.
+2. **"Subtitles should be next to Generate, before Models."** Moved.
+
+**Tab reorder:** `Generate · Subtitles · Models · Downloads · Import · Voices · API · Settings` (Subtitles was last, now second).
+
+**Whisper models in the Models tab:** new "🎬 Subtitle models (Whisper · speech-to-text)" section at the top of the Models page, above the TTS family grid. It's a separate card block (not mixed into the TTS family filter system — they're STT, not TTS) showing each Whisper model's label, repo, size, note, cache state (`✓ ready` / `not downloaded`), and a one-click orange Download button for uncached ones. Driven by the same `/api/transcribe/availability` data as the Subtitles tab, so download state stays in sync between the two surfaces.
+
+**Loaded at startup:** `refreshTranscribe()` now runs in `init()` (after catalog + voices), so the Models-tab Whisper section is populated no matter which tab you open first — not just after visiting Subtitles.
+
+**Minor:** `downloadWhisperModel()` now sets `stt.model = repo` so the per-card "Downloading…" label tracks the right card, and the Subtitles-tab dropdown auto-selects whatever you just downloaded.
+
+### Notes
+
+- PATCH bump (1.4.1 → 1.4.2) — UI placement + discoverability. No backend change, no new deps. `Update` → reload (the v1.3.6 cache-busting picks up the new assets automatically).
+- **Reminder:** the STT API routes (`/api/transcribe*`) shipped in v1.4.0 require a server **Stop → Start** to be live. If `/api/transcribe/availability` 404s, the Models-tab Whisper section + Subtitles tab will be empty until you restart the Voice Studio server.
+- Whisper still downloads through the existing generic `/api/downloads` — the Models-tab button and the Subtitles-tab button both hit it. Nothing new on the backend.
+
+---
+
 ## [1.4.1] — 2026-05-27
 
 ### Added — Subtitles UI tab (transcribe tester + Whisper model download)

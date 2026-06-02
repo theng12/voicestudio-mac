@@ -270,6 +270,9 @@ function studio() {
       await this.refreshLoras();
       await this.refreshSettings();
       await this.refreshVoices();
+      // STT/whisper availability — so the Models tab's "Subtitle models"
+      // section is populated regardless of which tab the user opens first.
+      this.refreshTranscribe();
       // Restore last-used model + per-repo gen settings AFTER catalog +
       // availability + voices are loaded so option lists are populated.
       this._initGenPersistence();
@@ -2665,6 +2668,7 @@ function studio() {
     },
     async downloadWhisperModel(repo) {
       if (!repo) return;
+      this.stt.model = repo;        // sync selection + per-card "Downloading…" label
       this.stt.downloading = true;
       try {
         await fetch("/api/downloads", {
