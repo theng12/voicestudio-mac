@@ -10,6 +10,36 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.4.1] — 2026-05-27
+
+### Added — Subtitles UI tab (transcribe tester + Whisper model download)
+
+v1.4.0 shipped the STT/subtitle API but was API-only (the consumer is Story Studio over the network). This adds a **Subtitles** tab to the Voice Studio web UI so you can transcribe and download Whisper models directly, without curl or a second app.
+
+**The tab (`tab==='subtitles'`):**
+- **Whisper model picker** — dropdown of all 6 registry models with size, cache state (`✓ ready` / `— not downloaded`), and the recommended marker. Shows the model's note below.
+- **One-click download** — if the selected model isn't cached, an orange Download button POSTs to the existing `/api/downloads` and then polls `/api/transcribe/availability` every 4s until it flips to cached (re-enabling Transcribe automatically). Progress also shows in the Downloads tab.
+- **Drag-drop / click-to-pick audio** — reuses the existing `.voice-dropzone` styling. Accepts WAV/MP3/M4A/FLAC/OGG.
+- **Options** — optional language code (blank = auto-detect) + word-level-timestamps checkbox.
+- **Result panel** — Text / SRT / VTT view toggle, with Copy and (for SRT/VTT) a Download button that builds a blob from the current view. Header shows detected language, duration, line count, and elapsed transcription time.
+
+**Wiring (`app.js`):**
+- New `stt` state object + `sttSelectedModel` getter.
+- Handlers: `refreshTranscribe`, `downloadWhisperModel` (with cache-state polling), `onSubtitlePick` / `onSubtitleDrop` / `_setSubtitleFile`, `runTranscribe` (multipart POST with a live elapsed counter), `subtitleBlobUrl` (for the download link).
+- `subtitles` added to the hash-route whitelist (`#subtitles` deep-links + auto-loads availability). Also fixed: `voices` was missing from that whitelist — added it too.
+- 409 ("model not downloaded") surfaces a clear "Model not downloaded yet" hint pointing at the download button.
+
+**Nav + CSS:**
+- New **Subtitles** tab button between Voices and API.
+- Subtitle-specific CSS (two-column grid, format tabs, monospace output box). Reuses the existing dropzone + `download-btn` (orange) classes.
+
+### Notes
+
+- PATCH bump (1.4.0 → 1.4.1) — pure UI surface for the already-shipped v1.4.0 STT API. No backend change, no new deps. `Update` → Stop → Start. (Thanks to v1.3.6's `__APP_VERSION__` cache-busting, the new JS/CSS load automatically — no manual hard-refresh needed this time.)
+- The API contract is unchanged — Story Studio's integration (per `docs/SUBTITLES.md`) is unaffected. This tab just gives you a local way to test transcription and pre-download Whisper models.
+
+---
+
 ## [1.4.0] — 2026-05-27
 
 ### Added — Speech-to-text / subtitle API (Whisper)

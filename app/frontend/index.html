@@ -40,6 +40,7 @@
         Voices
         <span class="badge" x-show="voices.length > 0" x-text="voices.length"></span>
       </button>
+      <button :class="{active: tab==='subtitles'}" @click="tab='subtitles'; refreshTranscribe()">Subtitles</button>
       <button :class="{active: tab==='api'}" @click="tab='api'">API</button>
       <button :class="{active: tab==='settings'}" @click="tab='settings'; refreshSettings()">Settings</button>
     </nav>
@@ -1725,6 +1726,116 @@
       <p class="error-text" x-show="voiceUploader.error" x-text="voiceUploader.error"></p>
     </div>
   </div>
+
+  <!-- ─────────── Subtitles (Whisper STT) ─────────── -->
+  <main x-show="tab==='subtitles'" class="page" x-cloak>
+    <section class="page-head">
+      <h1>Subtitles</h1>
+      <p class="muted">
+        Transcribe audio → timestamped subtitles (SRT / VTT) with Whisper. Drop a clip below, or
+        generate narration on the <a class="link-accent" @click="tab='generate'">Generate</a> tab first.
+        Story Studio and other apps drive this over the API — see the <a class="link-accent" @click="tab='api'">API</a> tab.
+      </p>
+
+      <div class="banner info" x-show="stt.available === false" x-cloak>
+        <div>
+          <strong>Speech-to-text engine not available.</strong>
+          <p class="muted">Run <strong>Install Generation</strong> from the Pinokio sidebar, then Stop → Start.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="subtitle-grid">
+      <!-- Left: inputs -->
+      <section class="control-block">
+        <label>Whisper model</label>
+        <select x-model="stt.model">
+          <template x-for="m in stt.models" :key="m.repo">
+            <option :value="m.repo"
+                    x-text="m.label + ' · ' + m.size_gb + ' GB' + (m.cached ? ' ✓ ready' : ' — not downloaded') + (m.recommended ? ' (recommended)' : '')"></option>
+          </template>
+        </select>
+        <p class="muted small" x-show="sttSelectedModel" x-text="sttSelectedModel && sttSelectedModel.note"></p>
+
+        <!-- Download prompt when the chosen model isn't cached -->
+        <div class="subtitle-dl" x-show="sttSelectedModel && !sttSelectedModel.cached" x-cloak>
+          <button class="btn download-btn"
+                  :disabled="stt.downloading"
+                  @click="downloadWhisperModel(stt.model)">
+            <span x-show="!stt.downloading" x-text="'⬇ Download ' + (sttSelectedModel && sttSelectedModel.label)"></span>
+            <span x-show="stt.downloading">Downloading… (watch the Downloads tab)</span>
+          </button>
+          <p class="muted small">First use needs a one-time model download. Progress shows in the <a class="link-accent" @click="tab='downloads'">Downloads</a> tab.</p>
+        </div>
+
+        <!-- Audio drop / pick -->
+        <label class="subtitle-audio-label">Audio</label>
+        <div class="voice-dropzone"
+             :class="{ dragover: stt.dragOver }"
+             @click="$refs.sttFile.click()"
+             @dragover.prevent="stt.dragOver = true"
+             @dragleave.prevent="stt.dragOver = false"
+             @drop.prevent="onSubtitleDrop($event)">
+          <input type="file" x-ref="sttFile" accept="audio/*" style="display:none" @change="onSubtitlePick($event)">
+          <div class="dropzone-empty" x-show="!stt.fileName">
+            <div class="dropzone-icon">🎧</div>
+            <p>Drop an audio file here, or click to pick</p>
+            <p class="muted small">WAV / MP3 / M4A / FLAC / OGG</p>
+          </div>
+          <div class="dropzone-empty" x-show="stt.fileName" x-cloak>
+            <div class="dropzone-icon">✅</div>
+            <p><strong x-text="stt.fileName"></strong></p>
+            <p class="muted small" x-text="stt.fileSize"></p>
+          </div>
+        </div>
+
+        <div class="subtitle-opts">
+          <div class="subtitle-opt-lang">
+            <label>Language <span class="muted small">(blank = auto)</span></label>
+            <input type="text" class="prompt-input" x-model="stt.language" placeholder="en" maxlength="8">
+          </div>
+          <label class="subtitle-opt-check">
+            <input type="checkbox" x-model="stt.wordTimestamps">
+            <span>Word-level timestamps</span>
+          </label>
+        </div>
+
+        <p class="error-text" x-show="stt.error" x-text="stt.error"></p>
+
+        <button class="btn primary big"
+                :disabled="!stt.file || stt.running || (sttSelectedModel && !sttSelectedModel.cached)"
+                @click="runTranscribe()">
+          <span x-show="!stt.running">📝 Transcribe</span>
+          <span x-show="stt.running" x-text="'Transcribing… ' + stt.elapsed + 's'"></span>
+        </button>
+      </section>
+
+      <!-- Right: result -->
+      <section class="control-block" x-show="stt.result" x-cloak>
+        <div class="subtitle-result-head">
+          <h3>Result</h3>
+          <span class="muted small"
+                x-text="stt.result && (stt.result.language + ' · ' + stt.result.duration + 's · ' + stt.result.segments.length + ' lines · ' + stt.result.elapsed_seconds + 's')"></span>
+        </div>
+
+        <div class="subtitle-format-tabs">
+          <button :class="{active: stt.view==='text'}" @click="stt.view='text'">Text</button>
+          <button :class="{active: stt.view==='srt'}"  @click="stt.view='srt'">SRT</button>
+          <button :class="{active: stt.view==='vtt'}"  @click="stt.view='vtt'">VTT</button>
+        </div>
+
+        <textarea class="subtitle-output" readonly rows="14"
+                  x-text="stt.result ? (stt.view==='text' ? stt.result.text : stt.view==='srt' ? stt.result.srt : stt.result.vtt) : ''"></textarea>
+
+        <div class="subtitle-result-actions">
+          <button class="btn ghost small" @click="copyText(stt.view==='text' ? stt.result.text : stt.view==='srt' ? stt.result.srt : stt.result.vtt)">🔗 Copy</button>
+          <a class="btn download-btn" x-show="stt.view!=='text'"
+             :href="subtitleBlobUrl()" :download="'subtitles.' + stt.view"
+             x-text="'⬇ Download .' + stt.view"></a>
+        </div>
+      </section>
+    </div>
+  </main>
 
   <!-- ─────────── API ─────────── -->
   <main x-show="tab==='api'" class="page" x-cloak>

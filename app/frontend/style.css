@@ -1869,3 +1869,77 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
   opacity: 0.55;
   font-size: 11px;
 }
+
+/* ──────── Subtitles tab (Whisper STT) ──────── */
+.subtitle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .subtitle-grid { grid-template-columns: 1fr; }
+}
+.subtitle-dl { margin: 10px 0; }
+.subtitle-audio-label { margin-top: 14px; }
+.subtitle-opts {
+  display: flex;
+  gap: 18px;
+  align-items: flex-end;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.subtitle-opt-lang { flex: 0 0 140px; }
+.subtitle-opt-lang input { width: 100%; }
+.subtitle-opt-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding-bottom: 6px;
+}
+.subtitle-result-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.subtitle-format-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 10px 0 8px;
+  padding: 4px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  width: fit-content;
+}
+.subtitle-format-tabs button {
+  background: transparent;
+  border: none;
+  padding: 5px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+.subtitle-format-tabs button.active {
+  background: var(--accent);
+  color: #fff;
+}
+.subtitle-output {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg);
+  border: 1px solid var(--border, #2a2a32);
+  border-radius: 8px;
+  padding: 10px;
+  resize: vertical;
+}
+.subtitle-result-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+}

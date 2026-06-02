@@ -90,6 +90,27 @@ function studio() {
       overCapConfirmed: false,
     },
 
+    // ──────── Subtitles / STT (Whisper) ────────
+    stt: {
+      available: null,        // null=unknown, true/false after refreshTranscribe
+      models: [],             // [{repo,label,size_gb,note,recommended,cached}]
+      model: "",              // selected whisper repo
+      language: "en",
+      wordTimestamps: false,
+      file: null,             // File object
+      fileName: "",
+      fileSize: "",
+      dragOver: false,
+      downloading: false,
+      running: false,
+      elapsed: 0,
+      error: "",
+      result: null,           // { text, language, duration, model, segments, srt, vtt, elapsed_seconds }
+      view: "text",           // text | srt | vtt
+      _elapsedHandle: null,
+      _blobUrl: null,
+    },
+
     // ──────── Generation-history pagination ────────
     historyPage: 0,
     historyPageSize: 10,
@@ -262,9 +283,10 @@ function studio() {
       // Route via hash so the sidebar buttons in pinokio.js can deep-link.
       const applyHash = () => {
         const h = (location.hash || "").replace(/^#\/?/, "");
-        if (["generate", "models", "downloads", "imports", "api", "settings"].includes(h)) this.tab = h;
+        if (["generate", "models", "downloads", "imports", "voices", "subtitles", "api", "settings"].includes(h)) this.tab = h;
         if (h === "imports") this.scanImports();
         if (h === "settings") this.refreshSettings();
+        if (h === "subtitles") this.refreshTranscribe();
       };
       window.addEventListener("hashchange", applyHash);
       applyHash();
@@ -688,6 +710,11 @@ function studio() {
 
     get genWiredFamilies() {
       return this.gen.wired_families || [];
+    },
+
+    // Subtitles: the whisper model row matching stt.model, for note + cache UI.
+    get sttSelectedModel() {
+      return (this.stt.models || []).find(m => m.repo === this.stt.model) || null;
     },
 
     get canSubmit() {
@@ -2615,6 +2642,115 @@ function studio() {
       } catch (e) {
         this.pushToast({ kind: "error", icon: "✗", title: "Couldn't open in Finder", body: String(e) });
       }
+    },
+
+    // ──────── Subtitles / STT handlers ────────
+    async refreshTranscribe() {
+      try {
+        const r = await fetch("/api/transcribe/availability");
+        const data = await r.json();
+        this.stt.available = !!data.available;
+        this.stt.models = data.models || [];
+        // Pick a default model: keep current if still listed, else the
+        // recommended one, else first.
+        const stillThere = this.stt.models.some(m => m.repo === this.stt.model);
+        if (!stillThere) {
+          this.stt.model = data.default_model
+            || (this.stt.models.find(m => m.recommended) || this.stt.models[0] || {}).repo
+            || "";
+        }
+      } catch {
+        this.stt.available = false;
+      }
+    },
+    async downloadWhisperModel(repo) {
+      if (!repo) return;
+      this.stt.downloading = true;
+      try {
+        await fetch("/api/downloads", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo }),
+        });
+        // Poll availability until the model flips to cached, so the UI
+        // re-enables Transcribe without a manual refresh.
+        const deadline = Date.now() + 30 * 60 * 1000;   // 30 min ceiling
+        const tick = async () => {
+          await this.refreshTranscribe();
+          const m = this.stt.models.find(x => x.repo === repo);
+          if (m && m.cached) { this.stt.downloading = false; return; }
+          if (Date.now() > deadline) { this.stt.downloading = false; return; }
+          setTimeout(tick, 4000);
+        };
+        setTimeout(tick, 4000);
+      } catch (e) {
+        this.stt.downloading = false;
+        this.stt.error = "Failed to start download: " + e;
+      }
+    },
+    _setSubtitleFile(file) {
+      if (!file) return;
+      if (!/^audio\//.test(file.type) && !/\.(wav|mp3|m4a|flac|ogg|opus|aac)$/i.test(file.name || "")) {
+        this.stt.error = "Not an audio file. Use WAV / MP3 / M4A / FLAC / OGG.";
+        return;
+      }
+      this.stt.error = "";
+      this.stt.file = file;
+      this.stt.fileName = file.name || "audio.wav";
+      const mb = (file.size || 0) / 1024 / 1024;
+      this.stt.fileSize = mb >= 1 ? mb.toFixed(1) + " MB" : Math.round((file.size || 0) / 1024) + " KB";
+    },
+    onSubtitlePick(e) {
+      const f = e.target.files && e.target.files[0];
+      this._setSubtitleFile(f);
+      e.target.value = "";   // allow re-pick of same file
+    },
+    onSubtitleDrop(e) {
+      this.stt.dragOver = false;
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      this._setSubtitleFile(f);
+    },
+    async runTranscribe() {
+      if (!this.stt.file || this.stt.running) return;
+      this.stt.running = true;
+      this.stt.error = "";
+      this.stt.result = null;
+      this.stt.elapsed = 0;
+      this.stt._elapsedHandle = setInterval(() => { this.stt.elapsed += 1; }, 1000);
+      try {
+        const fd = new FormData();
+        fd.append("file", this.stt.file);
+        if (this.stt.model) fd.append("model", this.stt.model);
+        if (this.stt.language.trim()) fd.append("language", this.stt.language.trim());
+        if (this.stt.wordTimestamps) fd.append("word_timestamps", "true");
+        const r = await fetch("/api/transcribe", { method: "POST", body: fd });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          // 409 = model not downloaded → nudge toward the download button.
+          this.stt.error = (r.status === 409 ? "Model not downloaded yet. " : "")
+            + this._formatApiError(err, r.status);
+          return;
+        }
+        this.stt.result = await r.json();
+        this.stt.view = "text";
+      } catch (e) {
+        this.stt.error = String(e);
+      } finally {
+        clearInterval(this.stt._elapsedHandle);
+        this.stt.running = false;
+      }
+    },
+    /** Build (and cache) a blob URL for the current SRT/VTT view so the
+     *  download link has real content. Revokes the previous one. */
+    subtitleBlobUrl() {
+      if (!this.stt.result) return "#";
+      if (this.stt._blobUrl) { try { URL.revokeObjectURL(this.stt._blobUrl); } catch {} }
+      const body = this.stt.view === "srt" ? this.stt.result.srt
+                 : this.stt.view === "vtt" ? this.stt.result.vtt
+                 : this.stt.result.text;
+      const mime = this.stt.view === "vtt" ? "text/vtt" : "text/plain";
+      this.stt._blobUrl = URL.createObjectURL(new Blob([body], { type: mime }));
+      return this.stt._blobUrl;
     },
 
     async copyText(text) {
