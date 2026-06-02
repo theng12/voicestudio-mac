@@ -40,6 +40,10 @@ from .generation import (
 from .downloads import manager
 from .imports import import_path, scan_for_candidates
 from .voices import library as voice_library
+from .transcription import (
+    manager as stt_manager,
+    availability as stt_availability,
+)
 
 
 # ───────────── App release version ─────────────
@@ -665,6 +669,90 @@ def cancel_generation_job(job_id: str) -> dict:
         raise HTTPException(status_code=404, detail="job not found or already finished")
     job = gen_manager.get(job_id)
     return {"job": job.serialize() if job else None}
+
+
+# ──── Transcription / subtitles (Whisper STT) ────
+
+@app.get("/api/transcribe/availability")
+def transcribe_availability() -> dict:
+    """STT readiness + which whisper models are cached. A remote consumer
+    (e.g. Story Studio) hits this before transcribing to pick a ready model."""
+    return stt_availability()
+
+
+@app.post("/api/transcribe")
+async def transcribe(
+    file: Optional[UploadFile] = File(None),
+    job_id: str = Form(""),
+    model: str = Form(""),
+    language: str = Form(""),
+    word_timestamps: bool = Form(False),
+) -> dict:
+    """Transcribe audio → text + timestamped segments + ready-to-use SRT/VTT.
+
+    Two ways to supply the audio (exactly one required):
+      - multipart `file`: upload any audio clip (universal, decoupled).
+      - `job_id`: transcribe a previous TTS output already on this server,
+        without re-uploading the bytes (efficient same-machine path).
+
+    Optional:
+      - `model`: whisper repo (default = the recommended turbo model).
+      - `language`: ISO code (e.g. 'en'); omit for auto-detect.
+      - `word_timestamps`: include per-word timings in each segment.
+    """
+    import tempfile
+
+    tmp_path: Optional[str] = None
+    audio_path: Optional[str] = None
+    try:
+        if job_id.strip():
+            # Transcribe an existing TTS job's output — no re-upload.
+            job = gen_manager.get(job_id.strip())
+            if job is None:
+                raise HTTPException(status_code=404, detail=f"job {job_id} not found")
+            if not job.output_path:
+                raise HTTPException(status_code=425, detail="job audio not ready yet")
+            audio_path = job.output_path
+        elif file is not None:
+            try:
+                data = await file.read()
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"failed to read upload: {e}")
+            if not data:
+                raise HTTPException(status_code=400, detail="uploaded audio is empty")
+            suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+            fd, tmp_path = tempfile.mkstemp(prefix="stt-", suffix=suffix)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            audio_path = tmp_path
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="provide either a multipart 'file' upload or a 'job_id'",
+            )
+
+        try:
+            result = stt_manager.transcribe(
+                audio_path,
+                model_repo=model or None,
+                language=language or None,
+                word_timestamps=word_timestamps,
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except RuntimeError as e:
+            # Not-cached / not-downloaded → 409 so the caller can trigger a
+            # download and retry, rather than treating it as a hard 500.
+            raise HTTPException(status_code=409, detail=str(e))
+        return result
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 @app.get("/api/generate/stream")

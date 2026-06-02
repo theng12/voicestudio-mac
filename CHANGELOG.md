@@ -10,6 +10,75 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.4.0] — 2026-05-27
+
+### Added — Speech-to-text / subtitle API (Whisper)
+
+Voice Studio now does STT, not just TTS. Story Studio (the YouTube-asset app that
+already calls our TTS endpoints) needs timestamped subtitles for the narration it
+generates. Rather than stand up a separate service, this adds Whisper-based
+transcription to the existing server.
+
+**Why here and not a separate app:** `mlx-audio` (already a dependency for the MLX
+TTS engines) ships a complete STT subsystem — Whisper + a dozen other ASR models.
+So this was wiring, not a new install. `whisper-tiny` was even already in the HF
+cache. One service, one Tailscale endpoint, one thing to keep alive. And TTS audio
+is pristine, so Whisper transcription of our own output is near-perfect.
+
+Full integration guide for the consuming app: **`docs/SUBTITLES.md`**.
+
+### New module: `app/backend/transcription.py`
+
+- `TranscriptionManager` — lazy-loads + caches one Whisper model, transcribes
+  audio → text + timestamped segments. Follows every standard from this release
+  cycle:
+  - **Explicit-path loading (v1.3.5):** passes the local snapshot `Path` to
+    `mlx_audio.stt.load_model`, never a repo ID — immune to cache-layout drift.
+  - **Shared `_GEN_LOCK` (from generation.py):** STT and TTS serialize on one GPU
+    lock so two MLX models can't both spike Metal memory → OOM.
+  - **MLX cache release (v1.2.7):** frees buffers on model switch + after each job.
+  - **No silent downloads:** if the requested model isn't cached, raises cleanly
+    (surfaced as HTTP 409) instead of pulling 1.6 GB mid-request.
+- `WHISPER_MODELS` registry — 6 verified mlx-community repos (turbo /
+  turbo-q4 / large-v3 / small / base / tiny), all confirmed live with real sizes.
+- `segments_to_srt()` / `segments_to_vtt()` — hand-written formatters, full control
+  over the cue format. Returns ready-to-write SRT + VTT strings.
+
+### New endpoints (in `main.py`)
+
+- **`GET /api/transcribe/availability`** — STT readiness + per-model cache state +
+  the recommended default. Mirrors `/api/generate/availability`.
+- **`POST /api/transcribe`** (multipart) — supply audio via either a `file` upload
+  (universal) **or** a `job_id` (transcribe a previous TTS output with no
+  re-upload — efficient same-machine path). Optional `model`, `language`,
+  `word_timestamps`. Returns `{ text, language, duration, model, segments, srt,
+  vtt }`. Clean error codes: 404 (job/file missing), 400 (bad params), 409 (model
+  not downloaded — caller should download + retry).
+
+### Downloading Whisper models
+
+Reuses the **existing generic** `POST /api/downloads {repo}` — no new download
+path. `mlx-community/whisper-large-v3-turbo` (~1.6 GB) is the recommended first
+download; `...-turbo-q4` (~0.5 GB) for 8 GB Macs. The availability endpoint reports
+which are cached.
+
+### Notes
+
+- MINOR bump (1.3.6 → 1.4.0) — new capability (STT) + new endpoints. **No new
+  Python deps** — `mlx-audio` already provides the STT stack, so a plain `Update`
+  → Stop → Start is enough (no need to re-run Install Generation, though it's
+  harmless if you do).
+- **What we did NOT use:** `whisperx` — it pins heavy torch/pyannote deps, the same
+  trap that made us skip Coqui XTTS. Plain mlx-audio Whisper is clean + native.
+- **Upgrade path noted:** `mlx-audio` also ships `qwen3_forced_aligner`, which
+  aligns *known text* to audio for perfect word timestamps — relevant because
+  Story Studio already has the script text. Not wired yet; flagged for later.
+- No UI tab yet — this release is API-first since the consumer is Story Studio over
+  the network. A "Subtitles" tab (drag-drop tester + click-to-download Whisper
+  models) is an easy follow-up if wanted.
+
+---
+
 ## [1.3.6] — 2026-05-27
 
 ### Fixed — Voice library Edit button + orange Download button invisible due to stale browser cache
