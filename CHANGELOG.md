@@ -10,7 +10,56 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
-## [1.4.2] — 2026-05-27
+## [1.4.3] — 2026-05-27
+
+### Fixed — "Processor not found" on transcription (affected ALL Whisper models, not just q4)
+
+A transcription attempt returned `400: "Processor not found. Make sure the model was loaded with a HuggingFace processor."` The report attributed it to the quantized `whisper-large-v3-turbo-q4` repo "missing its HF processor," with the suggested fix being to download the full 1.6 GB `whisper-large-v3-turbo` instead.
+
+**Verified the claim — it's wrong, and the suggested fix wouldn't have worked.** Checked all six whisper repos' file manifests on Hugging Face:
+
+```
+mlx-community/whisper-large-v3-turbo      → config.json, weights.safetensors   ❌ no processor
+mlx-community/whisper-large-v3-turbo-q4   → config.json, weights.npz           ❌ no processor
+mlx-community/whisper-large-v3-mlx        → config.json, weights.npz           ❌ no processor
+mlx-community/whisper-small-mlx           → config.json, weights.npz           ❌ no processor
+mlx-community/whisper-base-mlx            → config.json, weights.npz           ❌ no processor
+mlx-community/whisper-tiny                → config.json, weights.npz           ❌ no processor
+```
+
+**None of them bundle the HF processor** (`preprocessor_config.json`, tokenizer, vocab). The full `whisper-large-v3-turbo` has the exact same problem as the q4 — downloading it would have hit the identical error after 1.6 GB. The error is universal, not q4-specific.
+
+### Root cause
+
+mlx-audio's whisper `post_load_hook` runs `WhisperProcessor.from_pretrained(<local snapshot>)`. Since the mlx-community repos don't ship processor files, that call fails, `model._processor` is left `None`, and `get_tokenizer()` raises "Processor not found" at transcribe time.
+
+### Fix
+
+mlx-audio computes the mel spectrogram **itself** from the model's own config (`log_mel_spectrogram(audio, n_mels=self.dims.n_mels)`) and uses the processor **only** for its tokenizer. So `_get_model()` now attaches a tokenizer-providing `WhisperProcessor` from the model's **base OpenAI repo** (which *do* ship the processor) whenever the loaded model has none:
+
+```python
+_PROCESSOR_BASE = {
+    "mlx-community/whisper-large-v3-turbo":    "openai/whisper-large-v3-turbo",
+    "mlx-community/whisper-large-v3-turbo-q4": "openai/whisper-large-v3-turbo",
+    "mlx-community/whisper-large-v3-mlx":      "openai/whisper-large-v3",
+    "mlx-community/whisper-small-mlx":         "openai/whisper-small",
+    "mlx-community/whisper-base-mlx":          "openai/whisper-base",
+    "mlx-community/whisper-tiny":              "openai/whisper-tiny",
+}
+# in _get_model, after load_model:
+if getattr(model, "_processor", None) is None:
+    model._processor = WhisperProcessor.from_pretrained(_PROCESSOR_BASE[repo])
+```
+
+The processor is ~2 MB of JSON/vocab (not model weights), fetched once and cached in `HF_HOME`. This makes **every** Whisper model work — including the 0.5 GB q4 you already downloaded. **You do not need to download the 1.6 GB version.**
+
+All six OpenAI base repos were confirmed to ship the processor before wiring this.
+
+### Notes
+
+- PATCH bump (1.4.2 → 1.4.3) — backend fix in `transcription.py`. No new deps. **Stop → Start** the server (the new model-load path is read at import).
+- First transcription with each model does a one-time ~2 MB processor fetch (needs network); cached thereafter. If the modal is offline on first run, you get a clean error explaining the fetch is needed — not a cryptic "Processor not found."
+- The `whisper-large-v3-turbo-q4` is still the right pick for your 8 GB M1 — this fix unblocks it.
 
 ### Changed — Subtitles tab moved next to Generate + Whisper models surfaced in Models tab
 

@@ -97,6 +97,28 @@ WHISPER_MODELS: tuple[WhisperModel, ...] = (
 
 _BY_REPO = {m.repo: m for m in WHISPER_MODELS}
 
+# The mlx-community whisper repos ship ONLY config.json + weights — no HF
+# processor files (preprocessor_config.json, tokenizer, vocab). mlx-audio's
+# whisper post-load hook does `WhisperProcessor.from_pretrained(<local snapshot>)`,
+# which therefore fails → model._processor = None → at transcribe time you get
+# "Processor not found. Make sure the model was loaded with a HuggingFace
+# processor." This affects ALL six repos (turbo, turbo-q4, large-v3, small,
+# base, tiny) equally — it is NOT specific to the quantized one.
+#
+# Fix (v1.4.3): mlx-audio computes the mel spectrogram itself from the model's
+# own config (`log_mel_spectrogram(audio, n_mels=self.dims.n_mels)`) and uses
+# the processor ONLY for its tokenizer. So we attach a tokenizer-providing
+# WhisperProcessor from the model's base OpenAI repo (these DO ship the
+# processor). It's a ~2 MB one-time fetch, cached in HF_HOME thereafter.
+_PROCESSOR_BASE = {
+    "mlx-community/whisper-large-v3-turbo":    "openai/whisper-large-v3-turbo",
+    "mlx-community/whisper-large-v3-turbo-q4": "openai/whisper-large-v3-turbo",
+    "mlx-community/whisper-large-v3-mlx":      "openai/whisper-large-v3",
+    "mlx-community/whisper-small-mlx":         "openai/whisper-small",
+    "mlx-community/whisper-base-mlx":          "openai/whisper-base",
+    "mlx-community/whisper-tiny":              "openai/whisper-tiny",
+}
+
 
 def recommended_model() -> str:
     for m in WHISPER_MODELS:
@@ -231,6 +253,26 @@ class TranscriptionManager:
         snapshot_path = self._snapshot_path(repo)
         print(f"[stt] loading whisper from {snapshot_path}", flush=True)
         model = load_model(snapshot_path)          # Path object — see v1.2.8
+
+        # The mlx-community repos don't bundle the HF processor, so load_model's
+        # post-hook leaves model._processor = None → "Processor not found" at
+        # transcribe time. Attach a tokenizer-providing WhisperProcessor from
+        # the matching base OpenAI repo (tiny one-time download, cached in
+        # HF_HOME). See _PROCESSOR_BASE above for the full rationale.
+        if getattr(model, "_processor", None) is None:
+            base = _PROCESSOR_BASE.get(repo, "openai/whisper-large-v3-turbo")
+            print(f"[stt] {repo} ships no processor — attaching from {base}", flush=True)
+            try:
+                from transformers import WhisperProcessor
+                model._processor = WhisperProcessor.from_pretrained(base)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Whisper model {repo} ships no HF processor, and the fallback "
+                    f"processor from {base} couldn't be loaded ({type(e).__name__}: {e}). "
+                    "This needs a one-time ~2 MB internet fetch the first time you "
+                    "transcribe — check the modal's network access and retry."
+                )
+
         self._model = model
         self._model_repo = repo
         return model
