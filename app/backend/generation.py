@@ -17,6 +17,8 @@ Currently wired (workers exist):
 - orpheus         → mlx-audio worker
 - kittentts       → mlx-audio worker
 - vibevoice       → mlx-audio worker
+- voxtral-tts     → mlx-audio worker (20 preset voices / 9 langs)
+- marvis          → mlx-audio worker (sesame/csm engine; 2 preset voices)
 - omnivoice       → ailuntx/OmniVoice-MLX (separate worker)
 - f5-tts          → f5_tts.api.F5TTS (separate worker)
 
@@ -226,6 +228,10 @@ def availability() -> dict:
         "voxcpm_emotion_examples": VOXCPM_EMOTION_EXAMPLES,
         "bark_voice_presets": BARK_VOICE_PRESETS,
         "bark_tags": BARK_TAGS,
+        # Preset-voice rosters for the clickable voice-button picker (v1.5.1).
+        "voxtral_voices": VOXTRAL_VOICES,
+        "marvis_voices": MARVIS_VOICES,
+        "orpheus_voices": ORPHEUS_VOICES,
         "lang_names": LANG_NAMES,
         "phase": 2,
         "wired_families": wired,
@@ -368,7 +374,7 @@ _WIRED_FAMILIES = {
     # All mlx-audio-backed families share one worker.
     "qwen3-tts", "voxcpm-mlx", "kokoro-mlx",
     "chatterbox-mlx", "spark-tts-mlx", "orpheus",
-    "kittentts", "vibevoice",
+    "kittentts", "vibevoice", "voxtral-tts", "marvis",
     # Its own loader (ailuntx/OmniVoice-MLX) — separate worker.
     "omnivoice",
     # Its own loader (f5_tts.api.F5TTS) — separate worker.
@@ -445,6 +451,22 @@ MLX_AUDIO_FAMILIES: dict[str, dict] = {
         "mode": "voice_picker",
         "label": "VibeVoice Realtime",
     },
+    "voxtral-tts": {
+        "default_sample_rate": 24000,
+        "uses_cfg": False,
+        "mode": "voice_picker",
+        "label": "Voxtral-4B-TTS",
+    },
+    "marvis": {
+        # model_type "csm"/"marvis" → mlx-audio routes to the sesame engine.
+        # Voices (conversational_a/b) resolve their prompt wavs from the model
+        # repo itself (config text_tokenizer points at the Marvis repo), so no
+        # gated sesame/csm-1b fallback is ever hit.
+        "default_sample_rate": 24000,
+        "uses_cfg": False,
+        "mode": "voice_picker",
+        "label": "Marvis TTS",
+    },
 }
 
 
@@ -505,13 +527,24 @@ BARK_TAGS = [
 # ───────────── Qwen3-TTS preset metadata ─────────────
 
 # Surfaced via /api/generate/availability so the frontend can populate the
-# preset-speaker picker without re-querying mlx-audio. Mirrors the launcher's
-# Mac01-derived speaker list verbatim.
+# preset-speaker picker without re-querying mlx-audio.
+#
+# SOURCE OF TRUTH: the CustomVoice model's own config.json `spk_id` map. The
+# installed mlx-community/Qwen3-TTS-12Hz-*-CustomVoice models ship EXACTLY these
+# 9 speakers (verified against config.json):
+#     aiden, dylan, eric, ono_anna, ryan, serena, sohee, uncle_fu, vivian
+# mlx-audio matches speaker names case-insensitively and lowercases them before
+# the spk_id lookup (qwen3_tts.py: `config.spk_id[speaker.lower()]`), so the
+# capitalised display ids below resolve correctly.
+#
+# DO NOT add speakers that aren't in the model's spk_id map. Earlier this list
+# carried two phantom speakers ("Ethan", "Chelsie") copied from an older Qwen
+# roster — picking them passed the app's own validation but mlx-audio rejected
+# them with `ValueError: Speaker 'Ethan' not supported`, which surfaced only as
+# the generic "mlx-audio didn't produce a wav file" wall. Removed in v1.4.4.
 QWEN3_PRESET_SPEAKERS = [
     {"id": "Ryan",     "lang": "en", "gender": "m", "description": "Dynamic male, strong rhythmic drive"},
     {"id": "Aiden",    "lang": "en", "gender": "m", "description": "Sunny American male, clear midrange"},
-    {"id": "Ethan",    "lang": "en", "gender": "m", "description": "Mature male, balanced timbre"},
-    {"id": "Chelsie",  "lang": "en", "gender": "f", "description": "Warm female narrator"},
     {"id": "Serena",   "lang": "en", "gender": "f", "description": "Warm, gentle young female"},
     {"id": "Vivian",   "lang": "en", "gender": "f", "description": "Bright, slightly edgy young female"},
     {"id": "Uncle_Fu", "lang": "zh", "gender": "m", "description": "Seasoned male, low mellow timbre"},
@@ -529,6 +562,60 @@ QWEN3_VOICE_DESIGN_EXAMPLES = [
     "Whispering quietly",
     "Deep gravelly male, like a 60-year-old narrator",
     "Light cheerful female, friendly customer-service tone",
+]
+
+
+# ───────────── Preset-voice rosters for the MLX voice-picker families ─────────────
+#
+# Surfaced via /api/generate/availability so the frontend can render clickable
+# voice buttons instead of a free-text field. Each id is the EXACT string the
+# engine expects (verified against the installed mlx-audio engine source — same
+# rigor as QWEN3_PRESET_SPEAKERS) so a button click can never produce a phantom
+# voice. Families NOT listed here (KittenTTS, VibeVoice) keep the free-text
+# field because their exact rosters aren't verifiable without the model on disk.
+
+# Voxtral-4B-TTS — verified against voxtral_tts.py `VOICE_MAP` (20 entries).
+# The voice name selects the language.
+VOXTRAL_VOICES = [
+    {"id": "casual_male",     "lang": "en", "gender": "m", "label": "Casual male"},
+    {"id": "casual_female",   "lang": "en", "gender": "f", "label": "Casual female"},
+    {"id": "cheerful_female", "lang": "en", "gender": "f", "label": "Cheerful female"},
+    {"id": "neutral_male",    "lang": "en", "gender": "m", "label": "Neutral male"},
+    {"id": "neutral_female",  "lang": "en", "gender": "f", "label": "Neutral female"},
+    {"id": "fr_male",         "lang": "fr", "gender": "m", "label": "French male"},
+    {"id": "fr_female",       "lang": "fr", "gender": "f", "label": "French female"},
+    {"id": "es_male",         "lang": "es", "gender": "m", "label": "Spanish male"},
+    {"id": "es_female",       "lang": "es", "gender": "f", "label": "Spanish female"},
+    {"id": "de_male",         "lang": "de", "gender": "m", "label": "German male"},
+    {"id": "de_female",       "lang": "de", "gender": "f", "label": "German female"},
+    {"id": "it_male",         "lang": "it", "gender": "m", "label": "Italian male"},
+    {"id": "it_female",       "lang": "it", "gender": "f", "label": "Italian female"},
+    {"id": "pt_male",         "lang": "pt", "gender": "m", "label": "Portuguese male"},
+    {"id": "pt_female",       "lang": "pt", "gender": "f", "label": "Portuguese female"},
+    {"id": "nl_male",         "lang": "nl", "gender": "m", "label": "Dutch male"},
+    {"id": "nl_female",       "lang": "nl", "gender": "f", "label": "Dutch female"},
+    {"id": "ar_male",         "lang": "ar", "gender": "m", "label": "Arabic male"},
+    {"id": "hi_male",         "lang": "hi", "gender": "m", "label": "Hindi male"},
+    {"id": "hi_female",       "lang": "hi", "gender": "f", "label": "Hindi female"},
+]
+
+# Marvis TTS — verified against sesame.py SPEAKER_PROMPTS (2 entries).
+MARVIS_VOICES = [
+    {"id": "conversational_a", "lang": "en", "gender": "f", "label": "Conversational A (female)"},
+    {"id": "conversational_b", "lang": "en", "gender": "m", "label": "Conversational B (male)"},
+]
+
+# Orpheus — the 8 canonical fine-tune voices (also listed in the catalog
+# use_cases). mlx-audio passes the voice straight through to the prompt.
+ORPHEUS_VOICES = [
+    {"id": "tara", "lang": "en", "gender": "f", "label": "Tara"},
+    {"id": "leah", "lang": "en", "gender": "f", "label": "Leah"},
+    {"id": "jess", "lang": "en", "gender": "f", "label": "Jess"},
+    {"id": "mia",  "lang": "en", "gender": "f", "label": "Mia"},
+    {"id": "zoe",  "lang": "en", "gender": "f", "label": "Zoe"},
+    {"id": "dan",  "lang": "en", "gender": "m", "label": "Dan"},
+    {"id": "leo",  "lang": "en", "gender": "m", "label": "Leo"},
+    {"id": "zac",  "lang": "en", "gender": "m", "label": "Zac"},
 ]
 
 

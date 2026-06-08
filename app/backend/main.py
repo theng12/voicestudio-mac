@@ -185,13 +185,31 @@ def system_hardware() -> dict:
 
 # ───────────── API: catalog ─────────────
 
+def _cache_with_companions(repo: str) -> dict:
+    """Cache snapshot for a model, downgraded to 'partial' when its engine's
+    companion models (audio codec / tokenizer in a separate repo) aren't cached
+    yet. Keeps the Models-tab badge honest: a model only reads 'cached' when it
+    can actually generate without a surprise second download."""
+    snap = cache.status_snapshot(repo)
+    comps = catalog.companions_for(repo)
+    if not comps:
+        return snap
+    pending = [c for c in comps if cache.cache_state(c["repo"]) != "cached"]
+    if pending and snap.get("state") == "cached":
+        snap = {**snap, "state": "partial"}
+    snap["companions_pending"] = [
+        {"repo": c["repo"], "label": c.get("label", "")} for c in pending
+    ]
+    return snap
+
+
 @app.get("/api/catalog")
 def get_catalog() -> dict:
     families = {fid: catalog.serialize_family(f) for fid, f in catalog.FAMILIES.items()}
     models = []
     for m in catalog.CATALOG:
         d = catalog.serialize_model(m)
-        d["cache"] = cache.status_snapshot(m.repo)
+        d["cache"] = _cache_with_companions(m.repo)
         active = manager.active_for_repo(m.repo)
         d["active_download"] = active.serialize() if active else None
         models.append(d)
@@ -200,7 +218,7 @@ def get_catalog() -> dict:
 
 @app.get("/api/cache/{repo:path}")
 def get_cache(repo: str) -> dict:
-    return cache.status_snapshot(repo)
+    return _cache_with_companions(repo)
 
 
 # ───────────── API: downloads ─────────────

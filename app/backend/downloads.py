@@ -219,14 +219,44 @@ class DownloadManager:
                 continue
         return total
 
+    def _companion_bytes(self, repo: str, allow_patterns, token: Optional[str]) -> int:
+        """Bytes for a companion download. When allow_patterns is set, count
+        ONLY the matched files (kyutai/moshiko is a ~15 GB repo we take 1 file
+        from)."""
+        effective = token or settings.get_hf_token()
+        try:
+            info = HfApi().repo_info(repo_id=repo, files_metadata=True, token=effective)
+        except Exception:
+            return 0
+        total = 0
+        for sibling in info.siblings or []:
+            name = getattr(sibling, "rfilename", "") or ""
+            if allow_patterns and not _matches_any(name, allow_patterns):
+                continue
+            size = getattr(sibling, "size", None) or 0
+            try:
+                total += int(size)
+            except (TypeError, ValueError):
+                continue
+        return total
+
     def _run(self, job: DownloadJob) -> None:
         job.state = "running"
         job.started_at = time.time()
-        job.total_bytes = self._resolve_total_bytes(job.repo, job.token)
+        # Total = main repo + every companion (codec/tokenizer) the engine pulls
+        # at generation time. Counting companions here keeps the progress bar
+        # honest AND makes the download complete-on-first-run (no surprise
+        # second download when the user hits Generate).
+        companions = catalog.companions_for(job.repo)
+        total = self._resolve_total_bytes(job.repo, job.token)
+        for c in companions:
+            total += self._companion_bytes(c["repo"], c.get("allow_patterns"), job.token)
+        job.total_bytes = total
         cache.ensure_hub_dir()
         print(
             f"[downloads] starting {job.repo}  "
-            f"(job={job.job_id}, total={job.total_bytes / 1e9:.2f} GB)",
+            f"(job={job.job_id}, total={job.total_bytes / 1e9:.2f} GB"
+            f"{', +' + str(len(companions)) + ' companion(s)' if companions else ''})",
             flush=True,
         )
 
@@ -247,6 +277,24 @@ class DownloadManager:
                 token=effective_token,
                 ignore_patterns=list(ignore) if ignore else None,
             )
+            # Companion models — the audio codec / tokenizer the engine loads
+            # from a separate repo at generation time. Fetched right after the
+            # main model so "downloaded" really means "ready to generate".
+            if not job.cancel_event.is_set():
+                for c in companions:
+                    allow = c.get("allow_patterns")
+                    print(
+                        f"[downloads] companion {c['repo']} "
+                        f"({c.get('label', 'helper model')}) for {job.repo}",
+                        flush=True,
+                    )
+                    snapshot_download(
+                        repo_id=c["repo"],
+                        token=effective_token,
+                        allow_patterns=list(allow) if allow else None,
+                    )
+                    if job.cancel_event.is_set():
+                        break
             if job.cancel_event.is_set():
                 job.state = "cancelled"
                 print(f"[downloads] cancelled {job.repo}", flush=True)

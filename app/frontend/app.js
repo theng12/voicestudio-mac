@@ -43,6 +43,9 @@ function studio() {
       device: null,                // "mps" | "cuda" | "cpu"
       kokoro_voices: [],           // [{id, label, lang, gender}, ...]
       qwen3_preset_speakers: [],   // [{id, lang, gender, description}, ...]
+      voxtral_voices: [],          // [{id, lang, gender, label}, ...]
+      marvis_voices: [],           // [{id, lang, gender, label}, ...]
+      orpheus_voices: [],          // [{id, lang, gender, label}, ...]
       qwen3_voice_design_examples: [],  // [string, ...]
       lang_names: {},
       wired_families: [],
@@ -769,8 +772,11 @@ function studio() {
     /** History entries other than the current "Latest generation" — the
      *  recent-grid renders this paginated. */
     get historyJobs() {
-      // Everything except index 0 (which is shown in "Latest generation").
-      return this.recentJobs.slice(1);
+      // v1.5.2: ALL finished results live here (newest first), including the
+      // most recent one. Previously index 0 was carved out for a separate
+      // "Latest generation" panel in the generate area; that panel is gone now,
+      // so every result shows in this single history list.
+      return this.recentJobs;
     },
 
     get historyPageCount() {
@@ -1899,6 +1905,9 @@ function studio() {
         this.gen.device = data.device;
         this.gen.kokoro_voices = data.kokoro_voices || [];
         this.gen.qwen3_preset_speakers = data.qwen3_preset_speakers || [];
+        this.gen.voxtral_voices = data.voxtral_voices || [];
+        this.gen.marvis_voices = data.marvis_voices || [];
+        this.gen.orpheus_voices = data.orpheus_voices || [];
         this.gen.qwen3_voice_design_examples = data.qwen3_voice_design_examples || [];
         this.gen.voxcpm_available = !!data.voxcpm_available;
         this.gen.voxcpm_emotion_examples = data.voxcpm_emotion_examples || [];
@@ -1969,12 +1978,39 @@ function studio() {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "vibevoice";
     },
+    isVoxtral(repo) {
+      const m = (this.models || []).find(x => x.repo === repo);
+      return m?.family === "voxtral-tts";
+    },
+    isMarvis(repo) {
+      const m = (this.models || []).find(x => x.repo === repo);
+      return m?.family === "marvis";
+    },
     /** True for any mlx-audio-backed family that takes a free-form preset voice
      *  name (no library cloning, no reference clip). Used for the simple
      *  voice-picker UI block. */
     isMlxVoicePicker(repo) {
       return this.isKokoroMlx(repo) || this.isOrpheus(repo)
-          || this.isKittenTts(repo) || this.isVibeVoice(repo);
+          || this.isKittenTts(repo) || this.isVibeVoice(repo)
+          || this.isVoxtral(repo) || this.isMarvis(repo);
+    },
+    /** Verified preset-voice roster for the current voice-picker family, or []
+     *  when we don't have a confirmed list (KittenTTS / VibeVoice → free-text).
+     *  Drives the clickable voice buttons. Each entry: {id, label, lang, gender}. */
+    presetVoiceOptions(repo) {
+      if (this.isVoxtral(repo))   return this.gen.voxtral_voices || [];
+      if (this.isMarvis(repo))    return this.gen.marvis_voices || [];
+      if (this.isOrpheus(repo))   return this.gen.orpheus_voices || [];
+      if (this.isKokoroMlx(repo)) return this.gen.kokoro_voices || [];
+      return [];
+    },
+    /** True when the current family has clickable voice buttons available. */
+    hasVoiceButtons(repo) {
+      return this.presetVoiceOptions(repo).length > 0;
+    },
+    /** Set the active preset voice from a button click. */
+    selectVoice(id) {
+      this.gen.voice = id;
     },
     /** True for any mlx-audio-backed family that supports voice cloning from
      *  the Voices library. Used to show the voice-library picker. */
@@ -2020,7 +2056,8 @@ function studio() {
     isMlxAudio(repo) {
       return this.isQwen3(repo) || this.isVoxCPMMlx(repo) || this.isKokoroMlx(repo)
           || this.isChatterboxMlx(repo) || this.isSparkTtsMlx(repo) || this.isOrpheus(repo)
-          || this.isKittenTts(repo) || this.isVibeVoice(repo);
+          || this.isKittenTts(repo) || this.isVibeVoice(repo)
+          || this.isVoxtral(repo) || this.isMarvis(repo);
     },
     setVoxcpmEmotionExample(text) {
       this.gen.instruct = text;

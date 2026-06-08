@@ -40,6 +40,15 @@ mlx>=0.20
 mlx-lm>=0.19
 mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git
 
+# ─── v1.5.0: Voxtral-4B-TTS (MLX) ───
+# Voxtral's tekken tokenizer is loaded via mistral-common, and the audio path
+# needs the [audio] extra (soundfile + audio helpers). Without it, generation
+# fails at tokenizer-load with: "Voxtral TTS tekken tokenizers require
+# mistral-common[audio]". mlx-audio imports it lazily so the engine module
+# imports fine without it — but generation does not. Marvis (sesame engine)
+# needs no extra dep beyond mlx-lm/mlx-audio already pinned above.
+mistral-common[audio]>=1.5
+
 # ─── Phase 2.1: VoxCPM (transformers + custom audiovae) ───
 # Official OpenBMB inference package. Pulls torch + transformers (already pinned),
 # plus modelscope (for the optional denoiser — we currently load it with

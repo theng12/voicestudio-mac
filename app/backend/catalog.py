@@ -351,6 +351,49 @@ FAMILIES: dict[str, Family] = {
             note="No practical length limit. For multi-minute renders, splitting into multiple calls usually gives more consistent results.",
         ),
     ),
+    "voxtral-tts": Family(
+        id="voxtral-tts",
+        label="Voxtral-4B-TTS (MLX)",
+        summary=(
+            "Voxtral-4B-TTS — a multilingual TTS with 20 built-in preset voices "
+            "across 9 languages (English, French, Spanish, German, Italian, "
+            "Portuguese, Dutch, Arabic, Hindi). No cloning needed. Runs faster "
+            "than real-time on Apple Silicon (~0.97× RTF at 4-bit). MLX-native "
+            "via mlx-audio."
+        ),
+        how_to_use=(
+            "Pick a preset voice (e.g. `casual_male`, `cheerful_female`, "
+            "`fr_female`, `hi_male`) and provide text. The voice name selects "
+            "both the speaker and its language. 4-bit is the recommended pick "
+            "for 8 GB Macs; bf16 only if you have 16 GB+ headroom."
+        ),
+        text_guidance=TextGuidance(
+            soft_max_chars=None,
+            chunking="auto-split",
+            note="Handles long text by auto-chunking. 20 preset voices across 9 languages — the voice name sets the language.",
+        ),
+    ),
+    "marvis": Family(
+        id="marvis",
+        label="Marvis TTS (MLX)",
+        summary=(
+            "Marvis TTS — a 250M-parameter CSM/Llama-based conversational TTS "
+            "built by the mlx-audio author for low-latency streaming on Apple "
+            "Silicon, iPhone and iPad. Ships 2 built-in voices and is fully "
+            "self-contained (no gated dependencies). MLX-native. Apache-2.0."
+        ),
+        how_to_use=(
+            "Pick one of the 2 built-in voices — `conversational_a` (female) "
+            "or `conversational_b` (male) — and provide text. Optimised for "
+            "natural conversational delivery and streaming; best on shorter "
+            "conversational turns, longer text auto-segments."
+        ),
+        text_guidance=TextGuidance(
+            soft_max_chars=None,
+            chunking="auto-split",
+            note="Conversational streaming model with 2 built-in voices. Best on shorter turns; long text auto-segments and may drift on very long single takes.",
+        ),
+    ),
 }
 
 
@@ -1243,6 +1286,71 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("avoid", "Day-to-day use — pick bf16 / 8-bit / 4-bit instead"),
         ),
     ),
+
+    # ──────────── Voxtral-4B-TTS family (multilingual preset voices) ────────────
+    ModelEntry(
+        repo="mlx-community/Voxtral-4B-TTS-2603-mlx-4bit",
+        label="Voxtral-4B-TTS 4-bit (MLX) — recommended",
+        family="voxtral-tts",
+        size_gb=2.5,
+        gated=False,
+        min_unified_memory_gb=8,
+        recommended_hardware="Any Apple Silicon Mac with 8 GB. ~0.97× RTF (faster than real-time).",
+        capabilities=("tts", "multilingual"),
+        best_for="The recommended Voxtral pick. 20 built-in preset voices across 9 languages — no cloning needed. Faster than real-time on Apple Silicon. Pick a voice name like casual_male / cheerful_female / fr_female / hi_male; the voice selects the language.",
+        sample_rate_hz=24000,
+        languages=("en", "fr", "es", "de", "it", "pt", "nl", "ar", "hi"),
+        use_cases=(
+            ("good",  "Multilingual preset narration — 20 voices across en/fr/es/de/it/pt/nl/ar/hi, no reference clip"),
+            ("good",  "Quick voiceovers where you want a named voice instantly (casual/cheerful/neutral)"),
+            ("good",  "Faster-than-real-time on 8 GB Apple Silicon"),
+            ("good",  "More non-English voices than Qwen3-TTS (adds de/it/pt/nl/ar)"),
+            ("weak",  "English only has 5 voices (casual/cheerful/neutral) — fewer than Kokoro's ~28"),
+            ("avoid", "Voice cloning — Voxtral uses fixed preset voices, no clone-from-reference"),
+        ),
+    ),
+    ModelEntry(
+        repo="mlx-community/Voxtral-4B-TTS-2603-mlx-bf16",
+        label="Voxtral-4B-TTS bf16 (MLX) — full precision",
+        family="voxtral-tts",
+        size_gb=8.0,
+        gated=False,
+        min_unified_memory_gb=16,
+        recommended_hardware="M2 Pro / M3 16 GB+ recommended.",
+        capabilities=("tts", "multilingual"),
+        best_for="Full-precision Voxtral — cleaner output than 4-bit for final renders. Same 20 voices / 9 languages. Pick only if you have 16 GB+; on 8 GB use the 4-bit.",
+        sample_rate_hz=24000,
+        languages=("en", "fr", "es", "de", "it", "pt", "nl", "ar", "hi"),
+        use_cases=(
+            ("good",  "Final-quality multilingual renders at the Voxtral tier"),
+            ("good",  "Same 20 preset voices as 4-bit, cleaner prosody"),
+            ("weak",  "~8 GB on disk + working memory"),
+            ("avoid", "8 GB Macs — use the 4-bit instead"),
+        ),
+    ),
+
+    # ──────────── Marvis TTS family (conversational, 2 preset voices) ────────────
+    ModelEntry(
+        repo="Marvis-AI/marvis-tts-250m-v0.1",
+        label="Marvis TTS 250M (MLX)",
+        family="marvis",
+        size_gb=2.3,
+        gated=False,
+        min_unified_memory_gb=8,
+        recommended_hardware="Any Apple Silicon Mac with 8 GB. Built for low-latency streaming.",
+        capabilities=("tts", "expressive"),
+        best_for="A 250M CSM/Llama-based conversational TTS by the mlx-audio author, built for low-latency streaming on Apple Silicon. 2 built-in voices (conversational_a female, conversational_b male), fully self-contained. Apache-2.0.",
+        sample_rate_hz=24000,
+        languages=("en",),
+        use_cases=(
+            ("good",  "Natural conversational delivery with 2 built-in voices (conversational_a / conversational_b)"),
+            ("good",  "Low-latency / streaming use on 8 GB Apple Silicon"),
+            ("good",  "Fully self-contained — no gated dependencies, Apache-2.0"),
+            ("weak",  "Only 2 voices and English-only"),
+            ("avoid", "Long single-take narration — best on shorter conversational turns"),
+            ("avoid", "Voice cloning — uses its 2 built-in voices (clone support is roadmap upstream)"),
+        ),
+    ),
 )
 
 
@@ -1263,6 +1371,64 @@ def ignore_patterns_for(repo: str) -> tuple[str, ...]:
     return m.ignore_patterns
 
 
+# ───────────── Companion (helper) models ─────────────
+#
+# Some engines load a SECOND model at generation time — an audio codec /
+# tokenizer that lives in a *different* HF repo than the catalog model. If we
+# only download the catalog repo, the first generation triggers a surprise
+# download (the user thinks the model is "ready" but then waits again).
+#
+# To make a download complete-on-first-run, every family whose engine pulls an
+# external companion is listed here. downloads.py fetches these right after the
+# main model, and /api/catalog marks a model "partial" until its companions are
+# present too — so the cached badge stays honest.
+#
+# Each companion: {repo, allow_patterns, label}.
+#   allow_patterns=None → whole repo. A tuple → only those files (used for
+#   kyutai/moshiko-pytorch-bf16, where we need ONE codec file out of a ~15 GB
+#   repo, NOT the whole thing).
+#
+# VERIFIED against the installed mlx-audio engine source:
+#   - marvis (sesame)   → sesame.py: MIMI_REPO + Mimi.from_pretrained(...,
+#                         filename="tokenizer-e351c8d8-checkpoint125.safetensors")
+#   - orpheus (llama)   → llama.py loads mlx-community/snac_24khz
+#   - chatterbox-mlx    → chatterbox.py loads mlx-community/S3TokenizerV2
+# OmniVoice / Spark load their codecs from inside their own repo (no companion).
+FAMILY_COMPANIONS: dict[str, tuple[dict, ...]] = {
+    "marvis": (
+        {
+            "repo": "kyutai/moshiko-pytorch-bf16",
+            "allow_patterns": ("tokenizer-e351c8d8-checkpoint125.safetensors",),
+            "label": "Mimi audio codec",
+        },
+    ),
+    "orpheus": (
+        {
+            "repo": "mlx-community/snac_24khz",
+            "allow_patterns": None,
+            "label": "SNAC 24 kHz codec",
+        },
+    ),
+    "chatterbox-mlx": (
+        {
+            "repo": "mlx-community/S3TokenizerV2",
+            "allow_patterns": None,
+            "label": "S3 speech tokenizer",
+        },
+    ),
+}
+
+
+def companions_for(repo: str) -> tuple[dict, ...]:
+    """Companion (codec/tokenizer) models the engine pulls at generation time
+    for the family that owns `repo`. Empty tuple when the family is
+    self-contained or the repo is unknown."""
+    m = get_model(repo)
+    if m is None:
+        return ()
+    return FAMILY_COMPANIONS.get(m.family, ())
+
+
 def serialize_model(m: ModelEntry) -> dict:
     # Per-model hardware-fit verdict against the running Mac's detected RAM.
     # Lazy import dodges any potential cycle at module-load time.
@@ -1272,8 +1438,17 @@ def serialize_model(m: ModelEntry) -> dict:
     except Exception:
         fit = None
     # Naming-compat with the imagestudio/musicstudio frontend code —
-    # "apple_optimized" there refers to MLX. Compute it from family suffix.
-    apple_optimized = m.family.endswith("-mlx") or m.family in ("qwen3-tts", "orpheus")
+    # "apple_optimized" there refers to MLX. The default-ON "MLX only" filter
+    # hides any model where this is False, so EVERY MLX-audio family must be
+    # listed here. Keep this set in sync with generation.MLX_AUDIO_FAMILIES
+    # (catalog.py can't import generation.py without a circular import, hence
+    # the explicit enumeration). The "-mlx" suffix catches voxcpm-mlx /
+    # kokoro-mlx / chatterbox-mlx / spark-tts-mlx; the rest are named.
+    _MLX_AUDIO_FAMILIES = (
+        "qwen3-tts", "orpheus", "kittentts", "vibevoice",
+        "omnivoice", "voxtral-tts", "marvis",
+    )
+    apple_optimized = m.family.endswith("-mlx") or m.family in _MLX_AUDIO_FAMILIES
     return {
         "repo": m.repo,
         "label": m.label,

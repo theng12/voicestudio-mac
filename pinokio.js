@@ -7,6 +7,13 @@ module.exports = {
     const installed = info.exists("conda_env")
     const generationInstalled = info.exists("conda_env/lib/python3.12/site-packages/transformers") &&
                                 info.exists("conda_env/lib/python3.12/site-packages/diffusers")
+    // Always-on launchd service installed? (marker dropped by install_service.sh)
+    const serviceInstalled = info.exists("service/.installed")
+    const servicePort = 47870
+    // Offered in the normal (non-service) menus so the user can convert to a
+    // background service. When the service IS installed we return a dedicated
+    // "service mode" menu below instead.
+    const serviceItem = { icon: "fa-solid fa-heart-pulse", text: "Install as Startup Service", href: "service.js" }
     const running = {
       install: info.running("install.js"),
       install_generation: info.running("install_generation.js"),
@@ -30,6 +37,30 @@ module.exports = {
 
     if (!installed) {
       return [{ default: true, icon: "fa-solid fa-plug", text: "Install", href: "install.js" }]
+    }
+
+    // ── Service mode ──
+    // The launchd service runs the server itself (on the fixed port), so Pinokio
+    // doesn't "see" it as running. Show a dedicated menu: open the running UI,
+    // check status, restart, view logs, uninstall — and NO "Start" button (that
+    // would fight the service for the port). Convert back by uninstalling.
+    if (serviceInstalled) {
+      const cb = Date.now()
+      const svcUrl = `http://localhost:${servicePort}`
+      return [
+        { default: true, icon: "fa-solid fa-rocket", text: "Open UI (service)", href: `${svcUrl}/?_cb=${cb}` },
+        { icon: "fa-solid fa-arrow-up-right-from-square",
+          text: `Port ${servicePort} · Open in Browser`,
+          href: "open_external.js", params: { url: svcUrl } },
+        { icon: "fa-solid fa-stethoscope", text: "Check Service Status", href: "service_status.js" },
+        { icon: "fa-solid fa-rotate-right", text: "Restart Service", href: "service_restart.js" },
+        { icon: "fa-solid fa-screwdriver-wrench", text: "Repair · take over port", href: "service.js" },
+        { icon: "fa-solid fa-folder-open", text: "Service Logs", href: "logs/service?fs=true" },
+        { icon: "fa-solid fa-microphone-lines", text: "Outputs", href: "app/output?fs=true" },
+        { icon: "fa-solid fa-folder-tree", text: "HF Cache", href: "cache/HF_HOME/hub?fs=true" },
+        { icon: "fa-regular fa-circle-xmark", text: "Uninstall Startup Service", href: "unservice.js" },
+        { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" }
+      ]
     }
 
     if (running.start) {
@@ -64,7 +95,8 @@ module.exports = {
           { icon: "fa-solid fa-microphone-lines", text: "Outputs", href: "app/output?fs=true" },
           { icon: "fa-solid fa-wand-magic-sparkles",
             text: generationInstalled ? "Reinstall Generation" : "Install Generation",
-            href: "install_generation.js" }
+            href: "install_generation.js" },
+          serviceItem
         ]
       }
       return [{ default: true, icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" }]
@@ -77,6 +109,7 @@ module.exports = {
       { icon: "fa-solid fa-wand-magic-sparkles",
         text: generationInstalled ? "Reinstall Generation" : "Install Generation",
         href: "install_generation.js" },
+      serviceItem,
       { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
       { icon: "fa-solid fa-plug", text: "Reinstall", href: "install.js" },
       { icon: "fa-regular fa-circle-xmark", text: "Reset", href: "reset.js" }

@@ -537,9 +537,26 @@
         <!-- ─── New mlx-audio family controls (Phase D) ─── -->
         <!-- Kokoro-MLX / Orpheus / KittenTTS / VibeVoice: free-form voice picker. -->
         <section class="control-block" x-show="isMlxVoicePicker(gen.repo)" x-cloak>
-          <label>Voice (preset name)</label>
+          <label>Voice</label>
+
+          <!-- Clickable voice buttons for families with a verified roster
+               (Voxtral / Marvis / Orpheus / Kokoro-MLX). Each button sets
+               gen.voice; the active one is highlighted. -->
+          <div class="voice-btn-grid" x-show="hasVoiceButtons(gen.repo)">
+            <template x-for="v in presetVoiceOptions(gen.repo)" :key="v.id">
+              <button type="button"
+                      class="btn ghost small voice-btn"
+                      :class="{ active: gen.voice === v.id }"
+                      @click="selectVoice(v.id)"
+                      x-text="(v.gender === 'm' ? '♂ ' : v.gender === 'f' ? '♀ ' : '') + (v.label || v.id)"></button>
+            </template>
+          </div>
+
+          <!-- Free-text override / fallback. Always available so power users can
+               type a custom name, and the only input for families without a
+               verified roster (KittenTTS / VibeVoice). -->
           <input type="text" class="prompt-input" x-model="gen.voice"
-                 placeholder="e.g. tara · af_bella · Jasper · en-Emma_woman">
+                 :placeholder="hasVoiceButtons(gen.repo) ? 'Selected above — or type a custom voice name' : 'e.g. Jasper · en-Emma_woman'">
           <p class="muted hint">
             <span x-show="isKokoroMlx(gen.repo)">
               Kokoro-MLX uses the same voicepack names as PyTorch Kokoro
@@ -558,6 +575,18 @@
             <span x-show="isVibeVoice(gen.repo)">
               VibeVoice uses preset voices in <code>&lt;lang&gt;-&lt;name&gt;_&lt;gender&gt;</code> format —
               <code>en-Emma_woman</code> is a known default. Check the model card on Hugging Face for the full voice list.
+            </span>
+            <span x-show="isVoxtral(gen.repo)">
+              Voxtral has 20 preset voices — the name sets the language.
+              English: <code>casual_male</code>, <code>casual_female</code>, <code>cheerful_female</code>,
+              <code>neutral_male</code>, <code>neutral_female</code>.
+              Others: <code>fr_male/female</code>, <code>es_male/female</code>, <code>de_male/female</code>,
+              <code>it_male/female</code>, <code>pt_male/female</code>, <code>nl_male/female</code>,
+              <code>ar_male</code>, <code>hi_male/female</code>.
+            </span>
+            <span x-show="isMarvis(gen.repo)">
+              Marvis has 2 built-in voices: <code>conversational_a</code> (female) and
+              <code>conversational_b</code> (male).
             </span>
           </p>
         </section>
@@ -810,27 +839,11 @@
           </div>
         </section>
 
-        <!-- Latest output -->
-        <section class="audio-output" x-show="latestJob" x-cloak>
-          <h3 x-text="latestJob?.state === 'done' ? '✅ Latest generation' : (latestJob?.state === 'running' ? '⏳ Generating…' : '⚠️ Last attempt')"></h3>
-          <div x-show="latestJob?.state === 'done' && latestJob?.output_url" x-cloak>
-            <audio :src="latestJob?.output_url" controls preload="auto"></audio>
-            <div class="audio-meta muted">
-              <span x-text="'Job ' + latestJob?.id"></span>
-              <span x-text="' · ' + formatDuration(latestJob?.duration_seconds) + ' to render'"></span>
-              <span x-show="latestJob?.resolved_seed" x-text="' · seed ' + latestJob?.resolved_seed"></span>
-            </div>
-            <div class="audio-actions">
-              <a class="btn ghost small" :href="latestJob?.output_url" :download="downloadFilename(latestJob)">⬇ Download WAV</a>
-              <button class="btn ghost small" @click="copyAudioUrl(latestJob)">🔗 Copy URL</button>
-              <button class="btn ghost small" @click="reuseParams(latestJob)">↻ Reuse params</button>
-            </div>
-          </div>
-          <div x-show="latestJob?.state === 'running'" x-cloak class="audio-placeholder">
-            <span class="muted">Generating speech…</span>
-          </div>
-          <div x-show="latestJob?.state === 'error'" x-cloak class="error-text">
-            <span x-text="latestJob?.error || 'Generation failed.'"></span>
+        <!-- Transient status only. Finished results (audio, errors) all live in
+             the history list below — nothing is duplicated up here anymore. -->
+        <section class="audio-output" x-show="latestJob && latestJob.state === 'running'" x-cloak>
+          <div class="audio-placeholder">
+            <span class="muted">⏳ Generating speech… your result will appear in <strong>Recent generations</strong> below.</span>
           </div>
         </section>
 
@@ -854,14 +867,20 @@
                 <div class="history-meta">
                   <div class="history-text" :title="job.params?.text || ''"
                        x-text="(job.params?.text || '(no text)').slice(0, 100) + ((job.params?.text || '').length > 100 ? '…' : '')"></div>
-                  <div class="history-tags muted small">
-                    <span class="history-tag" x-text="historyModelLabel(job)"></span>
-                    <span class="history-tag" x-show="historyVoiceLabel(job)" x-text="historyVoiceLabel(job)"></span>
-                    <span class="history-tag" x-show="job.resolved_seed"
-                          x-text="'seed: ' + job.resolved_seed"></span>
+                  <div class="history-tags">
+                    <span class="history-tag" :title="'Model'">
+                      <span class="history-tag-ico">🎙</span><span x-text="historyModelLabel(job)"></span>
+                    </span>
+                    <span class="history-tag" x-show="historyVoiceLabel(job)" :title="'Voice'">
+                      <span class="history-tag-ico">🗣</span><span x-text="historyVoiceLabel(job)"></span>
+                    </span>
+                    <span class="history-tag" x-show="job.resolved_seed" :title="'Seed'">
+                      <span class="history-tag-ico">🎲</span><span x-text="'seed ' + job.resolved_seed"></span>
+                    </span>
                     <span class="history-tag" x-show="job.duration_seconds"
-                          :title="'Render time (not audio length)'"
-                          x-text="formatDuration(job.duration_seconds) + ' to render'"></span>
+                          :title="'Render time (not audio length)'">
+                      <span class="history-tag-ico">⏱</span><span x-text="formatDuration(job.duration_seconds) + ' to render'"></span>
+                    </span>
                   </div>
                   <!-- Error state -->
                   <div class="history-error error-text" x-show="job.state === 'error'"
@@ -869,9 +888,9 @@
                 </div>
 
                 <div class="audio-actions">
+                  <a class="btn download-btn history-download" :href="job.output_url" :download="downloadFilename(job)"
+                     title="Download this WAV file" x-show="job.output_url">⬇ Download</a>
                   <button class="btn ghost small" @click="reuseParams(job)" title="Restore all params from this job">↻ Reuse</button>
-                  <a class="btn ghost small" :href="job.output_url" :download="downloadFilename(job)"
-                     title="Download WAV" x-show="job.output_url">⬇</a>
                 </div>
               </div>
             </template>

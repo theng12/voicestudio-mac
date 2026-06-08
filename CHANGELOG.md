@@ -10,6 +10,215 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.6.2] — 2026-06-06
+
+### Added — auto-restart the service after Update + a "Repair · take over port" button
+
+Two follow-ups from the post-build audit:
+
+- **Update now restarts the service.** A running launchd service keeps the *old* backend code in memory until restarted. `update.js` now ends with a `bash restart_service.sh` step gated on `{{exists('service/.installed')}}` — so after Update, an installed service is kicked to pick up the new code automatically. No-op if the service isn't installed.
+- **"Repair · take over port" menu item** (service mode). Re-runs the installer (boot out → free the port → re-bootstrap), so any wedged/conflicting state is fixable in one click without the Terminal. Distinct from **Restart Service** (a quick `kickstart -k`).
+
+### Fixed — take-over no longer risks killing connected clients
+The port take-over in v1.6.1 used `lsof -ti tcp:PORT`, which matches **any** socket on the port — including connected clients (a browser tab, the Pinokio webview, an SSE stream). Clicking Install with the UI open could have killed your browser. Now filtered with `-sTCP:LISTEN` so **only the listening server** is targeted. Verified live: a real client connection is correctly excluded.
+
+### Notes
+- PATCH — service scripts + update.js only. `Update`, then re-run **Install as Startup Service** once so the safer take-over + repair are in place.
+
+---
+
+## [1.6.1] — 2026-06-06
+
+### Fixed — "Check Service Status" is now clear + detects the double-run conflict
+
+Two issues surfaced the first time the status button ran against a live service:
+
+- **"Watchdog: not running" looked broken — it isn't.** The watchdog is a *periodic* agent (fires ~1s every 60s), so between checks it's idle by design. The status now says so explicitly instead of dumping a scary raw `state = not running`. The server line is also cleaner: `✓ loaded · running (pid N)`.
+- **Port-conflict detection.** If you start the app via Pinokio's **Start** and *also* install the service, both fight for the same port — the service can't bind and launchd crash-loops (the err log fills with `[Errno 48] address already in use`, and the health check is unknowingly answered by the *Pinokio* instance). The status script now detects this from the service err-log and prints a clear **PORT CONFLICT** box.
+
+### Changed — installing the service now cleanly takes over the port
+The bigger fix: **Install as Startup Service** now **stops whatever is already listening on the port** (your Pinokio "Start" instance) right before it starts the service. So the common flow — *click Start, then Install Service* — now Just Works: the old instance is stopped, the service binds, no crash loop, no manual `pkill`. (Graceful TERM, then KILL any straggler.) It targets **only the LISTENING server** (`lsof -sTCP:LISTEN`) — never connected clients, so an open browser tab / the Pinokio webview / an SSE stream is left alone. Uninstalling does NOT auto-restart the Pinokio instance — click **Start** again if you want manual mode back.
+
+### Notes
+- PATCH — service scripts only; no app/deps change. `Update` to refresh, then re-run **Install as Startup Service** once so the new take-over logic is in place.
+
+---
+
+## [1.6.0] — 2026-06-06
+
+### Added — one-click "Install as Startup Service" (always-on server + self-healing)
+
+For running this on a headless/server Mac (e.g. a fleet reached over Tailscale), you can now make the app a real background service instead of opening Pinokio and clicking Start every time.
+
+New sidebar button **❤️ Install as Startup Service** installs a macOS **launchd LaunchAgent** that:
+
+- runs the server (`serve.sh` → uvicorn on **47870**) **at login**, so it returns automatically after a reboot;
+- **restarts on crash** via launchd `KeepAlive`;
+- ships a **health watchdog** agent (`watchdog.sh`, every 60s) that hits `/api/health` and relaunches the server if it hangs (alive-but-unresponsive — which KeepAlive can't catch).
+
+No sudo needed (per-user agent). Once installed, the sidebar switches to a **service-mode menu** (see below) for managing it. Service logs go to `logs/service/`.
+
+New files: `serve.sh`, `watchdog.sh`, `install_service.sh`, `uninstall_service.sh`, `service.js`, `unservice.js`. The serve/watchdog scripts are **self-locating** (resolve paths from their own folder) so the same files work on any Mac/username. The per-machine `service/.installed` marker (drives the menu) is gitignored.
+
+### Service mode — manage it entirely from the sidebar
+Once the service is installed, Pinokio no longer "sees" the app as running (launchd owns it, not Pinokio's Start). So the sidebar now switches to a dedicated **service-mode menu** that avoids the old contradiction (a "Start" button that would fight the service for the port):
+
+- **Open UI (service)** / **Open in Browser** — go straight to the running server on its fixed port; you no longer need Pinokio's Start to reach it.
+- **Check Service Status** (`service_status.js` → `status_service.sh`) — shows the launchd agent state, a live `/api/health` ping (✅ running / ❌ not responding), and the tail of the service log, all in the terminal. This is how you know it's actually up.
+- **Restart Service** (`service_restart.js` → `restart_service.sh`) — `launchctl kickstart -k` for a manual kick.
+- **Service Logs** — opens `logs/service/`.
+- **Uninstall Startup Service** — removes both agents + the marker; the normal Start button comes back.
+
+The "Start" button is hidden while the service is installed, so the two can't collide.
+
+### Docs — power-cut recovery, explained
+The install button prints, and the README documents, the three one-time **admin** settings needed for full hands-off recovery after a power outage (the button does NOT change these — you do them once per machine):
+1. `sudo pmset -a autorestart 1` — power on automatically when electricity returns.
+2. **Auto-login** — required so the Apple GPU (Metal/MLX) is available; a pre-login daemon can't use it.
+3. **FileVault off** — otherwise reboot stops at the encrypted-disk password screen and never reaches login.
+
+### Verified
+- Headless launch path tested live: `conda_env/bin/python -m uvicorn backend.main:app` with `HF_HOME` set boots and answers `/api/health` (200) on a throwaway port, then shuts down clean.
+- Shell scripts `bash -n` clean; plists pass `plutil -lint`; all `.js` parse.
+
+### Notes
+- MINOR bump — new feature, no new Python deps. `Update` from the sidebar to get the files, then click **Install as Startup Service** on each Mac.
+- Use the **service OR** Pinokio's **Start** — not both (they share port 47870).
+
+---
+
+## [1.5.3] — 2026-06-06
+
+### Fixed — downloads now grab companion codecs too (no surprise second download)
+
+Some engines load a **second** model — an audio codec / tokenizer that lives in a *different* HF repo — at generation time. Downloading just the catalog model left that companion missing, so the first **Generate** triggered a surprise download (you saw it on Marvis: `tokenizer-e351c8d8-checkpoint125.safetensors` downloading at 59% mid-generation — that's the **Mimi codec** from `kyutai/moshiko-pytorch-bf16`).
+
+Now a model download is **complete on the first run**:
+
+- **Companion fetch** — after the main model, the downloader pulls each companion (verified against the engine source):
+  - **Marvis** → `kyutai/moshiko-pytorch-bf16` (just the 1 Mimi codec file — the repo is ~15 GB, we take only what's needed)
+  - **Orpheus** → `mlx-community/snac_24khz`
+  - **Chatterbox** → `mlx-community/S3TokenizerV2`
+  - (Voxtral, Qwen3, Kokoro, VoxCPM, OmniVoice, Spark, VibeVoice, F5 are self-contained — no companion.)
+- **Honest "cached" badge** — a model now reads `cached` only when its companions are present too. Until then it shows `partial`, so the Models tab never claims "ready" while a hidden codec is still missing. Re-downloading fills in whatever's absent (resumable, won't re-fetch what you have).
+- **Accurate progress** — the download size/percent now includes companion bytes.
+
+### Notes
+
+- Backend change — `Update` from the Pinokio sidebar, then Stop + Start the server. No new Python deps, no reinstall.
+- Already-downloaded models keep working; their companions were pulled lazily in earlier sessions and are now recognized by the badge.
+
+---
+
+## [1.5.2] — 2026-06-06
+
+### Changed — all results now live in one history list + clearer rows + a real Download button
+
+Generate-tab output cleanup, all per the request:
+
+- **Single results list.** Removed the separate "Latest generation" panel that sat in the generate area. Every finished result — newest first — now appears in **Recent generations** instead of the newest one being split out up top. While a job runs you get a small "⏳ Generating speech… your result will appear in Recent generations below" status; the moment it finishes, it lands at the top of the list. (Errors land there too, with their message.)
+- **Easier-to-read attributes.** The model / voice / seed / render-time tags went from faint grey monospace text to readable bordered pills with icons (🎙 model · 🗣 voice · 🎲 seed · ⏱ render time).
+- **Unmistakable Download button.** Each row's download went from a tiny `⬇` icon to a full **⬇ Download** button — bigger, boxed, filled accent color, with the ghost "↻ Reuse" stacked beneath it so the primary action is obvious.
+
+### Notes
+
+- Pure frontend (HTML/CSS/JS) — PATCH bump. Just `Update` from the Pinokio sidebar and hard-refresh the web UI (the assets are cache-busted on load).
+- The old generate-area "Copy URL" action was part of the removed panel; Download + Reuse remain on every history row.
+
+---
+
+## [1.5.1] — 2026-06-05
+
+### Fixed — Voxtral generation failed with "tekken tokenizers require mistral-common[audio]"
+
+Voxtral-4B-TTS (added in 1.5.0) couldn't generate — its tekken tokenizer loads through `mistral-common`, and the audio path needs the `[audio]` extra. mlx-audio imports it *lazily* at tokenizer-load, so the engine module imported fine (which is why the 1.5.0 wiring check passed) but actual generation raised `RuntimeError: Voxtral TTS tekken tokenizers require mistral-common[audio]`.
+
+**Fix:** added `mistral-common[audio]>=1.5` to `requirements-generation.txt` and installed it. Verified the two engine guards now clear — `MistralTokenizer` imports and `encode_speech_request` is present. (Marvis was double-checked too: its sesame-engine runtime deps — `mlx_lm`, the mimi codec, tokenizers — are all already present, no extra needed.)
+
+> ⚠️ **Re-run "Install Generation"** from the Pinokio sidebar to pick up `mistral-common[audio]`, then Stop + Start the server.
+
+### Added — clickable voice buttons for preset-voice families
+
+Instead of typing a voice name into a free-text field, you now get a row of clickable voice buttons for families with a **verified** roster:
+
+- **Voxtral** — 20 buttons (♂/♀, grouped label per language)
+- **Marvis** — 2 (Conversational A/B)
+- **Orpheus** — 8 (Tara, Leah, Jess, Mia, Zoe, Dan, Leo, Zac)
+- **Kokoro-MLX** — its existing voice list, now as buttons
+
+Clicking a button sets the voice and highlights it. The free-text field stays below as a custom override. Every button's id is verified against the installed engine source (Voxtral `VOICE_MAP`, Marvis `SPEAKER_PROMPTS`), so a click can't produce a phantom voice. **KittenTTS** and **VibeVoice** keep the free-text field — their exact rosters aren't verifiable without the model on disk, and I won't render buttons I can't guarantee.
+
+### Notes
+
+- The voice-button UI is pure frontend; the Voxtral fix needs the dependency install above.
+- `audit_truth.py`: still 15 families, NO DRIFT.
+
+---
+
+## [1.5.0] — 2026-06-05
+
+### Added — 2 new preset-voice TTS families: Voxtral-4B-TTS + Marvis TTS
+
+Both are MLX-native, run on 8 GB Apple Silicon, and ship their own built-in voices (no cloning). Each voice was verified against the installed mlx-audio engine code — no phantom voices.
+
+- **Voxtral-4B-TTS** (`mlx-community/Voxtral-4B-TTS-2603-mlx-4bit` + `-bf16`) — **20 preset voices across 9 languages** (en/fr/es/de/it/pt/nl/ar/hi). The voice name picks the language: `casual_male`, `cheerful_female`, `fr_female`, `hi_male`, … (the full `VOICE_MAP` is baked into the engine). Faster-than-real-time at 4-bit. Adds de/it/pt/nl/ar coverage Qwen3-TTS doesn't have.
+- **Marvis TTS** (`Marvis-AI/marvis-tts-250m-v0.1`) — a 250M CSM/Llama conversational model by the mlx-audio author, built for low-latency streaming. 2 built-in voices: `conversational_a` (female), `conversational_b` (male). Fully self-contained — its prompt clips ship in the repo and `config.text_tokenizer` points back at itself, so it never falls back to the gated `sesame/csm-1b`.
+
+Both use the generic mlx-audio worker (`voice_picker` mode) — no new worker code, no new Python deps (mlx-audio already bundles the `voxtral_tts` and `sesame` engines; verified they import clean in the installed env).
+
+### Considered but NOT added — MeloTTS
+
+Dropped on purpose. mlx-audio's `melotts` engine needs a converted repo (`bert_weights.npz` + sanitized weights); the original `myshell-ai/MeloTTS-*` repos ship PyTorch `.pth` instead, and no MLX-converted MeloTTS exists on the Hub. Wiring it would have been a guaranteed load failure, so it's intentionally left out rather than shipped broken.
+
+### Fixed — MLX-only filter no longer hides MLX families
+
+While wiring the above, found the `apple_optimized` flag (which the default-ON "🍎 MLX only" filter keys off) only credited `-mlx`-suffixed families plus `qwen3-tts`/`orpheus`. That silently hid **kittentts, vibevoice, omnivoice** (and would have hidden the two new families) from the Models tab under the default filter, even though all are MLX. Now every mlx-audio family is correctly marked `apple_optimized`.
+
+### Notes
+
+- New model families, but **no reinstall needed** — just `Update` from the Pinokio sidebar, then download Voxtral / Marvis from the Models tab.
+- `audit_truth.py`: 15 families, NO DRIFT — every catalog family is wired and dispatched.
+
+---
+
+## [1.4.4] — 2026-06-05
+
+### Fixed — Qwen3-TTS CustomVoice: removed 2 phantom preset speakers (Ethan, Chelsie)
+
+Picking **Ethan** (or **Chelsie**) on the Qwen3-TTS CustomVoice model failed every time with the cryptic *"RuntimeError: mlx-audio didn't produce a wav file."* The real cause was buried one layer down:
+
+```
+ValueError: Speaker 'Ethan' not supported.
+Available: ['serena','vivian','uncle_fu','ryan','aiden','ono_anna','sohee','eric','dylan']
+```
+
+The CustomVoice model ships **exactly 9 speakers** (verified against the model's own `config.json` → `spk_id` map). Our `QWEN3_PRESET_SPEAKERS` list carried **11** — two phantoms (`Ethan`, `Chelsie`) copied from an older Qwen roster that this model doesn't contain. They appeared in the dropdown and even passed the app's own validation (which was built from the same bad list), so the failure only surfaced as the generic no-wav wall from mlx-audio's silently-swallowed exception.
+
+**Fix:** trimmed the list to the model's real 9 — Ryan, Aiden, Serena, Vivian, Uncle_Fu, Dylan, Eric, Ono_Anna, Sohee. The list is now documented as deriving from the model's `spk_id` map, with a guard note against re-adding speakers the model can't voice. (mlx-audio matches names case-insensitively, so the capitalised display IDs resolve fine.)
+
+### Audit — checked every model's voice capability against its actual engine
+
+Per the "verify, don't assume" rule, I introspected the installed mlx-audio engines + downloaded model files for **all** families. Result: Qwen3-TTS was the *only* family advertising voices the engine rejects. Full capability map recorded:
+
+| Family | Voice mechanism | Status |
+|---|---|---|
+| Qwen3-TTS CustomVoice | 9 named presets | **fixed (was 11)** |
+| Qwen3-TTS Base | clone (reference) | ✓ correct |
+| Qwen3-TTS VoiceDesign | natural-language voice prompt | ✓ correct |
+| VoxCPM2 / VoxCPM v1 | zero-shot / voice-design / clone — **no named presets** | ✓ correct |
+| Kokoro | 28 named presets (curated English subset of 54) — all valid | ✓ correct |
+| Orpheus / KittenTTS / VibeVoice | free-text voice field (tara, dan, leah…) | ✓ correct |
+| Spark-TTS | attribute-based (gender + pitch) OR clone | ✓ correct |
+| Chatterbox / F5-TTS / OmniVoice | clone (reference) only | ✓ correct |
+| Bark | preset speakers (v2/&lt;lang&gt;_speaker_N) | ✓ valid format |
+
+### Notes
+
+- PATCH bump — catalog/metadata fix within an existing family. Run `Update` from the Pinokio sidebar.
+- Image / Music apps unaffected — they have no preset-voice lists (the bug class is VoiceStudio-specific). Their analogous drift is already guarded by `audit_truth.py`.
+
+---
+
 ## [1.4.3] — 2026-05-27
 
 ### Fixed — "Processor not found" on transcription (affected ALL Whisper models, not just q4)

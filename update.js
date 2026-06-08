@@ -19,6 +19,16 @@ module.exports = {
           "uv pip install -r requirements.txt"
         ]
       }
+    },
+    {
+      // If this Mac runs the app as a launchd startup service, restart it after
+      // updating so it picks up the new backend code (the running service keeps
+      // the OLD code in memory until restarted). No-op when not installed.
+      when: "{{exists('service/.installed')}}",
+      method: "shell.run",
+      params: {
+        message: [ "bash restart_service.sh" ]
+      }
     }
   ]
 }

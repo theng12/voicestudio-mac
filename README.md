@@ -135,6 +135,44 @@ voicestudio-mac/
 
 VoiceStudio uses **port 47870** so it doesn't clash with ImageStudio (47868) or MusicStudio (47869). All three can run simultaneously.
 
+## Run as an always-on server (auto-start + self-healing)
+
+By default you start the app by opening Pinokio and clicking **Start**. If instead you want this Mac to behave like a **server** — the API always up, started automatically on boot, and self-healing — use the one-click service.
+
+### Turn it on
+In the Pinokio sidebar click **❤️ Install as Startup Service**. That's it. It:
+
+- Installs a macOS **launchd LaunchAgent** that runs the server (`serve.sh`) on **port 47870**.
+- **Starts automatically** every time you log in (so it comes back after a reboot).
+- **Restarts itself if it crashes** (launchd `KeepAlive`).
+- Adds a **health watchdog** that pings `/api/health` every 60s and relaunches the server if it ever hangs (alive-but-not-responding).
+
+No admin/sudo needed for this step — it's a per-user agent. To remove it later, click **Startup Service: ON — click to remove**.
+
+Logs live in `logs/service/`. Reach the API over Tailscale/LAN at `http://<this-mac>:47870`.
+
+> Use the **service OR** Pinokio's **Start** button — not both. They share port 47870, so running both makes them fight over it.
+
+### One-time Mac settings for full power-cut recovery (why they matter)
+The service handles *software* restarts. To survive an actual **power outage** with zero human steps, each Mac also needs three system settings (admin-level, done once — the button does **not** change these):
+
+1. **Power back on automatically when electricity returns**
+   ```bash
+   sudo pmset -a autorestart 1
+   ```
+   *Why:* otherwise the Mac just stays off after the power drops and comes back. This tells it to boot itself the moment power is restored.
+
+2. **Enable Automatic login** — System Settings ▸ Users & Groups ▸ *Automatically log in as …*
+   *Why:* the Apple GPU (Metal / MLX) is **only available inside a logged-in session**. A service that starts before login can't use the GPU, so the models would fail or fall back to slow CPU. Auto-login gets the Mac into a real session by itself.
+
+3. **Turn FileVault OFF** — System Settings ▸ Privacy & Security ▸ FileVault
+   *Why:* with FileVault on, a reboot stops at the encrypted-disk password screen and **never reaches auto-login** — so the server never comes back on its own. (On a Tailscale-only box this is a reasonable trade. If you must keep FileVault, you'll have to type the disk password in person after every power cut.)
+
+With all three set **plus** the startup service installed: power returns → Mac powers on → auto-logs in → the server (and watchdog) start with GPU access → and any crash/hang is auto-recovered. Fully hands-off.
+
+### Rolling it out to many Macs
+The service files ship inside this launcher, so on each Mac you just click **Install as Startup Service** once. Do the three system settings once per machine (or bake them into your provisioning). After that, updates flow through the normal **Update** button.
+
 ## License
 
 The launcher scripts in this repo are MIT. Each TTS model has its own license — see the catalog for per-model notes. The big restrictions to remember:
