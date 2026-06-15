@@ -120,6 +120,18 @@ _PROCESSOR_BASE = {
 }
 
 
+class _TokenizerOnlyProcessor:
+    """Minimal stand-in exposing only `.tokenizer` — the single attribute
+    mlx-audio's whisper `get_tokenizer()` reads off `model._processor`. Lets us
+    satisfy the processor requirement with a *narrow* `WhisperTokenizer` import
+    instead of the full `WhisperProcessor` import chain, which on a drifted env
+    can explode on an unrelated broken symbol (e.g. `ImportError: cannot import
+    name 'ReasoningEffort' from 'transformers'` when transformers / mlx-audio
+    versions are mismatched). Verified to produce identical transcription."""
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+
+
 def recommended_model() -> str:
     for m in WHISPER_MODELS:
         if m.recommended:
@@ -256,26 +268,66 @@ class TranscriptionManager:
 
         # The mlx-community repos don't bundle the HF processor, so load_model's
         # post-hook leaves model._processor = None → "Processor not found" at
-        # transcribe time. Attach a tokenizer-providing WhisperProcessor from
-        # the matching base OpenAI repo (tiny one-time download, cached in
-        # HF_HOME). See _PROCESSOR_BASE above for the full rationale.
+        # transcribe time. Attach a tokenizer from the matching base OpenAI repo.
         if getattr(model, "_processor", None) is None:
-            base = _PROCESSOR_BASE.get(repo, "openai/whisper-large-v3-turbo")
-            print(f"[stt] {repo} ships no processor — attaching from {base}", flush=True)
-            try:
-                from transformers import WhisperProcessor
-                model._processor = WhisperProcessor.from_pretrained(base)
-            except Exception as e:
-                raise RuntimeError(
-                    f"Whisper model {repo} ships no HF processor, and the fallback "
-                    f"processor from {base} couldn't be loaded ({type(e).__name__}: {e}). "
-                    "This needs a one-time ~2 MB internet fetch the first time you "
-                    "transcribe — check the modal's network access and retry."
-                )
+            self._attach_processor(model, repo)
 
         self._model = model
         self._model_repo = repo
         return model
+
+    def _attach_processor(self, model, repo: str) -> None:
+        """Give a weights-only MLX whisper model a working tokenizer, sourced
+        from its base OpenAI repo (~2 MB, cached in HF_HOME).
+
+        Tries the NARROW `WhisperTokenizer` import first. The full
+        `WhisperProcessor.from_pretrained` drags in much more of transformers'
+        lazy-import machinery, which on a version-drifted environment can raise
+        an unrelated `ImportError` (famously `cannot import name 'ReasoningEffort'
+        from 'transformers'` when transformers / mlx-audio versions are
+        mismatched). The tokenizer-only path dodges most of that and is all
+        mlx-audio actually needs. Falls back to the full processor, then to a
+        clear, actionable error that distinguishes a dependency mismatch from a
+        network failure."""
+        base = _PROCESSOR_BASE.get(repo, "openai/whisper-large-v3-turbo")
+        print(f"[stt] {repo} ships no processor — attaching tokenizer from {base}", flush=True)
+        attempts: list[str] = []
+
+        # 1) Narrow: WhisperTokenizer only (what get_tokenizer() reads).
+        try:
+            from transformers import WhisperTokenizer
+            tok = WhisperTokenizer.from_pretrained(base)
+            model._processor = _TokenizerOnlyProcessor(tok)
+            return
+        except Exception as e:
+            attempts.append(f"WhisperTokenizer → {type(e).__name__}: {e}")
+
+        # 2) Fallback: full WhisperProcessor.
+        try:
+            from transformers import WhisperProcessor
+            model._processor = WhisperProcessor.from_pretrained(base)
+            return
+        except Exception as e:
+            attempts.append(f"WhisperProcessor → {type(e).__name__}: {e}")
+
+        joined = " | ".join(attempts)
+        # A "cannot import name" / ImportError means deps drifted, NOT a network
+        # problem — point the user at the pinned reinstall instead of a raw trace.
+        if "ImportError" in joined or "cannot import name" in joined:
+            raise RuntimeError(
+                "Whisper transcription is blocked by a Python dependency mismatch "
+                "in this server's environment — the tokenizer import from "
+                f"{base} failed ({joined}). This happens when transformers / "
+                "mlx-audio drift to incompatible versions across machines. "
+                "FIX: re-run 'Install Generation' from the Pinokio sidebar (it now "
+                "pins a known-good set), then Stop → Start. Manual equivalent: "
+                "uv pip install 'transformers==5.9.0' 'tokenizers==0.22.2'."
+            )
+        raise RuntimeError(
+            f"Whisper model {repo} ships no HF processor and the fallback from "
+            f"{base} couldn't be loaded ({joined}). If the modal is offline, the "
+            "one-time ~2 MB processor fetch can't complete — check network and retry."
+        )
 
     def transcribe(
         self,

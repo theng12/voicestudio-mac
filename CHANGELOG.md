@@ -10,6 +10,71 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.6.3] — 2026-06-06
+
+### Fixed — Whisper transcription `ImportError: cannot import name 'ReasoningEffort'` (dependency drift)
+
+A Mac mini hit this transcribing with `mlx-community/whisper-tiny`:
+
+```
+Whisper model mlx-community/whisper-tiny ships no HF processor, and the fallback
+processor from openai/whisper-tiny couldn't be loaded
+(ImportError: cannot import name 'ReasoningEffort' from 'transformers' ...)
+```
+
+**Diagnosis — verified, not assumed.** Reproduced on the dev box: `WhisperProcessor.from_pretrained("openai/whisper-tiny")` loads **fine** there, and `from transformers import ReasoningEffort` fails everywhere (the symbol isn't in transformers 5.9.0). So the failing Mac had a **different, drifted environment** — not a code bug.
+
+**Root cause: floating dependency pins.** `requirements-generation.txt` had `transformers>=4.55` (any version ≥ 4.55) and `mlx-audio @ git+…mlx-audio.git` (always latest **master**). Every Mac that ran *Install Generation* on a different day resolved a different transformers + a different mlx-audio commit. The mini drifted into a combo where mlx-audio's newer code path expects `transformers.ReasoningEffort` but its transformers doesn't export it. The dev box happened to land on a working combo (`transformers 5.9.0` + `mlx-audio @14add66`).
+
+### Fix 1 — Pinned the whole transformers + MLX stack to one verified-good set
+
+`requirements-generation.txt` now pins the exact combo that's verified working end-to-end (TTS engines + Whisper STT):
+
+```
+transformers==5.9.0
+tokenizers==0.22.2
+mlx==0.31.2
+mlx-lm==0.31.3
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@14add666b5313cadff94a231ee11979f6ac1adf7
+```
+
+The `mlx-audio` git pin (an **exact commit**, not floating master) is the biggest stability win — every server now converges to one identical environment. To upgrade later: bump the commit + `transformers` together, verify TTS + STT, then commit the new pins.
+
+### Fix 2 — Hardened the processor fallback (resilience + clear errors)
+
+`_attach_processor()` in `transcription.py` now:
+- Tries a **narrow `WhisperTokenizer` import first** (all mlx-audio's whisper `get_tokenizer()` actually reads is `processor.tokenizer`). This dodges the heavier `WhisperProcessor` import chain that can blow up on unrelated drifted symbols like `ReasoningEffort`. A tiny `_TokenizerOnlyProcessor` shim exposes just `.tokenizer`. Verified to produce identical transcription.
+- Falls back to the full `WhisperProcessor` if the narrow path fails.
+- If both fail, raises a **clear, actionable error** that distinguishes a *dependency mismatch* ("re-run Install Generation — it now pins a known-good set; or `uv pip install 'transformers==5.9.0' 'tokenizers==0.22.2'`") from a *network* failure — instead of surfacing a raw `ImportError`.
+
+### Verification
+
+End-to-end through the real `TranscriptionManager.transcribe()`: `whisper-tiny` loads, the tokenizer-only path attaches from `openai/whisper-tiny`, and it transcribes a clip into valid SRT. `whisper-large-v3-turbo`'s base tokenizer (`openai/whisper-large-v3-turbo`) confirmed to load too. `audit_truth.py`: NO DRIFT.
+
+### How to apply across all your Mac servers
+
+On **each** Mac running Voice Studio:
+
+1. **Update** from the Pinokio sidebar (pulls v1.6.3 with the pinned `requirements-generation.txt`).
+2. **Re-run "Install Generation"** — this is the important step; it forces the environment to the pinned `transformers==5.9.0` + `mlx-audio @14add66` set. (`uv` will downgrade/upgrade as needed to match.)
+3. **Stop → Start** the server.
+
+Manual equivalent (if not using the sidebar), from the app's conda env:
+
+```
+uv pip install 'transformers==5.9.0' 'tokenizers==0.22.2' 'mlx==0.31.2' 'mlx-lm==0.31.3' \
+  'mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@14add666b5313cadff94a231ee11979f6ac1adf7'
+```
+
+After that, every server has the identical working environment, and any Whisper model (tiny → large-v3-turbo) transcribes. **You can keep the 0.5 GB `whisper-large-v3-turbo-q4`** on the 8 GB mini — this fix unblocks it.
+
+### Notes
+
+- PATCH bump (1.6.2 → 1.6.3) — a dependency change, so it **requires re-running Install Generation** (same as v1.5.1's `mistral-common` addition). No new engines, no schema change.
+- The earlier advice to "switch to the 1.6 GB full turbo to sidestep the broken fallback" was a *workaround*, not a fix — all models share the same processor-fallback code, so the version pin is what actually resolves it for every model.
+
+---
+
 ## [1.6.2] — 2026-06-06
 
 ### Added — auto-restart the service after Update + a "Repair · take over port" button
