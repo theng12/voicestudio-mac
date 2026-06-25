@@ -1816,6 +1816,154 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 }
 .your-mac-icon { font-size: 18px; line-height: 1; }
 
+/* ─── RAM planner (v1.7): slider + tiers that drive live fit scoring ─── */
+.ram-planner {
+  margin: 12px 0;
+  padding: 14px 16px;
+  background: color-mix(in srgb, #93c5fd 8%, var(--panel, #16181d));
+  border: 1px solid color-mix(in srgb, #93c5fd 25%, var(--border, #2a2a32));
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ram-planner-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text, #e5e7eb);
+}
+.ram-planner-spacer { flex: 1; }
+.ram-budget-pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ram-budget-pill.preview {
+  background: color-mix(in srgb, #fbbf24 14%, transparent);
+  border-color: color-mix(in srgb, #fbbf24 45%, transparent);
+  color: #fbbf24;
+}
+.ram-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.ram-slider {
+  flex: 1;
+  min-width: 220px;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent), #34d399);
+  outline: none;
+  cursor: pointer;
+}
+.ram-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.ram-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  cursor: pointer;
+}
+.ram-entry { display: flex; align-items: center; gap: 6px; }
+.ram-num {
+  width: 78px;
+  padding: 6px 8px;
+  text-align: right;
+  background: var(--panel-2, #1c1f26);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text, #e5e7eb);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.ram-tiers { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip.ram-tier {
+  cursor: pointer;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.chip.ram-tier:hover { border-color: var(--accent); color: var(--text, #e5e7eb); }
+.chip.ram-tier.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1220;
+  font-weight: 600;
+}
+.ram-planner-note { margin: 0; }
+
+/* ─── Segmented RAM-fit filter (Chat-Studio-style control) ─── */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel-2, #1c1f26);
+}
+.seg button {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+}
+.seg button:last-child { border-right: none; }
+.seg button:hover { background: var(--panel); color: var(--text, #e5e7eb); }
+.seg button.active { background: var(--accent); color: #0b1220; font-weight: 600; }
+
+/* ─── ✨ Best for your RAM — live recommendation cards ─── */
+.best-picks {
+  margin: 4px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel, #16181d));
+}
+.best-picks-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.best-picks-head h2 { margin: 0; font-size: 15px; letter-spacing: 0.3px; color: var(--accent); }
+.best-picks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.best-pick-card {
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2, #1c1f26);
+  cursor: pointer;
+  transition: border-color 0.12s, transform 0.06s;
+}
+.best-pick-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.best-pick-lane { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+.best-pick-model { margin: 4px 0 8px; font-size: 13.5px; font-weight: 600; color: var(--text, #e5e7eb); line-height: 1.3; }
+.best-pick-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
 /* ─── Hardware-fit chips on each model card ─── */
 .chip.fit-ok      { background: color-mix(in srgb, #34d399 18%, transparent); color: #34d399; border-color: color-mix(in srgb, #34d399 40%, transparent); }
 .chip.fit-tight   { background: color-mix(in srgb, #fbbf24 18%, transparent); color: #fbbf24; border-color: color-mix(in srgb, #fbbf24 40%, transparent); }

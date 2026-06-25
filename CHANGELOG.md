@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.7.0] — 2026-06-26
+
+### Added — RAM planner: interactive memory slider + live "Best for your RAM" picks (Models tab)
+
+The Models tab gained a **hardware planner** so you can size models to a machine you don't own yet — set the unified-memory budget and every fit chip re-scores instantly.
+
+- **RAM slider + numeric entry + tier presets** (8 / 16 / 24 / 32 / 48 / 64 / 128 / 256 / 512 GB). Defaults to your detected RAM; drag/type to *preview* a different Mac (e.g. plan an M3 Ultra 512 GB before buying it). A `↩ My Mac` button snaps back to detected. The chosen budget persists across reloads.
+- **Live hardware fit** — per-card fit chips (✓ fits / ⚠ tight / ✗ over budget) are now scored **client-side** against the slider value via `fitFor()`/`effectiveRam`, so they update with no server round-trip.
+- **✨ Best for your RAM** — a recommendation strip surfaces the highest-quality model in each lane (overall / voice cloning / multilingual / expressive / streaming) that still fits the budget. At 8 GB it favours the lighter tiers; at 512 GB it upgrades to the full-precision builds.
+- **Segmented "RAM fit" filter** (All / ✓ Fits / ⚠ Tight / ✗ Over), mirroring the Chat Studio model-tab control for a consistent look across the suite. The old binary "Fits my Mac" chip is folded into this.
+
+> Note: open TTS models are small — catalog RAM floors top out at 16 GB — so on a big machine essentially everything fits; the planner's upside there is picking the highest-precision tier and previewing headroom.
+
+**Frontend-only — no new Python dependencies. A plain _Update_ from the Pinokio sidebar is enough (no re-install / Install Generation needed).**
+
+---
+
 ## [1.6.3] — 2026-06-06
 
 ### Fixed — Whisper transcription `ImportError: cannot import name 'ReasoningEffort'` (dependency drift)

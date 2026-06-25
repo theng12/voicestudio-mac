@@ -922,18 +922,80 @@
         your HF cache. Downloads resume automatically if interrupted.
       </p>
 
-      <!-- ─── Your-Mac banner (v1.1 hardware fit) ─── -->
-      <div class="your-mac-banner" x-show="system.unified_memory_gb" x-cloak>
-        <span class="your-mac-icon">🖥</span>
-        <span>
-          Detected:
-          <strong x-text="system.chip || 'Apple Silicon'"></strong>
-          ·
-          <strong><span x-text="system.unified_memory_gb"></span> GB</strong> unified memory
-        </span>
-        <span class="muted small">
-          — fit chips below compare each model's memory floor against your hardware
-        </span>
+      <!-- ─── Hardware planner: RAM slider + live fit (v1.7) ─── -->
+      <!-- The slider drives every fit chip + the picks below via the
+           client-side fitFor()/effectiveRam. Defaults to detected RAM but
+           can be dragged/typed to preview any machine (e.g. a future
+           512 GB Mac) before buying it. -->
+      <div class="ram-planner" x-cloak>
+        <div class="ram-planner-head">
+          <span class="your-mac-icon">🖥</span>
+          <span x-show="system.unified_memory_gb">
+            Detected:
+            <strong x-text="system.chip || 'Apple Silicon'"></strong>
+            · <strong><span x-text="system.unified_memory_gb"></span> GB</strong> unified memory
+          </span>
+          <span x-show="!system.unified_memory_gb" class="muted">
+            Couldn't detect your Mac's RAM — set a budget below to score model fit.
+          </span>
+          <span class="ram-planner-spacer"></span>
+          <span class="ram-budget-pill" :class="{ preview: !ramIsDetected }">
+            Planning for <strong><span x-text="ramGb"></span> GB</strong>
+            <span class="muted small" x-show="!ramIsDetected">· preview</span>
+            <span class="muted small" x-show="ramIsDetected && system.unified_memory_gb">· your Mac</span>
+          </span>
+        </div>
+
+        <div class="ram-slider-row">
+          <input class="ram-slider" type="range" min="8" max="512" step="1"
+                 :value="ramGb" @input="setRam($event.target.value)"
+                 aria-label="Unified memory budget in GB">
+          <div class="ram-entry">
+            <input class="ram-num" type="number" min="1" max="1024" step="1"
+                   :value="ramGb" @input="setRam($event.target.value)"
+                   aria-label="Unified memory budget (number)">
+            <span class="muted small">GB</span>
+          </div>
+          <button class="btn ghost small ram-reset" x-show="system.unified_memory_gb && !ramIsDetected"
+                  @click="resetRamToDetected()" title="Snap back to your Mac's detected RAM">
+            ↩ My Mac (<span x-text="system.unified_memory_gb"></span> GB)
+          </button>
+        </div>
+
+        <div class="ram-tiers">
+          <template x-for="t in ramTiers" :key="t">
+            <button class="chip ram-tier" :class="{ active: ramGb === t }"
+                    @click="setRam(t)" x-text="t + ' GB'"></button>
+          </template>
+        </div>
+
+        <p class="muted small ram-planner-note">
+          Drag, type, or tap a tier to preview a machine — every fit chip and the picks below re-score instantly.
+        </p>
+      </div>
+
+      <!-- ─── ✨ Best for your RAM — live, per-lane recommendations ─── -->
+      <div class="best-picks" x-show="bestPicks.length" x-cloak>
+        <div class="best-picks-head">
+          <h2>✨ Best for <span x-text="ramGb"></span> GB</h2>
+          <span class="muted small">The highest-quality model in each lane that fits your budget — updates as you move the slider. Click a card to find it below.</span>
+        </div>
+        <div class="best-picks-grid">
+          <template x-for="p in bestPicks" :key="p.id">
+            <article class="best-pick-card"
+                     @click="modelFilters.search = p.model.repo; modelFilters.fitLevel = 'all'"
+                     :title="'Find ' + p.model.label + ' in the list below'">
+              <div class="best-pick-lane"><span x-text="p.icon"></span> <span x-text="p.label"></span></div>
+              <div class="best-pick-model" x-text="p.model.label"></div>
+              <div class="best-pick-meta">
+                <span class="chip" :class="cacheChipClass(p.model.cache?.state || 'absent')" x-text="cacheChipLabel(p.model.cache?.state || 'absent')"></span>
+                <span class="chip" :class="'fit-' + fitFor(p.model.min_unified_memory_gb).state"
+                      x-text="fitChipLabel(fitFor(p.model.min_unified_memory_gb))"></span>
+                <span class="muted small" x-text="formatGb(p.model.size_gb) + ' · ≥' + p.model.min_unified_memory_gb + ' GB'"></span>
+              </div>
+            </article>
+          </template>
+        </div>
       </div>
 
       <details class="primer">
@@ -1080,29 +1142,30 @@
         </template>
       </div>
 
-      <!-- ─── Hardware + format filters (v1.1.2) ─── -->
+      <!-- ─── Hardware + format filters (v1.1.2 / v1.7) ─── -->
+      <!-- Segmented RAM-fit filter — scored live against the RAM slider above.
+           Mirrors the Chat Studio model-tab control for a consistent look. -->
+      <div class="library-toolbar-row filter-chips-row">
+        <span class="filter-label">RAM fit</span>
+        <div class="seg fit-seg">
+          <button :class="{active: modelFilters.fitLevel==='all'}"   @click="modelFilters.fitLevel='all'">All</button>
+          <button :class="{active: modelFilters.fitLevel==='ok'}"    @click="modelFilters.fitLevel='ok'"    title="Comfortable headroom at your RAM budget">✓ Fits</button>
+          <button :class="{active: modelFilters.fitLevel==='tight'}" @click="modelFilters.fitLevel='tight'" title="Meets the floor but no headroom — close other apps">⚠ Tight</button>
+          <button :class="{active: modelFilters.fitLevel==='over'}"  @click="modelFilters.fitLevel='over'"  title="Exceeds your RAM budget — would swap or fail to load">✗ Over</button>
+        </div>
+        <span class="muted small">at <strong x-text="ramGb + ' GB'"></strong></span>
+      </div>
+
       <!-- MLX chip auto-hides if the catalog has zero MLX-optimized entries
            (would always match nothing and just clutter the UI). -->
       <div class="library-toolbar-row filter-chips-row"
-           x-show="models.some(m => m.apple_optimized) || true">
+           x-show="models.some(m => m.apple_optimized)">
         <span class="filter-label">Quick</span>
         <button class="chip filter-chip filter-chip-mlx"
-                x-show="models.some(m => m.apple_optimized)"
                 :class="{active: modelFilters.mlxOnly}"
                 @click="toggleMlxFilter()"
                 title="Show only models pre-quantized for Apple Silicon's MLX framework.">
           🍎 Apple Silicon (MLX) only
-        </button>
-        <button class="chip filter-chip filter-chip-fit"
-                :class="{active: modelFilters.fitsMyMac}"
-                :disabled="!system.unified_memory_gb"
-                @click="toggleFitsMyMacFilter()"
-                :title="system.unified_memory_gb
-                          ? ('Hide models that exceed your ' + system.unified_memory_gb + ' GB unified memory. \"Tight\" models still show.')
-                          : 'Hardware detection unavailable.'">
-          🖥 Fits my Mac
-          <span class="muted small" x-show="system.unified_memory_gb"
-                x-text="'(' + system.unified_memory_gb + ' GB)'"></span>
         </button>
       </div>
     </section>
@@ -1161,12 +1224,13 @@
                     title="Hugging Face requires you to accept a license and provide a personal access token before downloading this repo.">gated</span>
                   <span class="chip neutral" x-show="m.apple_optimized"
                     title="Pre-quantized for Apple Silicon's MLX framework. Loads fast and uses unified memory efficiently on M-series chips.">MLX</span>
-                  <!-- Fit chip — green / yellow / red against detected RAM -->
+                  <!-- Fit chip — green / yellow / red, scored LIVE against the
+                       RAM slider (effectiveRam), so it updates as you drag. -->
                   <span class="chip"
-                        x-show="m.fit && m.fit.state"
-                        :class="'fit-' + (m.fit?.state || 'unknown')"
-                        :title="m.fit?.hint"
-                        x-text="fitChipLabel(m.fit)"></span>
+                        x-show="m.min_unified_memory_gb"
+                        :class="'fit-' + fitFor(m.min_unified_memory_gb).state"
+                        :title="fitFor(m.min_unified_memory_gb).hint"
+                        x-text="fitChipLabel(fitFor(m.min_unified_memory_gb))"></span>
                 </h3>
                 <p class="repo"><code x-text="m.repo"></code></p>
                 <p class="size-line">

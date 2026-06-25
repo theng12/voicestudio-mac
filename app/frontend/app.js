@@ -9,6 +9,15 @@ function studio() {
     // Used by the Models tab to render per-card fit chips comparing each
     // model's memory floor against the user's actual RAM.
     system: { chip: null, chip_tier: null, unified_memory_gb: null },
+    // ──────── RAM slider (Models tab hardware planner) ────────
+    // `ramGb` is the effective unified-memory budget used to score every
+    // model's fit chip LIVE on the client (no /api round-trip). It defaults
+    // to the detected RAM but the user can drag/type it to preview a
+    // different machine — e.g. plan which models a future 512 GB Mac could
+    // run before buying it. Seeded in _initRamPlanner() after /api/system.
+    ramGb: null,
+    ramIsDetected: true,          // false once the user overrides the slider
+    ramTiers: [8, 16, 24, 32, 48, 64, 128, 256, 512],
     families: {},
     models: [],
     jobs: [],
@@ -129,6 +138,9 @@ function studio() {
       // v1.1.2 — quick filter chips
       mlxOnly: false,              // hide non-MLX entries
       fitsMyMac: false,            // hide entries where fit.state === 'risky'
+      // v1.7 — segmented RAM-fit filter, scored against the RAM slider:
+      // "all" | "ok" (green) | "tight" (yellow) | "over" (red)
+      fitLevel: "all",
       sortBy: "default",           // "default" | "name" | "size-asc" | "size-desc"
       collapsedFamilies: new Set(),
       // Per-repo "show full details" toggle. Cards default to compact —
@@ -260,6 +272,9 @@ function studio() {
         async init() {
       await this.refreshHealth();
       await this.refreshSystem();
+      // Seed the RAM-slider budget from detected RAM (or a saved override)
+      // now that /api/system has populated `system`.
+      this._initRamPlanner();
       this._syncTopbarHeight();
       window.addEventListener('resize', () => this._syncTopbarHeight());
       // Also re-measure on next animation frame in case fonts/layout settle late.
@@ -361,6 +376,91 @@ function studio() {
       return out;
     },
 
+    // ─── RAM slider + client-side hardware fit ────────────────────────
+    /** Effective RAM budget (GB) used for fit scoring: the slider value,
+     *  falling back to detected RAM, then a neutral 16 GB if nothing's known. */
+    get effectiveRam() {
+      return this.ramGb || this.system.unified_memory_gb || 16;
+    },
+    /** Client-side fit verdict for a model's memory floor vs effectiveRam.
+     *  Mirrors backend system_info.fit_for() (1.5× = comfortable, 1.0× =
+     *  tight, below = over budget) so the RAM slider re-scores every card
+     *  instantly without hitting the server. Returns the same shape the
+     *  backend `fit` field used, so fitChipLabel() works unchanged. */
+    fitFor(minGb) {
+      const actual = this.effectiveRam;
+      const floor = Math.max(Number(minGb) || 0, 1);
+      const headroom = actual / floor;
+      let state;
+      if (headroom >= 1.5)      state = "ok";
+      else if (headroom >= 1.0) state = "tight";
+      else                      state = "risky";
+      const hint = headroom >= 1.5
+        ? `${actual} GB is ≥1.5× this model's ${minGb} GB floor — comfortable headroom.`
+        : headroom >= 1.0
+          ? `${actual} GB just clears the ${minGb} GB floor — close other apps before loading.`
+          : `${actual} GB is below the ${minGb} GB floor — it would swap heavily or fail to load.`;
+      return { state, actual_gb: actual, required_gb: Number(minGb) || 0, hint };
+    },
+    /** Set the RAM-slider budget (clamped + rounded). Persisted so the
+     *  preview survives reloads. */
+    setRam(gb) {
+      const v = Math.max(1, Math.min(1024, Math.round(Number(gb) || 0)));
+      this.ramGb = v;
+      this.ramIsDetected = (v === this.system.unified_memory_gb);
+      this._persistFilterPref("ramGb", v);
+    },
+    /** Snap the slider back to the machine's actually-detected RAM. */
+    resetRamToDetected() {
+      const d = this.system.unified_memory_gb;
+      if (d) this.setRam(d);
+    },
+    /** Seed the RAM slider from a saved override or the detected RAM. Called
+     *  from init() after /api/system has populated `system`. */
+    _initRamPlanner() {
+      try {
+        const saved = localStorage.getItem("voicestudio.modelFilters.ramGb");
+        if (saved !== null && !isNaN(+saved)) {
+          this.ramGb = +saved;
+          this.ramIsDetected = (+saved === this.system.unified_memory_gb);
+          return;
+        }
+      } catch {}
+      this.ramGb = this.system.unified_memory_gb || 16;
+      this.ramIsDetected = !!this.system.unified_memory_gb;
+    },
+    /** "✨ Best for your RAM" — the highest-quality model in each use-case
+     *  bucket that still fits the current RAM budget (fit state ≠ risky).
+     *  "Highest quality" is approximated by the heaviest tier that fits
+     *  (bigger memory floor → bigger params / higher precision), nudged by
+     *  an explicit "recommended" label. Re-computes live as the slider moves. */
+    get bestPicks() {
+      const fits  = (m) => this.fitFor(m.min_unified_memory_gb).state !== "risky";
+      const score = (m) => (Number(m.min_unified_memory_gb) || 0) * 1000
+                         + (Number(m.size_gb) || 0) * 10
+                         + (/recommended/i.test(m.label || "") ? 5 : 0);
+      const pick = (predicate) => {
+        const c = (this.models || []).filter(m => fits(m) && predicate(m));
+        if (!c.length) return null;
+        return c.slice().sort((a, b) => score(b) - score(a))[0];
+      };
+      const hasCap = (m, cap) => (m.capabilities || []).includes(cap);
+      const buckets = [
+        { id: "overall",      label: "Best overall",       icon: "🏆", model: pick(() => true) },
+        { id: "cloning",      label: "Best voice cloning",  icon: "🧬", model: pick(m => hasCap(m, "voice-cloning")) },
+        { id: "multilingual", label: "Best multilingual",   icon: "🌍", model: pick(m => hasCap(m, "multilingual")) },
+        { id: "expressive",   label: "Best expressive",     icon: "🎭", model: pick(m => hasCap(m, "expressive")) },
+        { id: "streaming",    label: "Best for streaming",  icon: "⚡", model: pick(m => hasCap(m, "streaming")) },
+      ];
+      // De-dup: if two buckets resolve to the same repo, keep the first.
+      const seen = new Set();
+      return buckets.filter(b => {
+        if (!b.model || seen.has(b.model.repo)) return false;
+        seen.add(b.model.repo);
+        return true;
+      });
+    },
+
     // ─── Library filters (Models tab) ─────────────────────────────────
     /** Apply ALL active filters + sort, return models grouped by family.
      *  Returns `{familyId: [models...]}`. Families with no surviving
@@ -390,10 +490,16 @@ function studio() {
         }
         // Apple Silicon (MLX) filter — only show pre-quantized MLX entries.
         if (f.mlxOnly && !m.apple_optimized) return false;
-        // Fits-my-Mac filter — hide entries that would OOM/swap heavily.
-        // Only "risky" gets filtered; "tight" still shows since the user
-        // might consciously accept that trade-off.
-        if (f.fitsMyMac && m.fit && m.fit.state === "risky") return false;
+        // Segmented RAM-fit filter — scored live against the RAM slider.
+        if (f.fitLevel && f.fitLevel !== "all") {
+          const st = this.fitFor(m.min_unified_memory_gb).state;
+          if (f.fitLevel === "ok"    && st !== "ok")    return false;
+          if (f.fitLevel === "tight" && st !== "tight") return false;
+          if (f.fitLevel === "over"  && st !== "risky") return false;
+        }
+        // Legacy "Fits my Mac" toggle — hide entries that would OOM/swap.
+        // Now scored client-side so it tracks the RAM slider too.
+        if (f.fitsMyMac && this.fitFor(m.min_unified_memory_gb).state === "risky") return false;
         // Free-text search across label + repo + best_for
         if (q) {
           const hay = (
@@ -456,7 +562,7 @@ function studio() {
     get hasActiveFilters() {
       const f = this.modelFilters;
       return !!(f.search.trim() || f.families.size || f.statuses.size || f.capabilities.size
-                || f.mlxOnly || f.fitsMyMac);
+                || f.mlxOnly || f.fitsMyMac || (f.fitLevel && f.fitLevel !== "all"));
     },
     /** Human-readable list of every active filter — used by the empty state
      *  so users can SEE what cut their results and tap a single filter off
@@ -482,6 +588,10 @@ function studio() {
       }
       if (f.fitsMyMac) {
         out.push({ label: "🖥 Fits my Mac", removeFn: () => this.toggleFitsMyMacFilter() });
+      }
+      if (f.fitLevel && f.fitLevel !== "all") {
+        const lbl = { ok: "✓ Fits", tight: "⚠ Tight", over: "✗ Over budget" }[f.fitLevel] || f.fitLevel;
+        out.push({ label: `RAM fit: ${lbl}`, removeFn: () => this.modelFilters.fitLevel = "all" });
       }
       return out;
     },
@@ -654,8 +764,10 @@ function studio() {
       this.modelFilters.capabilities = new Set();
       this.modelFilters.mlxOnly = false;
       this.modelFilters.fitsMyMac = false;
+      this.modelFilters.fitLevel = "all";
       this.modelFilters.sortBy = "default";
       // expandedRepos intentionally NOT reset — separate user concern.
+      // ramGb intentionally NOT reset — it's a hardware setting, not a filter.
     },
     statusLabel(s) {
       return ({
