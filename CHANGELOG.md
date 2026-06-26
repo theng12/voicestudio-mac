@@ -10,6 +10,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.7.1] — 2026-06-26
+
+### Changed — Models tab split into "Audio Generator" + "Audio Transcriber" sub-tabs
+
+The Models tab previously stacked the TTS catalog and the Whisper speech-to-text models on one long page. They're now two clean sub-tabs so the two model types don't muddle together:
+
+- **🎙️ Audio Generator (TTS)** — the RAM planner, "Best for your RAM" picks, search/sort/family/capability/RAM-fit filters, and the TTS family cards. Sorting stays here, scoped to the generator catalog.
+- **🎬 Audio Transcriber (Whisper · STT)** — the Whisper subtitle/transcription models, with a "ready" count badge on the tab when any are downloaded.
+
+Defaults to the Generator sub-tab; the toggle is purely a view switch (no reload). **Frontend-only — a plain _Update_ is enough.**
+
+---
+
 ## [1.7.0] — 2026-06-26
 
 ### Added — RAM planner: interactive memory slider + live "Best for your RAM" picks (Models tab)

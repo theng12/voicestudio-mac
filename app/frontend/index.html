@@ -922,6 +922,23 @@
         your HF cache. Downloads resume automatically if interrupted.
       </p>
 
+      <!-- ─── Models sub-tabs: split TTS generator vs Whisper transcriber ─── -->
+      <div class="models-subtabs">
+        <button class="models-subtab" :class="{active: modelsSubtab==='generator'}"
+                @click="modelsSubtab='generator'">
+          🎙️ Audio Generator <span class="models-subtab-tag">TTS</span>
+        </button>
+        <button class="models-subtab" :class="{active: modelsSubtab==='transcriber'}"
+                @click="modelsSubtab='transcriber'">
+          🎬 Audio Transcriber <span class="models-subtab-tag">Whisper · STT</span>
+          <span class="models-subtab-badge" x-show="sttReadyCount > 0" x-text="sttReadyCount" x-cloak></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ═════════ GENERATOR sub-tab: TTS catalog ═════════ -->
+    <div x-show="modelsSubtab==='generator'" x-cloak>
+
       <!-- ─── Hardware planner: RAM slider + live fit (v1.7) ─── -->
       <!-- The slider drives every fit chip + the picks below via the
            client-side fitFor()/effectiveRam. Defaults to detected RAM but
@@ -1054,38 +1071,9 @@
           </p>
         </div>
       </details>
-    </section>
 
-    <!-- ─── Subtitle models (Whisper STT) — separate registry from the TTS
-         catalog below, surfaced here so all downloads live in one place. ─── -->
-    <section class="stt-models-section" x-show="stt.models.length > 0" x-cloak>
-      <div class="stt-models-head">
-        <h2>🎬 Subtitle models <span class="muted small">(Whisper · speech-to-text)</span></h2>
-        <span class="muted small">Powers the <a class="link-accent" @click="tab='subtitles'; refreshTranscribe()">Subtitles</a> tab + <code>/api/transcribe</code>. Download one to transcribe audio.</span>
-      </div>
-      <div class="stt-models-grid">
-        <template x-for="m in stt.models" :key="m.repo">
-          <div class="stt-model-card" :class="{ cached: m.cached }">
-            <div class="stt-model-card-head">
-              <strong x-text="m.label"></strong>
-              <span class="chip" :class="m.cached ? 'ok' : 'neutral'" x-text="m.cached ? '✓ ready' : 'not downloaded'"></span>
-            </div>
-            <code class="stt-model-repo" x-text="m.repo"></code>
-            <p class="muted small" x-text="m.size_gb + ' GB' + (m.recommended ? ' · recommended' : '')"></p>
-            <p class="muted small stt-model-note" x-text="m.note"></p>
-            <button class="btn download-btn" x-show="!m.cached"
-                    :disabled="stt.downloading"
-                    @click="downloadWhisperModel(m.repo)">
-              <span x-show="!(stt.downloading && stt.model === m.repo)">⬇ Download</span>
-              <span x-show="stt.downloading && stt.model === m.repo">Downloading…</span>
-            </button>
-          </div>
-        </template>
-      </div>
-    </section>
-
-    <!-- ─── Library filter toolbar ─── -->
-    <section class="library-toolbar" x-cloak>
+      <!-- ─── Library filter toolbar ─── -->
+      <section class="library-toolbar" x-cloak>
       <div class="library-toolbar-row">
         <input type="search"
                class="library-search"
@@ -1320,6 +1308,37 @@
         </div><!-- /family-collapse wrapper -->
       </section>
     </template>
+    </div><!-- /generator sub-tab -->
+
+    <!-- ═════════ TRANSCRIBER sub-tab: Whisper / speech-to-text ═════════ -->
+    <div x-show="modelsSubtab==='transcriber'" x-cloak>
+      <section class="stt-models-section">
+        <div class="stt-models-head">
+          <h2>🎬 Subtitle models <span class="muted small">(Whisper · speech-to-text)</span></h2>
+          <span class="muted small">Powers the <a class="link-accent" @click="tab='subtitles'; refreshTranscribe()">Subtitles</a> tab + <code>/api/transcribe</code>. Download one to transcribe audio.</span>
+        </div>
+        <p class="muted" x-show="stt.models.length === 0" x-cloak>No transcription models available yet — check the engine status on the Subtitles tab.</p>
+        <div class="stt-models-grid">
+          <template x-for="m in stt.models" :key="m.repo">
+            <div class="stt-model-card" :class="{ cached: m.cached }">
+              <div class="stt-model-card-head">
+                <strong x-text="m.label"></strong>
+                <span class="chip" :class="m.cached ? 'ok' : 'neutral'" x-text="m.cached ? '✓ ready' : 'not downloaded'"></span>
+              </div>
+              <code class="stt-model-repo" x-text="m.repo"></code>
+              <p class="muted small" x-text="m.size_gb + ' GB' + (m.recommended ? ' · recommended' : '')"></p>
+              <p class="muted small stt-model-note" x-text="m.note"></p>
+              <button class="btn download-btn" x-show="!m.cached"
+                      :disabled="stt.downloading"
+                      @click="downloadWhisperModel(m.repo)">
+                <span x-show="!(stt.downloading && stt.model === m.repo)">⬇ Download</span>
+                <span x-show="stt.downloading && stt.model === m.repo">Downloading…</span>
+              </button>
+            </div>
+          </template>
+        </div>
+      </section>
+    </div><!-- /transcriber sub-tab -->
   </main>
 
   <!-- ─────────── DOWNLOADS ─────────── -->

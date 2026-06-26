@@ -4,6 +4,10 @@ function studio() {
   return {
     // ──────── state ────────
     tab: "generate",
+    // Models tab sub-view: "generator" (TTS catalog) | "transcriber" (Whisper STT).
+    // Splits the two model families so the RAM planner / filters / TTS cards
+    // don't muddle together with the speech-to-text downloads.
+    modelsSubtab: "generator",
     health: { ok: false },
     // Hardware snapshot from /api/system — populated once on init().
     // Used by the Models tab to render per-card fit chips comparing each
@@ -381,6 +385,11 @@ function studio() {
      *  falling back to detected RAM, then a neutral 16 GB if nothing's known. */
     get effectiveRam() {
       return this.ramGb || this.system.unified_memory_gb || 16;
+    },
+    /** Count of downloaded Whisper (transcriber) models — drives the
+     *  Audio Transcriber sub-tab's "ready" badge. */
+    get sttReadyCount() {
+      return (this.stt?.models || []).filter(m => m.cached).length;
     },
     /** Client-side fit verdict for a model's memory floor vs effectiveRam.
      *  Mirrors backend system_info.fit_for() (1.5× = comfortable, 1.0× =
