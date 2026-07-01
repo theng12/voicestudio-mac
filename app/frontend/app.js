@@ -2859,8 +2859,10 @@ function studio() {
       this.stt.error = "";
       this.stt.file = file;
       this.stt.fileName = file.name || "audio.wav";
-      const mb = (file.size || 0) / 1024 / 1024;
-      this.stt.fileSize = mb >= 1 ? mb.toFixed(1) + " MB" : Math.round((file.size || 0) / 1024) + " KB";
+      // Route through the shared humanBytes() (decimal) instead of a
+      // duplicate binary computation, so this matches every other byte
+      // display in the app (v1.7.3).
+      this.stt.fileSize = humanBytes(file.size || 0);
     },
     onSubtitlePick(e) {
       const f = e.target.files && e.target.files[0];
@@ -2939,7 +2941,12 @@ function studio() {
 
     // ──────── formatters ────────
     formatGb(gb) {
-      if (gb < 1) return Math.round(gb * 1024) + " MB";
+      // Decimal (÷/×1000), matching humanBytes() and the catalog's own
+      // size_gb convention (v1.7.2/v1.7.3 fix) — NOT ×1024. A model listed
+      // as 0.34 GB (e.g. Kokoro) must show "340 MB", not "348 MB"; the ×1024
+      // version silently inflated every sub-1GB model's advertised size by
+      // ~2.4%, which then wouldn't match the file's real size on disk.
+      if (gb < 1) return Math.round(gb * 1000) + " MB";
       return gb.toFixed(1) + " GB";
     },
 

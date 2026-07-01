@@ -10,6 +10,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.7.3] — 2026-07-01
+
+### Fixed — Audited every byte/size display in the app for the same GB-vs-GiB bug; found and fixed two more instances
+
+Follow-up to v1.7.2's download-progress fix — asked "does this affect other models / other places too?" Audited every byte-formatting code path in the app (frontend and backend) rather than assuming the one fix covered everything.
+
+**Already covered by v1.7.2, confirmed universal:** `downloadCaption()` — the single shared renderer for download progress — is called from exactly two places: the Models-tab per-card "active download" caption *and* the Downloads-tab job table. Both read from the same `humanBytes()` helper, and the underlying job data comes from one shared `manager.list_jobs()` regardless of engine family. So the original fix already applies to **every** downloadable model — TTS engines and Whisper alike — not just the one that got reported.
+
+**Found two more instances of the same bug class, now fixed:**
+
+- **`formatGb()`** (used for the *static* size shown on every model card, the RAM-planner's "best pick" caption, and the download-confirmation dialog) rounded sub-1 GB values with `× 1024` instead of `× 1000`. Real impact: any catalog entry under 1 GB — Kokoro (0.34 GB), whisper-tiny (0.07 GB), whisper-base (0.15 GB), several MLX quant variants — displayed an advertised size ~2.4% larger than its real decimal size (e.g. Kokoro showed "348 MB" instead of "340 MB"). Same root cause as v1.7.2, just a different formatter that hadn't been touched. Now uses `× 1000`, matching `humanBytes()` and the catalog's own convention.
+- **`_setSubtitleFile()`** (the file-size caption shown when you pick/drop an audio clip on the Subtitles tab) had its own inline binary (`/1024/1024`) computation instead of calling the shared `humanBytes()`. Not a cross-reference bug (there's no separate "advertised size" for a user's own file to disagree with), but a duplicate, inconsistent implementation — replaced with a call to `humanBytes()` so every byte count in the app now goes through exactly one, correct, decimal formatter.
+
+**Confirmed correct and deliberately left unchanged:** `system_info.py`'s RAM-detection (`hw.memsize / 1024**3`) — installed memory capacity is conventionally reported in binary GiB (matches Apple's own "About This Mac"), which is a different domain from network/file-transfer byte counts. Not the same bug; changing it would make the RAM figure wrong instead of right. Also left alone: a Python code sample string on the API docs tab (`len(img)//1024`) — that's illustrative example text for a different, hypothetical app, not live app logic.
+
+### Notes
+
+- PATCH bump (1.7.2 → 1.7.3) — pure frontend formatting, no backend change, no schema change. Already live on the running server (static assets, no-cache headers) — `Update` makes it permanent.
+- With this, every byte/size display in the app — download progress, catalog card sizes, RAM-planner picks, download-confirmation dialogs, and file-picker previews — uses one consistent decimal (SI) convention, matching what Hugging Face's own site shows and what `du`/Finder will report once a file is fully on disk.
+
+---
+
 ## [1.7.2] — 2026-07-01
 
 ### Fixed — Download progress showed 1.5 GB for a model the catalog lists as 1.6 GB (unit mismatch, not data loss)
