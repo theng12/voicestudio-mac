@@ -1323,14 +1323,14 @@
             <div class="stt-model-card" :class="{ cached: m.cached }">
               <div class="stt-model-card-head">
                 <strong x-text="m.label"></strong>
-                <span class="chip" :class="m.cached ? 'ok' : 'neutral'" x-text="m.cached ? '✓ ready' : 'not downloaded'"></span>
+                <span class="chip" :class="m.cached ? 'ok' : 'neutral'" x-text="m.cached ? '✓ cached' : 'not downloaded'"></span>
               </div>
               <code class="stt-model-repo" x-text="m.repo"></code>
-              <p class="muted small" x-text="m.size_gb + ' GB' + (m.recommended ? ' · recommended' : '')"></p>
+              <p class="muted small" x-text="formatGb(m.size_gb) + (m.recommended ? ' · recommended' : '')"></p>
               <p class="muted small stt-model-note" x-text="m.note"></p>
               <button class="btn download-btn" x-show="!m.cached"
                       :disabled="stt.downloading"
-                      @click="downloadWhisperModel(m.repo)">
+                      @click="confirmDownload(m)">
                 <span x-show="!(stt.downloading && stt.model === m.repo)">⬇ Download</span>
                 <span x-show="stt.downloading && stt.model === m.repo">Downloading…</span>
               </button>
@@ -1882,7 +1882,7 @@
         <select x-model="stt.model">
           <template x-for="m in stt.models" :key="m.repo">
             <option :value="m.repo"
-                    x-text="m.label + ' · ' + m.size_gb + ' GB' + (m.cached ? ' ✓ ready' : ' — not downloaded') + (m.recommended ? ' (recommended)' : '')"></option>
+                    x-text="m.label + ' · ' + formatGb(m.size_gb) + (m.cached ? ' ✓ ready' : ' — not downloaded') + (m.recommended ? ' (recommended)' : '')"></option>
           </template>
         </select>
         <p class="muted small" x-show="sttSelectedModel" x-text="sttSelectedModel && sttSelectedModel.note"></p>
@@ -1891,7 +1891,7 @@
         <div class="subtitle-dl" x-show="sttSelectedModel && !sttSelectedModel.cached" x-cloak>
           <button class="btn download-btn"
                   :disabled="stt.downloading"
-                  @click="downloadWhisperModel(stt.model)">
+                  @click="confirmDownload(sttSelectedModel)">
             <span x-show="!stt.downloading" x-text="'⬇ Download ' + (sttSelectedModel && sttSelectedModel.label)"></span>
             <span x-show="stt.downloading">Downloading… (watch the Downloads tab)</span>
           </button>
@@ -2352,12 +2352,14 @@
           </p>
           <ul class="facts">
             <li><span x-text="formatGb(pendingDownload.size_gb) + ' download'"></span></li>
-            <li><span x-text="'Needs ≥' + pendingDownload.min_unified_memory_gb + ' GB unified memory at runtime'"></span></li>
+            <li x-show="pendingDownload.min_unified_memory_gb">
+              <span x-text="'Needs ≥' + pendingDownload.min_unified_memory_gb + ' GB unified memory at runtime'"></span>
+            </li>
             <li x-show="pendingDownload.gated">
               Gated repo — you'll need a Hugging Face token with access.
             </li>
           </ul>
-          <p class="muted" x-text="pendingDownload.recommended_hardware"></p>
+          <p class="muted" x-show="pendingDownload.recommended_hardware" x-text="pendingDownload.recommended_hardware"></p>
 
           <div class="form-row" x-show="pendingDownload.gated">
             <input type="password" x-model="downloadToken"

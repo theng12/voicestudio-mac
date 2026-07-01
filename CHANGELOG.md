@@ -10,6 +10,33 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.7.4] — 2026-07-01
+
+### Fixed — UX/UI consistency pass: unified the download flow, chip colors, and one more GB-formatting gap
+
+Requested as a follow-up audit alongside v1.7.2/v1.7.3: "run a ux/ui consistency test and fix and make it better." Audited chip color semantics, byte/size formatting, download interaction patterns, and terminology across the whole frontend. Applied the changes that had real, user-visible impact; explicitly skipped low-value ones (see below).
+
+**Chip color system consolidated (`style.css`):** Three independent, hardcoded color palettes were all expressing the same "good / caution / bad" semantics with subtly different hex values — `.chip.ok/.warn/.bad` (the canonical one, backed by the `--ok`/`--warn`/`--bad` CSS variables) vs. `.chip.engine-ready/-pending/-missing` (its own greens/ambers/oranges) vs. `.chip.fit-ok/-tight/-risky` (a third palette), plus `.dep-chip` and `.diag-pending`/`.diag-row-pending` each hardcoding their own amber. All of these now reference `var(--ok)`/`var(--warn)`/`var(--bad)` via the same `color-mix(in srgb, var(--X) N%, transparent)` pattern already used elsewhere in the stylesheet. Result: every "ready/good," "caution/pending," and "missing/risky" indicator in the app — engine-readiness chips, RAM-fit chips, dependency chips, diagnostics rows — now renders the exact same green/amber/red, instead of 3 different greens and 2 different ambers that all meant the same thing.
+
+**Two more raw byte-formatting gaps found and fixed (same bug class as v1.7.2/v1.7.3):** The Subtitle-models grid card and the Whisper-model `<select>` dropdown on the Subtitles tab both built their size text as `m.size_gb + ' GB'` directly, bypassing the shared `formatGb()` helper entirely — so a Whisper model under 1 GB (e.g. `whisper-base`, 0.15 GB) showed "0.15 GB" instead of "150 MB," while the exact same model showed the correctly-formatted size everywhere else in the app. Both now call `formatGb(m.size_gb)`, matching every other size display.
+
+**Download confirmation flow unified across TTS and Whisper models:** Clicking "Download" behaved differently depending on which tab you were on — TTS models opened a confirmation dialog (size, RAM requirement, gated-repo token prompt) via `confirmDownload()`, while Whisper/subtitle models downloaded immediately with no confirmation via a separate `downloadWhisperModel()` path. Same button label, same icon, two different behaviors. Whisper downloads (both the Models-tab card and the Subtitles-tab inline download button) now route through the same `confirmDownload()` → `pendingDownload` → `startDownload()` flow as every other model. The confirm dialog's memory-requirement and recommended-hardware lines are now conditionally shown (`x-show`) since Whisper models don't carry those fields — they simply don't render for Whisper, rather than showing `undefined`. `startDownload()` now detects whether the confirmed model is a Whisper model and, if so, runs the same completion-polling loop `downloadWhisperModel()` used to run standalone (kept as `_pollWhisperUntilCached()`); the old duplicate method was removed.
+
+**Terminology aligned:** the Subtitle-models grid card showed "✓ ready" for a cached model while every other tab in the app calls the same on-disk state "✓ cached" (see the Models-tab chip legend). Changed to "✓ cached" to match.
+
+**Checked and deliberately left unchanged (real inconsistencies, but not worth the churn or not actually bugs):**
+- The Download-confirm modal's Cancel button (`class="ghost"`, no `.btn`) vs. other modals' Cancel buttons (`class="btn ghost"`) — verified in `style.css` that `.btn` has no bearing here: the applicable rule is the tag+class selector `button.ghost`, which matches regardless of whether `.btn` is also present. Zero rendering difference, so not a real bug (same conclusion reached earlier this session for the API-docs Copy buttons).
+- "Clear" vs. "Remove" vs. "Discard + re-record" across various destructive actions — re-checked each instance in context; "Clear" is consistently used for bulk/list-clearing actions (history, filters, finished downloads) and "Remove" for single-item deletion from a persisted collection (voice library). Consistent on inspection, not a real bug.
+- Empty-state copy tone varies a little (conversational vs. neutral vs. directive) across tabs — real but low-impact stylistic drift; left alone to avoid rewriting seven unrelated strings with no functional benefit.
+- The "🚀 Ready to generate" filter chip vs. the "✓ Cached" filter chip on the Models tab — these looked like a possible duplicate label at first glance, but they filter on two genuinely different conditions (cached-only vs. cached-**and**-engine-installed), each with a clarifying tooltip. Not a bug.
+
+### Notes
+
+- PATCH bump (1.7.3 → 1.7.4) — frontend-only (`app.js`, `index.html`, `style.css`), no backend/schema change. Already live on the running server (static assets, no-cache headers) — `Update` makes it permanent.
+- Verified via `curl` against the live server (port 47870 is the user's own running Pinokio instance, not something this session restarts) plus a Node.js syntax check on `app.js`.
+
+---
+
 ## [1.7.3] — 2026-07-01
 
 ### Fixed — Audited every byte/size display in the app for the same GB-vs-GiB bug; found and fixed two more instances

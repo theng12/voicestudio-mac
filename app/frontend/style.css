@@ -938,27 +938,27 @@ input.num-input-wide { width: 130px; }
 
 /* ──────── per-model engine-readiness chip + dep-warn banner ──────── */
 .chip.engine-ready {
-  background: color-mix(in srgb, #6ee7b7 18%, transparent);
-  border-color: color-mix(in srgb, #6ee7b7 40%, transparent);
-  color: #6ee7b7;
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  color: var(--ok);
 }
 .chip.engine-missing {
-  background: color-mix(in srgb, #ff8a65 22%, transparent);
-  border-color: color-mix(in srgb, #ff8a65 50%, transparent);
-  color: #ff8a65;
+  background: color-mix(in srgb, var(--bad) 22%, transparent);
+  border-color: color-mix(in srgb, var(--bad) 50%, transparent);
+  color: var(--bad);
   cursor: pointer;
 }
 .chip.engine-missing:hover {
-  background: color-mix(in srgb, #ff8a65 32%, transparent);
+  background: color-mix(in srgb, var(--bad) 32%, transparent);
 }
 .banner.warn.dep-warn { margin-top: 12px; }
 .dep-chip {
   display: inline-block;
   padding: 1px 6px;
   margin: 0 4px 0 0;
-  background: color-mix(in srgb, #ff8a65 18%, transparent);
+  background: color-mix(in srgb, var(--bad) 18%, transparent);
   border-radius: 4px;
-  color: #ff8a65;
+  color: var(--bad);
   font-size: 0.9em;
 }
 
@@ -987,12 +987,12 @@ input.num-input-wide { width: 130px; }
 
 /* 3-state engine chip — pending (worker in roadmap) */
 .chip.engine-pending {
-  background: color-mix(in srgb, #fbbf24 18%, transparent);
-  border-color: color-mix(in srgb, #fbbf24 40%, transparent);
-  color: #fbbf24;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  color: var(--warn);
 }
-.diag-row-pending td { color: #fbbf24; }
-.diag-pending { color: #fbbf24; }
+.diag-row-pending td { color: var(--warn); }
+.diag-pending { color: var(--warn); }
 .banner.info.dep-warn { margin-top: 12px; }
 
 /* ──────── Voices tab ──────── */
@@ -2018,9 +2018,9 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 }
 
 /* ─── Hardware-fit chips on each model card ─── */
-.chip.fit-ok      { background: color-mix(in srgb, #34d399 18%, transparent); color: #34d399; border-color: color-mix(in srgb, #34d399 40%, transparent); }
-.chip.fit-tight   { background: color-mix(in srgb, #fbbf24 18%, transparent); color: #fbbf24; border-color: color-mix(in srgb, #fbbf24 40%, transparent); }
-.chip.fit-risky   { background: color-mix(in srgb, #f87171 18%, transparent); color: #f87171; border-color: color-mix(in srgb, #f87171 40%, transparent); }
+.chip.fit-ok      { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.chip.fit-tight   { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.chip.fit-risky   { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
 .chip.fit-unknown { background: color-mix(in srgb, #888 12%, transparent); color: var(--muted, #888); border-color: var(--border, #2a2a32); }
 
 /* ─── Structured use cases under each model card ─── */

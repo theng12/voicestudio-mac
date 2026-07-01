@@ -1233,10 +1233,9 @@ function studio() {
 
     async startDownload() {
       if (!this.pendingDownload) return;
-      const body = {
-        repo: this.pendingDownload.repo,
-        token: this.downloadToken || null,
-      };
+      const repo = this.pendingDownload.repo;
+      const isWhisper = this.stt.models.some((m) => m.repo === repo);
+      const body = { repo, token: this.downloadToken || null };
       this.pendingDownload = null;
       try {
         await fetch("/api/downloads", {
@@ -1244,7 +1243,14 @@ function studio() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
-        await this.refreshCatalog();
+        // Whisper/STT downloads and TTS downloads use the same confirm
+        // modal and the same /api/downloads call, but each needs its own
+        // follow-up refresh so the UI notices completion (v1.7.4).
+        if (isWhisper) {
+          this._pollWhisperUntilCached(repo);
+        } else {
+          await this.refreshCatalog();
+        }
       } catch (e) {
         alert("Failed to start download: " + e);
       }
@@ -2824,31 +2830,20 @@ function studio() {
         this.stt.available = false;
       }
     },
-    async downloadWhisperModel(repo) {
-      if (!repo) return;
+    _pollWhisperUntilCached(repo) {
       this.stt.model = repo;        // sync selection + per-card "Downloading…" label
       this.stt.downloading = true;
-      try {
-        await fetch("/api/downloads", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ repo }),
-        });
-        // Poll availability until the model flips to cached, so the UI
-        // re-enables Transcribe without a manual refresh.
-        const deadline = Date.now() + 30 * 60 * 1000;   // 30 min ceiling
-        const tick = async () => {
-          await this.refreshTranscribe();
-          const m = this.stt.models.find(x => x.repo === repo);
-          if (m && m.cached) { this.stt.downloading = false; return; }
-          if (Date.now() > deadline) { this.stt.downloading = false; return; }
-          setTimeout(tick, 4000);
-        };
+      // Poll availability until the model flips to cached, so the UI
+      // re-enables Transcribe without a manual refresh.
+      const deadline = Date.now() + 30 * 60 * 1000;   // 30 min ceiling
+      const tick = async () => {
+        await this.refreshTranscribe();
+        const m = this.stt.models.find(x => x.repo === repo);
+        if (m && m.cached) { this.stt.downloading = false; return; }
+        if (Date.now() > deadline) { this.stt.downloading = false; return; }
         setTimeout(tick, 4000);
-      } catch (e) {
-        this.stt.downloading = false;
-        this.stt.error = "Failed to start download: " + e;
-      }
+      };
+      setTimeout(tick, 4000);
     },
     _setSubtitleFile(file) {
       if (!file) return;
