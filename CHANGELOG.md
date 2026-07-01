@@ -10,6 +10,37 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.7.2] — 2026-07-01
+
+### Fixed — Download progress showed 1.5 GB for a model the catalog lists as 1.6 GB (unit mismatch, not data loss)
+
+Reported: downloading `mlx-community/whisper-large-v3-turbo` — the Models tab lists it as **1.6 GB**, but live progress only ever showed **1.5 GB**, and the job seemed to vanish from the Downloads tab entirely.
+
+**Root cause, verified live against a real download job:** the model's `weights.safetensors` is exactly `1,613,979,758` bytes.
+
+- Divided the standard (decimal/SI) way — same convention HF's own site and our static catalog `size_gb` use — that's **1.614 GB**, which rounds to the "1.6 GB" shown before downloading.
+- The frontend's `humanBytes()` helper (used only for *live* download byte counters) divided by **1024** at each step instead — same bytes, but that's **1.503 GiB**, mislabeled "GB" in the UI.
+
+Same bytes, two unit systems, two different-looking numbers. Nothing was actually missing.
+
+**Fix:** `humanBytes()` in `app.js` now divides by 1000 (decimal) like everything else in the app, so live download progress agrees with the catalog's advertised size. Verified against the real in-flight job: `1,613,979,758` bytes → **1.61 GB**, consistent with the catalog's "1.6 GB" (small residual rounding — 1 vs 2 decimal places between the two display contexts — is expected and no longer looks like data loss).
+
+### Diagnosed — why the download appeared to disappear from the Downloads tab
+
+Not a code bug: `GET /api/downloads` and the SSE stream both return every in-memory job unconditionally, confirmed live (a fresh whisper download showed up immediately). What actually happened: **the server was restarted while the download was mid-flight** (the timestamps on a stray 0-byte `.incomplete` blob on disk lined up exactly with the last server restart). Download jobs are tracked in-memory only, so a restart — including our own "Update & Restart" button — silently drops any job in progress and leaves a partial blob behind. Re-triggering the download today picked up cleanly and is progressing normally; no code path prevented it from showing up.
+
+Not changed in this release (flagged for later if it becomes a recurring annoyance): persisting in-flight download jobs across a server restart, and/or auto-detecting a stale `.incomplete` blob on startup to offer a one-click resume.
+
+### On which Whisper model to use
+
+`whisper-tiny` mis-transcribing (including the "wrong accent" pattern) is a well-known limitation of that model, not a bug — it's the least accurate tier in the registry, meant for quick tests only. `whisper-large-v3-turbo` (1.6 GB, the app's recommended default, currently mid-download as of this fix) is a large jump in accuracy and should resolve it. The full non-turbo `whisper-large-v3` (3.1 GB) is not a better default on 8 GB Macs — it shares the same unified-memory pool as any loaded TTS engine, and turbo already carries "near-large accuracy" per its own catalog note. `whisper-large-v3-turbo-q4` (0.5 GB) is the safer pick specifically for tight-RAM 8 GB machines if turbo's 1.6 GB footprint is ever a concern.
+
+### Notes
+
+- PATCH bump (1.7.1 → 1.7.2) — pure frontend formatting fix in `app.js`. No backend change, no new deps, no schema change. Already live on the running server without a restart (static asset, no-cache headers) — `Update` picks it up permanently.
+
+---
+
 ## [1.7.1] — 2026-06-26
 
 ### Changed — Models tab split into "Audio Generator" + "Audio Transcriber" sub-tabs

@@ -3030,8 +3030,16 @@ function studio() {
 }
 
 function humanBytes(n) {
+  // Decimal (SI, ÷1000) — NOT binary ÷1024. This must match the catalog's
+  // static `size_gb` values (computed from HF's decimal byte counts) and
+  // Hugging Face's own website, or live download progress visibly disagrees
+  // with the "X GB" size shown before downloading (e.g. a 1,613,979,758-byte
+  // file is legitimately "1.6 GB" decimal but only "1.5 GiB" if divided by
+  // 1024^3 — same bytes, two different-looking numbers, no bug in either
+  // reading alone, just a units mismatch). Confirmed live against a real
+  // whisper-large-v3-turbo download job.
   const units = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;
-  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  while (n >= 1000 && i < units.length - 1) { n /= 1000; i++; }
   return n.toFixed(n < 10 ? 2 : 1) + " " + units[i];
 }
