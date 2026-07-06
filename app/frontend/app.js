@@ -146,7 +146,8 @@ function studio() {
       // "all" | "ok" (green) | "tight" (yellow) | "over" (red)
       fitLevel: "all",
       sortBy: "default",           // "default" | "name" | "size-asc" | "size-desc"
-      collapsedFamilies: new Set(),
+      advancedOpen: false,
+      openFamilies: new Set(),
       // Per-repo "show full details" toggle. Cards default to compact —
       // use_cases + best_for + saved-loc are hidden until the user expands.
       expandedRepos: new Set(),
@@ -287,6 +288,7 @@ function studio() {
       // After catalog loads we know whether MLX models exist — set the MLX-only
       // filter default based on that (and respect any user-saved preference).
       this._initFilterPreferences();
+      this._initFamilyLibrary();
       await this.refreshGenAvailability();
       await this.refreshDiagnostics();
       await this.refreshLoras();
@@ -546,7 +548,8 @@ function studio() {
       for (const m of this.models) {
         for (const c of (m.capabilities || [])) set.add(c);
       }
-      return Array.from(set).sort();
+      const order = { tts: 0, "voice-cloning": 1, expressive: 2, multilingual: 3, streaming: 4 };
+      return Array.from(set).sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99) || a.localeCompare(b));
     },
 
     /** All families that have at least one model in the catalog — used
@@ -560,6 +563,65 @@ function studio() {
         out.push({ id: m.family, label: m.family_label || this.families?.[m.family]?.label || m.family });
       }
       return out.sort((a, b) => a.label.localeCompare(b.label));
+    },
+    get visibleFamilies() {
+      const families = Object.values(this.families || {})
+        .map(f => ({ ...f, models: this.filteredModelsByFamily[f.id] || [] }))
+        .filter(f => f.models.length > 0);
+      const rank = (f) => {
+        const cached = f.models.some(m => m.cache?.state === "cached") ? 0 : 1;
+        const fits = f.models.some(m => this.fitFor(m.min_unified_memory_gb).state !== "risky") ? 0 : 1;
+        return cached * 100 + fits * 10;
+      };
+      return families.sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
+    },
+    familyCapabilities(family) {
+      const caps = new Set();
+      for (const m of (family.models || [])) for (const cap of (m.capabilities || [])) caps.add(cap);
+      return Array.from(caps);
+    },
+    familyRuntimeLabel(family) {
+      const hasMlx = (family.models || []).some(m => m.apple_optimized);
+      const hasOther = (family.models || []).some(m => !m.apple_optimized);
+      return hasMlx && hasOther ? "MLX + PyTorch" : hasMlx ? "Apple MLX" : "PyTorch / MPS";
+    },
+    familyMemoryLabel(family) {
+      const floors = (family.models || []).map(m => Number(m.min_unified_memory_gb) || 0);
+      return floors.length ? `from ${Math.min(...floors)} GB RAM` : "RAM varies";
+    },
+    familyCachedCount(family) { return (family.models || []).filter(m => m.cache?.state === "cached").length; },
+    isRecommendedFamily(family) {
+      return !!this.bestPicks[0] && (family.models || []).some(m => m.repo === this.bestPicks[0].model.repo);
+    },
+    familyTone(family) {
+      const caps = this.familyCapabilities(family);
+      if (caps.includes("voice-cloning")) return "tone-edit";
+      if (caps.includes("streaming")) return "tone-cloud";
+      if (caps.includes("multilingual")) return "tone-mps";
+      return "tone-mlx";
+    },
+    modelVariantLabel(model) {
+      const familyLabel = this.families?.[model.family]?.label || model.family_label || "";
+      let label = model.label || model.repo;
+      if (familyLabel && label.toLowerCase().startsWith(familyLabel.toLowerCase())) {
+        label = label.slice(familyLabel.length).replace(/^\s*(?:[-—:]+)\s*/, "");
+      }
+      return label || "Standard";
+    },
+    modelRuntimeLabel(model) { return model.apple_optimized ? "Apple MLX" : "PyTorch / MPS"; },
+    modelFormatLabel(model) {
+      const label = model.label || "";
+      const match = label.match(/(?:4-6|4|6|8)-bit|bf16|fp16|fp32/i);
+      return match ? match[0].replace(/^./, c => c.toUpperCase()) + " weights" : "Standard weights";
+    },
+    modelRoleLabel(model) {
+      const label = model.label || "";
+      if (/recommended/i.test(label)) return "Recommended";
+      if (/smallest|nano/i.test(label)) return "Smallest";
+      if (/4-bit/i.test(label)) return "Fastest loads";
+      if (/8-bit/i.test(label)) return "Balanced";
+      if (/full precision|bf16|fp16|fp32/i.test(label)) return "Full fidelity";
+      return "";
     },
 
     /** Total counts for the "Showing N of M" header. */
@@ -623,16 +685,13 @@ function studio() {
       if (s.has(cap)) s.delete(cap); else s.add(cap);
       this.modelFilters.capabilities = new Set(s);
     },
-    /** Toggle "Apple Silicon (MLX) only" — filters out non-MLX entries.
-     *  Persists the choice so fresh sessions remember it. */
+    /** Opt-in filter for MLX-native model weights. */
     toggleMlxFilter() {
       this.modelFilters.mlxOnly = !this.modelFilters.mlxOnly;
-      this._persistFilterPref("mlxOnly", this.modelFilters.mlxOnly);
     },
     /** Toggle "Fits my Mac" — hides entries that would OOM/swap. Persists. */
     toggleFitsMyMacFilter() {
       this.modelFilters.fitsMyMac = !this.modelFilters.fitsMyMac;
-      this._persistFilterPref("fitsMyMac", this.modelFilters.fitsMyMac);
     },
     /** Helper: write a filter preference to localStorage. App-namespaced. */
     _persistFilterPref(name, value) {
@@ -640,21 +699,21 @@ function studio() {
         localStorage.setItem(`voicestudio.modelFilters.${name}`, String(value));
       } catch {}
     },
-    /** Restore saved preferences OR default mlxOnly=true if catalog has MLX
-     *  models. Called after catalog loads. */
+    /** Format/fit filters never persist: opening Models must show the catalog. */
     _initFilterPreferences() {
       try {
-        const savedMlx = localStorage.getItem("voicestudio.modelFilters.mlxOnly");
-        if (savedMlx !== null) {
-          this.modelFilters.mlxOnly = savedMlx === "true";
-        } else if (this.models.some(m => m.apple_optimized)) {
-          this.modelFilters.mlxOnly = true;
-        }
-        const savedFit = localStorage.getItem("voicestudio.modelFilters.fitsMyMac");
-        if (savedFit !== null) {
-          this.modelFilters.fitsMyMac = savedFit === "true";
-        }
+        this.modelFilters.mlxOnly = false;
+        this.modelFilters.fitsMyMac = false;
+        localStorage.removeItem("voicestudio.modelFilters.mlxOnly");
+        localStorage.removeItem("voicestudio.modelFilters.fitsMyMac");
       } catch {}
+    },
+    _initFamilyLibrary() {
+      if (this.modelFilters.openFamilies.size) return;
+      const cached = this.models.find(m => m.cache?.state === "cached");
+      const fitting = this.models.find(m => this.fitFor(m.min_unified_memory_gb).state !== "risky");
+      const first = cached || fitting || this.models[0];
+      this.modelFilters.openFamilies = new Set(first ? [first.family] : []);
     },
     // ──────── Per-model gen-state persistence ────────
     // localStorage keys: voicestudio.gen.presets is { [repo]: { field: value, ... } },
@@ -757,15 +816,17 @@ function studio() {
     collapseAllVisible() {
       this.modelFilters.expandedRepos = new Set();
     },
-    toggleFamilyCollapsed(familyId) {
-      const s = this.modelFilters.collapsedFamilies;
+    toggleFamilyOpen(familyId) {
+      const s = this.modelFilters.openFamilies;
       if (s.has(familyId)) s.delete(familyId); else s.add(familyId);
-      this.modelFilters.collapsedFamilies = new Set(s);
+      this.modelFilters.openFamilies = new Set(s);
     },
     isFamilyFiltered(familyId)   { return this.modelFilters.families.has(familyId); },
     isStatusFiltered(status)     { return this.modelFilters.statuses.has(status); },
     isCapFiltered(cap)           { return this.modelFilters.capabilities.has(cap); },
-    isFamilyCollapsed(familyId)  { return this.modelFilters.collapsedFamilies.has(familyId); },
+    isFamilyOpen(familyId) {
+      return this.modelFilters.openFamilies.has(familyId) || !!this.modelFilters.search.trim();
+    },
     clearAllFilters() {
       this.modelFilters.search = "";
       this.modelFilters.families = new Set();

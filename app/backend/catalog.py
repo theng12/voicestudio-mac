@@ -1437,10 +1437,9 @@ def serialize_model(m: ModelEntry) -> dict:
         fit = system_info.fit_for(m.min_unified_memory_gb)
     except Exception:
         fit = None
-    # Naming-compat with the imagestudio/musicstudio frontend code —
-    # "apple_optimized" there refers to MLX. The default-ON "MLX only" filter
-    # hides any model where this is False, so EVERY MLX-audio family must be
-    # listed here. Keep this set in sync with generation.MLX_AUDIO_FAMILIES
+    # Naming-compat with the sibling Studio frontends: "apple_optimized"
+    # identifies MLX-native families for runtime labels and the opt-in filter.
+    # Keep this set in sync with generation.MLX_AUDIO_FAMILIES
     # (catalog.py can't import generation.py without a circular import, hence
     # the explicit enumeration). The "-mlx" suffix catches voxcpm-mlx /
     # kokoro-mlx / chatterbox-mlx / spark-tts-mlx; the rest are named.

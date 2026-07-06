@@ -914,7 +914,7 @@
   </main>
 
   <!-- ─────────── MODELS ─────────── -->
-  <main x-show="tab==='models'" class="page">
+  <main x-show="tab==='models'" class="page models-page">
     <section class="page-head">
       <h1>Models</h1>
       <p class="muted">
@@ -936,379 +936,136 @@
       </div>
     </section>
 
-    <!-- ═════════ GENERATOR sub-tab: TTS catalog ═════════ -->
+    <!-- ═════════ GENERATOR sub-tab: family-first TTS catalog ═════════ -->
     <div x-show="modelsSubtab==='generator'" x-cloak>
-
-      <!-- ─── Hardware planner: RAM slider + live fit (v1.7) ─── -->
-      <!-- The slider drives every fit chip + the picks below via the
-           client-side fitFor()/effectiveRam. Defaults to detected RAM but
-           can be dragged/typed to preview any machine (e.g. a future
-           512 GB Mac) before buying it. -->
-      <div class="ram-planner" x-cloak>
-        <div class="ram-planner-head">
-          <span class="your-mac-icon">🖥</span>
-          <span x-show="system.unified_memory_gb">
-            Detected:
-            <strong x-text="system.chip || 'Apple Silicon'"></strong>
-            · <strong><span x-text="system.unified_memory_gb"></span> GB</strong> unified memory
-          </span>
-          <span x-show="!system.unified_memory_gb" class="muted">
-            Couldn't detect your Mac's RAM — set a budget below to score model fit.
-          </span>
-          <span class="ram-planner-spacer"></span>
-          <span class="ram-budget-pill" :class="{ preview: !ramIsDetected }">
-            Planning for <strong><span x-text="ramGb"></span> GB</strong>
-            <span class="muted small" x-show="!ramIsDetected">· preview</span>
-            <span class="muted small" x-show="ramIsDetected && system.unified_memory_gb">· your Mac</span>
-          </span>
+      <section class="model-commandbar">
+        <div class="model-search-wrap">
+          <span class="model-search-icon">⌕</span>
+          <input type="search" class="library-search" x-model="modelFilters.search"
+                 placeholder="Search voice families, models, or use cases">
         </div>
-
-        <div class="ram-slider-row">
-          <input class="ram-slider" type="range" min="8" max="512" step="1"
-                 :value="ramGb" @input="setRam($event.target.value)"
-                 aria-label="Unified memory budget in GB">
-          <div class="ram-entry">
-            <input class="ram-num" type="number" min="1" max="1024" step="1"
-                   :value="ramGb" @input="setRam($event.target.value)"
-                   aria-label="Unified memory budget (number)">
-            <span class="muted small">GB</span>
-          </div>
-          <button class="btn ghost small ram-reset" x-show="system.unified_memory_gb && !ramIsDetected"
-                  @click="resetRamToDetected()" title="Snap back to your Mac's detected RAM">
-            ↩ My Mac (<span x-text="system.unified_memory_gb"></span> GB)
-          </button>
+        <div class="model-command-actions">
+          <span class="model-result-count" x-text="filteredModelTotalCount + ' models'"></span>
+          <button class="model-filter-button" :class="{active:modelFilters.fitsMyMac}"
+                  @click="toggleFitsMyMacFilter()">Fits this Mac</button>
+          <button class="model-filter-button" :class="{active:modelFilters.advancedOpen || hasActiveFilters}"
+                  @click="modelFilters.advancedOpen=!modelFilters.advancedOpen">Filters</button>
         </div>
-
-        <div class="ram-tiers">
-          <template x-for="t in ramTiers" :key="t">
-            <button class="chip ram-tier" :class="{ active: ramGb === t }"
-                    @click="setRam(t)" x-text="t + ' GB'"></button>
+        <div class="model-quick-filters">
+          <template x-for="cap in availableCapabilities.filter(c => c !== 'tts')" :key="cap">
+            <button class="model-quick-chip" :class="{active:isCapFiltered(cap)}"
+                    @click="toggleCapabilityFilter(cap)" x-text="capabilityLabel(cap)"></button>
           </template>
+          <button class="model-quick-chip" :class="{active:isStatusFiltered('cached')}"
+                  @click="toggleStatusFilter('cached')">Downloaded</button>
+          <button class="clear-filter-link" x-show="hasActiveFilters" @click="clearAllFilters()">Clear all</button>
         </div>
-
-        <p class="muted small ram-planner-note">
-          Drag, type, or tap a tier to preview a machine — every fit chip and the picks below re-score instantly.
-        </p>
-      </div>
-
-      <!-- ─── ✨ Best for your RAM — live, per-lane recommendations ─── -->
-      <div class="best-picks" x-show="bestPicks.length" x-cloak>
-        <div class="best-picks-head">
-          <h2>✨ Best for <span x-text="ramGb"></span> GB</h2>
-          <span class="muted small">The highest-quality model in each lane that fits your budget — updates as you move the slider. Click a card to find it below.</span>
-        </div>
-        <div class="best-picks-grid">
-          <template x-for="p in bestPicks" :key="p.id">
-            <article class="best-pick-card"
-                     @click="modelFilters.search = p.model.repo; modelFilters.fitLevel = 'all'"
-                     :title="'Find ' + p.model.label + ' in the list below'">
-              <div class="best-pick-lane"><span x-text="p.icon"></span> <span x-text="p.label"></span></div>
-              <div class="best-pick-model" x-text="p.model.label"></div>
-              <div class="best-pick-meta">
-                <span class="chip" :class="cacheChipClass(p.model.cache?.state || 'absent')" x-text="cacheChipLabel(p.model.cache?.state || 'absent')"></span>
-                <span class="chip" :class="'fit-' + fitFor(p.model.min_unified_memory_gb).state"
-                      x-text="fitChipLabel(fitFor(p.model.min_unified_memory_gb))"></span>
-                <span class="muted small" x-text="formatGb(p.model.size_gb) + ' · ≥' + p.model.min_unified_memory_gb + ' GB'"></span>
-              </div>
-            </article>
-          </template>
-        </div>
-      </div>
-
-      <details class="primer">
-        <summary>📚 New here? Which TTS model should I pick?</summary>
-        <div class="primer-body">
-          <h3>Anatomy of a model name</h3>
-          <p>A name like <code>VoxCPM2 (4.4B)</code> tells you a few things:</p>
-          <ul>
-            <li><strong>VoxCPM2</strong> — the family + version. OpenBMB's multilingual TTS with voice cloning.</li>
-            <li><strong>4.4B</strong> — 4.4 billion parameters. More params usually means richer output but more memory and slower generation.</li>
-          </ul>
-
-          <h3>Picking a family</h3>
-          <ul>
-            <li><strong>Kokoro</strong> — tiny (82M), real-time, English-only, MIT license. The recommended starter for scripted narration with preset voices. No voice cloning.</li>
-            <li><strong>VoxCPM / VoxCPM2</strong> — multilingual (30+ languages), voice cloning, strong quality. The best default if you want one model that handles everything.</li>
-            <li><strong>F5-TTS</strong> — best-in-class English voice cloning from a short reference clip. Slower than VoxCPM but often more natural for English. Non-commercial license.</li>
-            <li><strong>Chatterbox</strong> — Resemble's voice cloning with an emotion-intensity slider. MIT licensed. Good for expressive / dramatic delivery.</li>
-            <li><strong>Spark-TTS</strong> — controllable zero-shot TTS with natural-language prompts ("a deep male voice, slow"). Apache-2.0 (commercial OK).</li>
-            <li><strong>Bark</strong> — unique tag system ([laughter], [singing], [MUSIC]). Slower and less precise, but uniquely expressive. MIT licensed.</li>
-            <li><strong>XTTS-v2</strong> — Coqui's classic multilingual voice cloning across 17 languages. License is non-commercial — fine for personal use only.</li>
-          </ul>
-
-          <h3>What does each chip mean?</h3>
-          <ul>
-            <li><span class="chip ok">cached</span> All files for this model are on disk and ready to generate from.</li>
-            <li><span class="chip warn">partial</span> Some files have downloaded but the model isn't usable yet. Click Download again to resume.</li>
-            <li><span class="chip">not downloaded</span> No files for this model are on disk. Click Download to fetch them.</li>
-            <li><span class="chip neutral">gated</span> The model's repo on Hugging Face requires you to accept a license. You'll be prompted for an HF token in the Download dialog.</li>
-            <li><span class="chip cap">tts</span> Basic text-to-speech with default or preset voices.</li>
-            <li><span class="chip cap">voice-cloning</span> Clones a target voice from a reference audio clip (3–15 seconds).</li>
-            <li><span class="chip cap">multilingual</span> Supports more than English.</li>
-            <li><span class="chip cap">expressive</span> Has emotion / style controls or special tags for non-speech (laughter, sighs, etc.).</li>
-            <li><span class="chip cap">streaming</span> Low-latency / real-time generation.</li>
-          </ul>
-
-          <h3>Which one should I pick first?</h3>
-          <p>
-            On any Apple Silicon Mac with ≥8 GB unified memory: start with
-            <code>hexgrad/Kokoro-82M</code>. Only ~340 MB, MIT, real-time. The bundled preset voices are surprisingly good for narration.
-          </p>
-          <p>
-            When you need voice cloning (clone a specific voice from a reference clip): pick
-            <code>openbmb/VoxCPM2</code> for multilingual, or <code>SWivid/F5-TTS</code> for the highest-quality English cloning.
-          </p>
-          <p>
-            For character voices / expressive delivery with non-speech tags: <code>suno/bark</code>.
-          </p>
-
-          <h3>A note on voice cloning ethics</h3>
-          <p>
-            All voice-cloning models in this catalog can imitate a target voice from a short reference clip.
-            <strong>Only clone voices you have permission to use.</strong> Cloning someone else's voice without consent
-            for fraud, harassment, or impersonation is illegal in most jurisdictions. Use these tools on your own
-            voice, public-domain recordings, or voices you've been explicitly licensed for.
-          </p>
-        </div>
-      </details>
-
-      <!-- ─── Library filter toolbar ─── -->
-      <section class="library-toolbar" x-cloak>
-      <div class="library-toolbar-row">
-        <input type="search"
-               class="library-search"
-               x-model="modelFilters.search"
-               placeholder="🔍 Search by name, repo, or 'best for'…">
-        <select x-model="modelFilters.sortBy" class="library-sort">
-          <option value="default">Sort: default (family · size)</option>
-          <option value="name">Sort: name (A–Z)</option>
-          <option value="size-asc">Sort: size (small → large)</option>
-          <option value="size-desc">Sort: size (large → small)</option>
-        </select>
-        <div class="library-meta">
-          <span class="muted small" x-text="'Showing ' + filteredModelTotalCount + ' of ' + models.length"></span>
-          <button class="btn ghost small" x-show="hasActiveFilters" @click="clearAllFilters()">✕ Clear filters</button>
-          <button class="btn ghost small" @click="expandAllVisible()" title="Show details on every visible card">▾ Expand all</button>
-          <button class="btn ghost small" @click="collapseAllVisible()" title="Hide details on every card">▴ Collapse all</button>
-        </div>
-      </div>
-
-      <div class="library-toolbar-row filter-chips-row">
-        <span class="filter-label">Family</span>
-        <template x-for="fam in availableFamilies" :key="fam.id">
-          <button class="chip filter-chip"
-                  :class="{active: isFamilyFiltered(fam.id)}"
-                  @click="toggleFamilyFilter(fam.id)"
-                  x-text="fam.label"></button>
-        </template>
-      </div>
-
-      <div class="library-toolbar-row filter-chips-row">
-        <span class="filter-label">Status</span>
-        <button class="chip filter-chip status-cached"
-                :class="{active: isStatusFiltered('cached')}"
-                @click="toggleStatusFilter('cached')">✓ Cached</button>
-        <button class="chip filter-chip"
-                :class="{active: isStatusFiltered('partial')}"
-                @click="toggleStatusFilter('partial')">⏳ Partial</button>
-        <button class="chip filter-chip"
-                :class="{active: isStatusFiltered('absent')}"
-                @click="toggleStatusFilter('absent')">⚪ Not downloaded</button>
-        <button class="chip filter-chip status-ready"
-                :class="{active: isStatusFiltered('engine-ready')}"
-                @click="toggleStatusFilter('engine-ready')"
-                title="Cached AND the engine's runtime packages are installed">🚀 Ready to generate</button>
-      </div>
-
-      <div class="library-toolbar-row filter-chips-row" x-show="availableCapabilities.length > 0">
-        <span class="filter-label">Capability</span>
-        <template x-for="cap in availableCapabilities" :key="cap">
-          <button class="chip filter-chip"
-                  :class="{active: isCapFiltered(cap)}"
-                  @click="toggleCapabilityFilter(cap)"
-                  x-text="cap"></button>
-        </template>
-      </div>
-
-      <!-- ─── Hardware + format filters (v1.1.2 / v1.7) ─── -->
-      <!-- Segmented RAM-fit filter — scored live against the RAM slider above.
-           Mirrors the Chat Studio model-tab control for a consistent look. -->
-      <div class="library-toolbar-row filter-chips-row">
-        <span class="filter-label">RAM fit</span>
-        <div class="seg fit-seg">
-          <button :class="{active: modelFilters.fitLevel==='all'}"   @click="modelFilters.fitLevel='all'">All</button>
-          <button :class="{active: modelFilters.fitLevel==='ok'}"    @click="modelFilters.fitLevel='ok'"    title="Comfortable headroom at your RAM budget">✓ Fits</button>
-          <button :class="{active: modelFilters.fitLevel==='tight'}" @click="modelFilters.fitLevel='tight'" title="Meets the floor but no headroom — close other apps">⚠ Tight</button>
-          <button :class="{active: modelFilters.fitLevel==='over'}"  @click="modelFilters.fitLevel='over'"  title="Exceeds your RAM budget — would swap or fail to load">✗ Over</button>
-        </div>
-        <span class="muted small">at <strong x-text="ramGb + ' GB'"></strong></span>
-      </div>
-
-      <!-- MLX chip auto-hides if the catalog has zero MLX-optimized entries
-           (would always match nothing and just clutter the UI). -->
-      <div class="library-toolbar-row filter-chips-row"
-           x-show="models.some(m => m.apple_optimized)">
-        <span class="filter-label">Quick</span>
-        <button class="chip filter-chip filter-chip-mlx"
-                :class="{active: modelFilters.mlxOnly}"
-                @click="toggleMlxFilter()"
-                title="Show only models pre-quantized for Apple Silicon's MLX framework.">
-          🍎 Apple Silicon (MLX) only
-        </button>
-      </div>
-    </section>
-
-    <!-- Empty state when filters return nothing -->
-    <div class="library-empty" x-show="filteredModelTotalCount === 0 && models.length > 0" x-cloak>
-      <p class="muted">No models match your filters.</p>
-      <p class="library-empty-active-filters" x-show="activeFilterSummary().length > 0">
-        <span class="muted small">Active filters (click to remove):</span>
-        <template x-for="af in activeFilterSummary()" :key="af.label">
-          <button class="chip library-empty-chip"
-                  @click="af.removeFn()"
-                  :title="'Remove this filter: ' + af.label">
-            <span x-text="af.label"></span>
-            <span class="library-empty-chip-x">✕</span>
-          </button>
-        </template>
-      </p>
-      <button class="btn ghost" @click="clearAllFilters()">✕ Clear all filters</button>
-    </div>
-
-    <!-- Family sections — only render families that have surviving models -->
-    <template x-for="family in Object.values(families).filter(f => (filteredModelsByFamily[f.id]||[]).length > 0)" :key="family.id">
-      <section class="family">
-        <header class="family-head">
-          <button class="family-collapse-btn"
-                  @click="toggleFamilyCollapsed(family.id)"
-                  :title="isFamilyCollapsed(family.id) ? 'Expand' : 'Collapse'"
-                  x-text="isFamilyCollapsed(family.id) ? '▸' : '▾'"></button>
-          <div class="family-head-text">
-            <h2>
-              <span x-text="family.label"></span>
-              <span class="muted small" x-text="'(' + (filteredModelsByFamily[family.id]||[]).length + ')'"></span>
-            </h2>
-            <p class="muted" x-text="family.summary" x-show="!isFamilyCollapsed(family.id)"></p>
-          </div>
-        </header>
-
-        <div x-show="!isFamilyCollapsed(family.id)" x-cloak>
-          <details class="how">
-            <summary>How to use this family</summary>
-            <p x-text="family.how_to_use"></p>
-          </details>
-
-          <div class="model-list">
-            <template x-for="m in filteredModelsByFamily[family.id] || []" :key="m.repo">
-            <article class="model-card" :class="cardClass(m)">
-              <div class="model-meta">
-                <h3>
-                  <span x-text="m.label"></span>
-                  <span class="chip"
-                    :class="cacheChipClass(m.cache.state)"
-                    :title="chipExplain(m.cache.state)"
-                    x-text="cacheChipLabel(m.cache.state)"></span>
-                  <span class="chip neutral" x-show="m.gated"
-                    title="Hugging Face requires you to accept a license and provide a personal access token before downloading this repo.">gated</span>
-                  <span class="chip neutral" x-show="m.apple_optimized"
-                    title="Pre-quantized for Apple Silicon's MLX framework. Loads fast and uses unified memory efficiently on M-series chips.">MLX</span>
-                  <!-- Fit chip — green / yellow / red, scored LIVE against the
-                       RAM slider (effectiveRam), so it updates as you drag. -->
-                  <span class="chip"
-                        x-show="m.min_unified_memory_gb"
-                        :class="'fit-' + fitFor(m.min_unified_memory_gb).state"
-                        :title="fitFor(m.min_unified_memory_gb).hint"
-                        x-text="fitChipLabel(fitFor(m.min_unified_memory_gb))"></span>
-                </h3>
-                <p class="repo"><code x-text="m.repo"></code></p>
-                <p class="size-line">
-                  <span class="size-big" x-text="formatGb(m.size_gb)"></span>
-                  <span class="muted">download</span>
-                  ·
-                  <span class="muted" x-text="'≥' + m.min_unified_memory_gb + ' GB unified mem'"></span>
-                </p>
-                <p class="hw" x-text="m.recommended_hardware"></p>
-                <p class="capabilities-row" x-show="m.capabilities && m.capabilities.length">
-                  <template x-for="c in (m.capabilities || [])" :key="c">
-                    <span class="chip cap" :title="capabilityHint(c)" x-text="capabilityLabel(c)"></span>
-                  </template>
-                  <!-- Engine status chip — 3 states: ready / deps-ok-but-not-wired / missing deps. -->
-                  <span class="chip engine-ready"
-                        x-show="m.cache.state==='cached' && isModelReady(m.repo)"
-                        title="This model's engine is installed and wired up. Ready to generate.">
-                    ✓ engine ready
-                  </span>
-                  <span class="chip engine-pending"
-                        x-show="m.cache.state==='cached' && !isModelReady(m.repo) && modelDepsOk(m.repo)"
-                        title="Packages are installed, but the backend worker for this family isn't shipped yet. Coming in a future Phase.">
-                    🕓 worker in roadmap
-                  </span>
-                  <span class="chip engine-missing"
-                        x-show="m.cache.state==='cached' && !modelDepsOk(m.repo)"
-                        :title="'Missing packages: ' + (modelMissingDeps(m.repo) || []).join(', ') + '. Click for details.'"
-                        @click="tab='generate'">
-                    ⚠ engine needs install
-                  </span>
-                </p>
-                <!-- ─── Collapsible details (v1.1.2) ─── -->
-                <!-- Cards default to compact; the toggle below expands to show
-                     best_for + use_cases + saved-loc. Keeps the gallery
-                     scannable when there are 25 models on screen. -->
-                <div class="model-details" x-show="isModelExpanded(m.repo)" x-cloak>
-                  <p class="best-for" x-show="m.best_for">
-                    <strong>Best for:</strong> <span x-text="m.best_for"></span>
-                  </p>
-
-                  <!-- Structured use cases — ✅ good / ⚠️ weak / ❌ avoid -->
-                  <ul class="use-case-list" x-show="m.use_cases && m.use_cases.length > 0">
-                    <template x-for="uc in (m.use_cases || [])" :key="uc.text">
-                      <li :class="'use-case-' + uc.kind">
-                        <span class="use-case-icon" x-text="useCaseIcon(uc.kind)"></span>
-                        <span x-text="uc.text"></span>
-                      </li>
-                    </template>
-                  </ul>
-
-                  <p class="saved-loc" x-show="m.cache.state==='cached' && m.cache.path">
-                    <small>📁 Saved at <code x-text="m.cache.path"></code></small>
-                    <button class="link small" @click="revealInFolder(m.cache.path)" title="Open this folder in Finder">📂 Reveal in Finder</button>
-                  </p>
-                </div>
-
-                <!-- Toggle — always visible, label flips with state -->
-                <button class="model-details-toggle"
-                        @click="toggleModelExpanded(m.repo)"
-                        :title="isModelExpanded(m.repo) ? 'Hide details' : 'Show \"best for\", use cases, and saved location'">
-                  <span x-show="!isModelExpanded(m.repo)">▾ Show details</span>
-                  <span x-show="isModelExpanded(m.repo)">▴ Hide details</span>
-                </button>
-              </div>
-              <div class="model-actions">
-                <template x-if="m.cache.state === 'cached'">
-                  <span class="ok-text">✓ cached</span>
-                </template>
-
-                <template x-if="m.cache.state !== 'cached' && !m.active_download">
-                  <button class="primary" @click="confirmDownload(m)">
-                    <span>⬇</span> Download
-                  </button>
-                </template>
-
-                <template x-if="m.active_download">
-                  <div class="dl-inline">
-                    <div class="bar"><div class="bar-fill" :style="`width:${m.active_download.percent || 0}%`"></div></div>
-                    <small x-text="downloadCaption(m.active_download)"></small>
-                    <button class="link danger" @click="cancelDownload(m.active_download.id)">cancel</button>
-                  </div>
-                </template>
-              </div>
-            </article>
-          </template>
-        </div>
-        </div><!-- /family-collapse wrapper -->
       </section>
-    </template>
-    </div><!-- /generator sub-tab -->
+
+      <section class="model-advanced" x-show="modelFilters.advancedOpen" x-cloak>
+        <div class="advanced-grid">
+          <div class="advanced-block">
+            <div class="advanced-label">Plan for memory</div>
+            <div class="compact-device-line"><strong x-text="system.chip || 'Apple Silicon'"></strong> · <strong><span x-text="ramGb"></span> GB</strong></div>
+            <div class="ram-tiers compact-ram-tiers">
+              <template x-for="t in ramTiers" :key="t"><button class="chip ram-tier" :class="{active:ramGb===t}" @click="setRam(t)" x-text="t+' GB'"></button></template>
+            </div>
+          </div>
+          <div class="advanced-block">
+            <div class="advanced-label">Availability and runtime</div>
+            <div class="advanced-chip-row">
+              <button class="model-quick-chip" :class="{active:isStatusFiltered('cached')}" @click="toggleStatusFilter('cached')">Downloaded</button>
+              <button class="model-quick-chip" :class="{active:isStatusFiltered('partial')}" @click="toggleStatusFilter('partial')">Partial</button>
+              <button class="model-quick-chip" :class="{active:isStatusFiltered('absent')}" @click="toggleStatusFilter('absent')">Not downloaded</button>
+              <button class="model-quick-chip" :class="{active:modelFilters.mlxOnly}" @click="toggleMlxFilter()">Apple MLX</button>
+            </div>
+            <select x-model="modelFilters.sortBy" class="library-sort">
+              <option value="default">Options: smallest first</option>
+              <option value="name">Options: name</option>
+              <option value="size-desc">Options: largest first</option>
+            </select>
+          </div>
+          <div class="advanced-block">
+            <div class="advanced-label">Memory fit at <span x-text="ramGb"></span> GB</div>
+            <div class="seg fit-seg">
+              <button :class="{active:modelFilters.fitLevel==='all'}" @click="modelFilters.fitLevel='all'">All</button>
+              <button :class="{active:modelFilters.fitLevel==='ok'}" @click="modelFilters.fitLevel='ok'">Fits</button>
+              <button :class="{active:modelFilters.fitLevel==='tight'}" @click="modelFilters.fitLevel='tight'">Tight</button>
+              <button :class="{active:modelFilters.fitLevel==='over'}" @click="modelFilters.fitLevel='over'">Over</button>
+            </div>
+            <details class="model-terms"><summary>Voice model terms</summary>
+              <p><strong>Voice cloning</strong> uses a reference clip. <strong>Preset voice</strong> families use built-in speakers.</p>
+              <p><strong>Expressive</strong> models support emotion, style prompts, or performance tags.</p>
+              <p><strong>Apple MLX</strong> models are converted for efficient Apple Silicon inference.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <div class="library-empty" x-show="filteredModelTotalCount===0 && models.length" x-cloak>
+        <span class="empty-orbit">0</span><h2>No voice families match</h2>
+        <p class="muted">Try clearing one of the active filters.</p>
+        <button class="btn ghost" @click="clearAllFilters()">Clear all filters</button>
+      </div>
+
+      <section class="family-library" x-show="filteredModelTotalCount>0" x-cloak>
+        <div class="family-library-heading">
+          <div><span class="models-eyebrow">TTS families</span><h2 x-text="visibleFamilies.length + (visibleFamilies.length===1?' family':' families')"></h2></div>
+          <p class="muted">Sorted for <strong><span x-text="system.chip || 'Apple Silicon'"></span> · <span x-text="ramGb"></span> GB</strong></p>
+        </div>
+        <div class="family-stack">
+          <template x-for="family in visibleFamilies" :key="family.id">
+            <article class="family-panel" :class="[familyTone(family),{'is-open':isFamilyOpen(family.id)}]">
+              <button class="family-panel-trigger" @click="toggleFamilyOpen(family.id)" :aria-expanded="isFamilyOpen(family.id)">
+                <span class="family-monogram" x-text="family.label.slice(0,2).toUpperCase()"></span>
+                <span class="family-panel-copy">
+                  <span class="family-title-line"><strong x-text="family.label"></strong>
+                    <span class="family-recommended" x-show="isRecommendedFamily(family)">Best match</span>
+                    <span class="family-cached" x-show="familyCachedCount(family)>0" x-text="familyCachedCount(family)+' ready'"></span>
+                  </span>
+                  <span class="family-summary" x-text="family.summary"></span>
+                  <span class="family-facts"><span x-text="family.models.length+(family.models.length===1?' option':' options')"></span><span x-text="familyRuntimeLabel(family)"></span><span x-text="familyMemoryLabel(family)"></span>
+                    <template x-for="cap in familyCapabilities(family).filter(c=>c!=='tts')" :key="cap"><span x-text="capabilityLabel(cap)"></span></template>
+                  </span>
+                </span>
+                <span class="family-chevron" x-text="isFamilyOpen(family.id)?'−':'+'"></span>
+              </button>
+              <div class="family-panel-body" x-show="isFamilyOpen(family.id)" x-cloak>
+                <div class="family-guidance"><span>Good to know</span><p x-text="family.how_to_use"></p></div>
+                <div class="variant-table-head"><span>Option</span><span>Runs with</span><span>Download</span><span>Memory</span><span></span></div>
+                <div class="variant-list">
+                  <template x-for="m in family.models" :key="m.repo">
+                    <article class="variant-row" :class="cardClass(m)">
+                      <div class="variant-identity">
+                        <div class="variant-title-line"><h3 x-text="modelVariantLabel(m)"></h3><span class="variant-role" x-show="modelRoleLabel(m)" x-text="modelRoleLabel(m)"></span><span class="chip neutral" x-show="m.gated">Gated</span></div>
+                        <div class="variant-capabilities"><template x-for="c in (m.capabilities||[]).filter(c=>c!=='tts')" :key="c"><span x-text="capabilityLabel(c)"></span></template></div>
+                      </div>
+                      <div class="variant-spec" data-label="Runs with"><strong x-text="modelRuntimeLabel(m)"></strong><small x-text="modelFormatLabel(m)"></small></div>
+                      <div class="variant-spec" data-label="Download"><strong x-text="formatGb(m.size_gb)"></strong><small x-text="cacheChipLabel(m.cache.state)"></small></div>
+                      <div class="variant-spec" data-label="Memory"><strong x-text="m.min_unified_memory_gb+' GB+'"></strong><span class="fit-dot" :class="'fit-'+fitFor(m.min_unified_memory_gb).state" x-text="fitChipLabel(fitFor(m.min_unified_memory_gb))"></span></div>
+                      <div class="variant-action">
+                        <template x-if="m.cache.state!=='cached' && !m.active_download"><button class="primary" @click="confirmDownload(m)">Download</button></template>
+                        <template x-if="m.cache.state==='cached'"><button class="primary use-model-button" :disabled="!isModelReady(m.repo)" @click="gen.repo=m.repo;onModelChange();tab='generate'">Use model</button></template>
+                        <template x-if="m.active_download"><div class="dl-inline"><div class="bar"><div class="bar-fill" :style="`width:${m.active_download.percent||0}%`"></div></div><small x-text="downloadCaption(m.active_download)"></small><button class="link danger" @click="cancelDownload(m.active_download.id)">Cancel</button></div></template>
+                      </div>
+                      <button class="variant-details-toggle" @click="toggleModelExpanded(m.repo)" x-text="isModelExpanded(m.repo)?'Hide details':'Details'"></button>
+                      <div class="variant-details" x-show="isModelExpanded(m.repo)" x-cloak>
+                        <p class="variant-repo"><code x-text="m.repo"></code></p>
+                        <p class="best-for" x-show="m.best_for"><strong>Best for:</strong> <span x-text="m.best_for"></span></p>
+                        <p class="hw" x-text="m.recommended_hardware"></p>
+                        <p class="muted small"><span x-text="(m.sample_rate_hz/1000)+' kHz'"></span> · <span x-text="(m.languages||[]).join(', ')"></span></p>
+                        <ul class="use-case-list" x-show="m.use_cases&&m.use_cases.length"><template x-for="uc in m.use_cases" :key="uc.text"><li :class="'use-case-'+uc.kind"><span class="use-case-icon" x-text="useCaseIcon(uc.kind)"></span><span x-text="uc.text"></span></li></template></ul>
+                        <p class="saved-loc" x-show="m.cache.state==='cached'&&m.cache.path"><small>Saved at <code x-text="m.cache.path"></code></small><button class="link small" @click="revealInFolder(m.cache.path)">Reveal in Finder</button></p>
+                      </div>
+                    </article>
+                  </template>
+                </div>
+              </div>
+            </article>
+          </template>
+        </div>
+      </section>
+    </div>
 
     <!-- ═════════ TRANSCRIBER sub-tab: Whisper / speech-to-text ═════════ -->
     <div x-show="modelsSubtab==='transcriber'" x-cloak>
