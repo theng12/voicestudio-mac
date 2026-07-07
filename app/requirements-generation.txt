@@ -34,7 +34,20 @@ diffusers>=0.30
 accelerate>=0.30
 sentencepiece>=0.2
 soundfile>=0.12
-numpy>=1.26
+
+# ─── numba / llvmlite / numpy — matched set (Python 3.12 / 3.13 safe) ───
+# librosa (pulled in by voxcpm + f5-tts) needs numba, and numba compiles
+# llvmlite. numpy is otherwise unconstrained here, so the resolver floats it to
+# the newest release (2.5+). But every modern numba caps numpy (e.g. numba
+# 0.61/0.66 require numpy<2.3), so with numpy at 2.5 ALL modern numbas are
+# excluded and the resolver walks numba *backwards* to 0.53.1 — a Python<3.10
+# release whose llvmlite 0.36.0 has no 3.12 wheel and fails to build from source
+# ("RuntimeError: Cannot install on Python version 3.12.x; only >=3.6,<3.10").
+# Capping numpy to what a current numba supports lets the resolver pick a modern
+# numba (0.6x) with a prebuilt llvmlite wheel — no source build, works on
+# 3.12/3.13. KEEP this numpy cap when bumping other pins.
+numba>=0.59
+numpy>=1.26,<2.3
 
 # ─── Phase 2.0: Kokoro ───
 # Pulls misaki[en] for English G2P (no espeak-ng needed for American/British).
