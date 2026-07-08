@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.7.5] — 2026-07-08
+
+### Fixed — Start now refuses to compete with startup service mode
+
+The startup service already takes over port `47870` when installed, and the service-mode sidebar hides the normal Start button. But `start.js` itself still had no direct guard, so any stale menu, direct script launch, or automation path could still try to start a second Uvicorn server on the same fixed port and fail with "address already in use."
+
+`start.js` now checks for `service/.installed` before launching the server. If service mode is active, it exits immediately with a clear message telling the user to use **Open UI (service)** or uninstall the startup service first. The existing Uvicorn URL capture and `local.set` behavior are unchanged.
+
+**Verified:** `node --check start.js`, direct inspection against the required Pinokio URL-capture pattern (`input.event[1]`), and current logs showing service install already takes over the same port by stopping the previous Pinokio Start process.
+
+### Notes
+
+- PATCH bump (1.7.4 → 1.7.5) — launcher guard only, no app/backend change. **Just run Update**.
+
 ## [1.7.4] — 2026-07-01
 
 ### Fixed — UX/UI consistency pass: unified the download flow, chip colors, and one more GB-formatting gap

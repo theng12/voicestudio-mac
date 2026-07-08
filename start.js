@@ -12,6 +12,7 @@ module.exports = {
           "PYTHONUNBUFFERED": "1"
         },
         message: [
+          "if [ -f ../service/.installed ]; then echo \"Startup service mode is installed. Use 'Open UI (service)' or uninstall the startup service before using Start.\"; exit 1; fi",
           // Bind on every interface (LAN, Tailscale, loopback) at a fixed
           // port so other devices can hit the API directly. We picked 47870
           // so it doesn't clash with ImageStudio (47868) or MusicStudio (47869).
