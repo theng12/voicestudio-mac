@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.8.0] — 2026-07-09
+
+### Added — dependency lockfiles: fresh installs are now reproducible forever
+
+`requirements.txt` / `requirements-generation.txt` use version **floors** (`>=`), so a fresh install months from now would resolve to whatever PyPI serves that day — one breaking release in any dependency (torch, mlx, kokoro, …) bricks the app on a new machine while existing installs keep working. Same fix Chat Studio shipped in its v1.19.0.
+
+- **`app/requirements.lock.txt`** — the pinned phase-1 set (36 packages, compiled from the floors constrained to the verified env's installed versions).
+- **`app/requirements-generation.lock.txt`** — the FULL verified env (240 packages), including the two git-sourced engines (`mlx-audio`, `omnivoice`) **pinned to exact commits** — previously these installed whatever the upstream repo's HEAD was that day, the single most drift-prone part of this app.
+- `install.js`, `install_generation.js`, and `update.js` now install from the locks. Upgrade flow (edit floors → verify → regenerate both locks → commit) is documented in each lock's header.
+
+Verified: phase-1 lock resolves all-satisfied against the live env; both launcher scripts pass `node --check`; python was already pinned (`python=3.12`).
+
+### Notes
+
+- MINOR bump (1.7.5 → 1.8.0) — install-pipeline change, no package versions changed (locks pin exactly what's installed and verified).
+
+---
+
 ## [1.7.5] — 2026-07-08
 
 ### Fixed — Start now refuses to compete with startup service mode
