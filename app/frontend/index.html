@@ -45,6 +45,7 @@
       <button :class="{active: tab==='settings'}" @click="tab='settings'; refreshSettings()">Settings</button>
     </nav>
     <div class="status">
+      <span class="version-badge" x-text="'v' + health.app_version" x-show="health.app_version" x-cloak></span>
       <span class="dot" :class="health.ok ? 'ok' : 'bad'"></span>
       <span x-text="health.ok ? 'online' : 'offline'"></span>
     </div>
