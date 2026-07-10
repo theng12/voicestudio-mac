@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.8.7] — 2026-07-10
+
+### Fixed — download ETA settle-guard, real catalog sizes, memory floors, and dead-entry cleanup
+
+**Absurd download ETA (`downloads.py`).** The speed EMA's first sample was taken while `snapshot_download()` was still resolving repo metadata, before real bytes landed — a near-zero "instant" speed (e.g. 1.57 KB over ~3 sec) that, divided into a multi-GB remaining total, produced an ETA like "99679m 03s" seconds after clicking Download. `eta_seconds` is now suppressed until the job has ≥3 s of runtime so the EMA settles to a representative rate first.
+
+**Unreadable long durations (`app.js`).** `formatDuration()` only had `Xm YYs`, so a legitimately long ETA rendered as e.g. "734m 12s". Added hour/day rollup (`Xh YYm`, `Xd YYh`); short job-render durations are unchanged.
+
+**Catalog sizes corrected to real Hugging Face download sizes.** 13 entries were under-counted because they bundle files the old estimate ignored — OmniVoice (4-bit 0.5→1.1 GB, 8-bit 0.9→1.5, bf16 1.3→2.0) and Spark-TTS ship an audio-tokenizer / wav2vec2 encoder; VibeVoice-fp16 1.0→2.1; Kokoro-82M-4bit 0.18→0.67; and others. Verified against the HF API `blobs=true` file listing, with each entry's `ignore_patterns` applied to match what `downloads.py` actually fetches.
+
+**Memory floors recalibrated.** Seven small TTS models were over-classified — e.g. OmniVoice fp32 (a 3.3 GB, 0.6B model) required a 16 GB floor, so on a 16 GB Mac it read "⚠ tight". Floors now reflect the real footprint (fp32 → 8 GB, so a 16 GB Mac reads "✓ fits"). Same for Qwen3-TTS-1.7B, chatterbox-fp16, Spark-8bit/bf16, VibeVoice-fp16, and OmniVoice-bf16.
+
+**Removed 3 entries.** `mlx-community/chatterbox-mlx-4bit` and `-8bit` return HTTP 401 (undownloadable) and were already superseded by the newer `chatterbox-4bit/8bit/fp16` in the same family; `Spark-TTS-0.5B-6bit` was a redundant middle tier between the 4-6bit (recommended) and 8bit variants.
+
+**Checked, left unchanged:** the PyTorch VoxCPM / Kokoro / F5-TTS entries (a different runtime from their MLX ports — not duplicates). `py_compile` clean; catalog re-imports to 40 models.
+
 ## [1.8.6] — 2026-07-10
 
 ### Fixed — API examples now generate speech instead of copied FLUX images
