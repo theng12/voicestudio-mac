@@ -112,7 +112,15 @@ input {
 }
 
 .brand { display: flex; align-items: center; gap: 10px; }
-.brand-mark { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .28);
+}
 .brand-name { font-weight: 600; letter-spacing: 0.3px; }
 .brand-tag { color: var(--muted); font-size: 12px; }
 
@@ -133,6 +141,7 @@ input {
   color: var(--text);
   background: var(--panel-2);
   border-color: var(--border);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .tabs .badge {
   display: inline-block;
@@ -152,6 +161,43 @@ input {
 .page { padding: 24px; max-width: 1100px; margin: 0 auto; }
 .page-head h1 { margin: 0 0 6px; font-size: 22px; }
 .page-head .muted { margin-top: 0; }
+
+.workspace-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, .72fr);
+  gap: 28px;
+  align-items: end;
+  margin: 2px 0 22px;
+  padding: 10px 0 22px;
+  border-bottom: 1px solid var(--border);
+}
+.workspace-kicker {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.workspace-copy h1 { margin: 5px 0 7px; font-size: 32px; line-height: 1.1; letter-spacing: 0; }
+.workspace-copy p { max-width: 620px; margin: 0; color: var(--muted); font-size: 14px; }
+.workspace-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--border);
+}
+.workspace-stat { min-width: 0; padding: 10px 11px; background: var(--panel); }
+.workspace-stat span, .workspace-stat strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-stat span { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.workspace-stat strong { margin-top: 4px; font-size: 11px; }
+
+@media (max-width: 760px) {
+  .workspace-intro { grid-template-columns: 1fr; gap: 16px; }
+  .workspace-meta { grid-template-columns: 1fr; }
+}
 
 .muted { color: var(--muted); }
 .empty { padding: 32px 0; text-align: center; }

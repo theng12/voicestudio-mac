@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.8.5] — 2026-07-10
+
+### Changed — Generate opens with a focused voice workspace overview
+
+The Generate tab previously dropped straight from a plain heading into warnings and
+dependency details. It now opens with a compact workspace overview showing the active
+model, voice, and compute target before the existing controls. The header icon and active
+tab also use the refined Studio treatment established in Image Studio.
+
+### Verification
+
+- Validated Alpine expressions, JavaScript syntax, HTML parsing, and desktop/mobile
+  layout against the live no-cache frontend without restarting the managed service.
+- Generation controls, diagnostics, engine behavior, saved voices, and API routes were
+  checked and deliberately left unchanged.
+
+---
+
 ## [1.8.4] — 2026-07-10
 
 ### Changed — Version now shown as a badge in the top-right header (consistent across all sibling apps)

@@ -53,13 +53,27 @@
 
   <!-- ─────────── GENERATE (Phase 2.0 — Kokoro) ─────────── -->
   <main x-show="tab==='generate'" class="page generate-page">
-    <section class="page-head">
-      <h1>Generate Speech</h1>
-      <p class="muted">
-        Type text, pick a voice, hit generate. Phase 2.0 ships <strong>Kokoro</strong>
-        (real-time, English) — other engines roll out in 2.1+.
-      </p>
-    </section>
+    <header class="workspace-intro">
+      <div class="workspace-copy">
+        <span class="workspace-kicker">Voice workspace</span>
+        <h1>Generate speech</h1>
+        <p>Choose a model and voice, shape the delivery, then render clean audio from one focused workspace.</p>
+      </div>
+      <div class="workspace-meta" aria-label="Current voice workspace status">
+        <div class="workspace-stat">
+          <span>Model</span>
+          <strong x-text="selectedModel?.label || (cachedModels.length ? 'Choose a model' : 'No model cached')"></strong>
+        </div>
+        <div class="workspace-stat">
+          <span>Voice</span>
+          <strong x-text="gen.voice || (voices.length ? voices.length + ' saved voices' : 'Model default')"></strong>
+        </div>
+        <div class="workspace-stat">
+          <span>Compute</span>
+          <strong x-text="gen.device || system.chip || 'Apple Silicon'"></strong>
+        </div>
+      </div>
+    </header>
 
     <!-- Engine not installed -->
     <div class="banner warn" x-show="!gen.available" x-cloak>
