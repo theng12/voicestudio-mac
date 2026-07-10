@@ -66,7 +66,7 @@
         </div>
         <div class="workspace-stat">
           <span>Voice</span>
-          <strong x-text="gen.voice || (voices.length ? voices.length + ' saved voices' : 'Model default')"></strong>
+          <strong x-text="selectedModel ? (gen.voice || 'Model default') : '—'"></strong>
         </div>
         <div class="workspace-stat">
           <span>Compute</span>
@@ -1182,7 +1182,7 @@
           <strong>Move</strong> physically relocates the folder into our HF cache.
           On the same disk it's an instant rename (no copy), across disks it falls back
           to copy+delete. Afterward, the source is gone — you can safely delete the
-          old launcher entirely. Best for migrating off MFLUX-WEBUI.
+          old launcher entirely. Best for migrating from another TTS app or cache.
         </li>
       </ul>
     </section>
@@ -1195,7 +1195,7 @@
         or you can override it.
       </p>
       <div class="form-row">
-        <input x-model="importForm.source_path" placeholder="/Users/you/old-hf-cache/hub/models--black-forest-labs--FLUX.1-schnell" />
+        <input x-model="importForm.source_path" placeholder="/Users/you/old-hf-cache/hub/models--hexgrad--Kokoro-82M" />
         <input x-model="importForm.repo" placeholder="owner/repo (optional)" />
       </div>
       <div class="form-row" style="margin-top:0">
@@ -1767,13 +1767,13 @@
     </section>
 
     <section class="card api-card">
-      <h2>Curl — generate an image end-to-end</h2>
+      <h2>Curl — generate speech end-to-end</h2>
       <div class="code-block">
         <pre><code x-text="curlExample"></code></pre>
         <button class="ghost small copy-btn" @click="copyText(curlExample)">Copy</button>
       </div>
       <p class="muted hint">
-        The flow is <code>POST /api/generate/txt2img → poll /jobs/&lt;id&gt; → GET /jobs/&lt;id&gt;/image</code>.
+        The flow is <code>POST /api/generate/txt2speech → poll /jobs/&lt;id&gt; → GET /jobs/&lt;id&gt;/audio</code>.
         Generation runs async so the POST returns instantly with a job id.
       </p>
     </section>
@@ -1795,10 +1795,10 @@
     </section>
 
     <section class="card api-card">
-      <h2>Re-download an old image</h2>
+      <h2>Re-download old speech</h2>
       <p class="muted">
         Every generation has a stable, persistent <code>job.id</code>. Save the id
-        from the POST response and you can re-fetch the image any time — even
+        from the POST response and you can re-fetch the audio any time — even
         after server restarts. History is kept for the most recent 200 generations.
       </p>
       <div class="code-block">
@@ -1806,7 +1806,7 @@
         <button class="ghost small copy-btn" @click="copyText(reDownloadExample)">Copy</button>
       </div>
       <p class="muted hint">
-        💡 The PNG filename on disk is also <code>&lt;job_id&gt;.png</code> in
+        The WAV filename on disk is also <code>&lt;job_id&gt;.wav</code> in
         <code>app/output/</code>, so you can browse them with Finder too.
       </p>
     </section>
@@ -1837,12 +1837,12 @@
           <tr><td>GET</td><td><code>/api/downloads/stream</code></td><td>SSE stream of download progress</td></tr>
           <tr><td>GET</td><td><code>/api/imports/scan</code></td><td>List importable HF-cache folders</td></tr>
           <tr><td>POST</td><td><code>/api/imports</code></td><td>Symlink a folder into HF_HOME</td></tr>
-          <tr><td>GET</td><td><code>/api/loras</code></td><td>List local LoRAs in <code>app/lora/</code></td></tr>
-          <tr><td>GET</td><td><code>/api/generate/availability</code></td><td>Is mflux installed? + aspect presets</td></tr>
-          <tr><td>POST</td><td><code>/api/generate/txt2img</code></td><td>Start text-to-image generation</td></tr>
+          <tr><td>GET</td><td><code>/api/voices</code></td><td>List saved reference voices</td></tr>
+          <tr><td>GET</td><td><code>/api/generate/availability</code></td><td>TTS engine and preset-voice availability</td></tr>
+          <tr><td>POST</td><td><code>/api/generate/txt2speech</code></td><td>Start text-to-speech generation</td></tr>
           <tr><td>GET</td><td><code>/api/generate/jobs</code></td><td>List generation jobs</td></tr>
           <tr><td>GET</td><td><code>/api/generate/jobs/{id}</code></td><td>Poll one job</td></tr>
-          <tr><td>GET</td><td><code>/api/generate/jobs/{id}/image</code></td><td>Download the rendered PNG</td></tr>
+          <tr><td>GET</td><td><code>/api/generate/jobs/{id}/audio</code></td><td>Download the rendered WAV</td></tr>
           <tr><td>DELETE</td><td><code>/api/generate/jobs/{id}</code></td><td>Cancel a job</td></tr>
           <tr><td>GET</td><td><code>/api/generate/stream</code></td><td>SSE stream of generation jobs</td></tr>
         </tbody>
@@ -1880,7 +1880,7 @@
         <ul class="primer-body" style="padding-left:18px">
           <li><strong>Lower rate limits.</strong> HF throttles anonymous traffic far more aggressively. Big downloads stall or hit caps.</li>
           <li><strong>Slower CDN tier.</strong> Authenticated requests get priority routing to closer edge servers.</li>
-          <li><strong>No access to gated models.</strong> FLUX.2 dev, FLUX.2 klein base, FLUX.1 dev — all gated. Without a token you literally can't download them, even after accepting their license on the HF site.</li>
+          <li><strong>No access to private or future gated voice models.</strong> A token lets Voice Studio download repositories your Hugging Face account is authorized to use.</li>
           <li><strong>No access to your own private models.</strong> If you've trained or uploaded private LoRAs/checkpoints, the token gives you access here too.</li>
         </ul>
         <p class="muted">
@@ -1900,9 +1900,9 @@
           <li>Copy the token (starts with <code>hf_…</code>) and paste it below</li>
         </ol>
         <p class="muted">
-          For gated repos like <code>black-forest-labs/FLUX.2-dev</code>, you also need
-          to visit each repo page once and click "Agree and access" to accept their license.
-          That's a one-time step per repo.
+          If a voice repository is gated, visit its Hugging Face page once and accept
+          its license before downloading. The current built-in catalog is public, so
+          the token is mainly useful for higher rate limits and private repositories.
         </p>
       </details>
 

@@ -1061,15 +1061,16 @@ function studio() {
 
     get curlExample() {
       const base = this.apiBase;
-      const repo = this.gen.repo || "AITRADER/FLUX2-klein-4B-mlx-4bit";
+      const repo = this.gen.repo || "hexgrad/Kokoro-82M";
       const body = JSON.stringify({
         repo,
-        prompt: "a sun-drenched cafe in Lisbon at golden hour",
-        width: 1024, height: 1024, steps: 4, guidance: 3.5, seed: -1,
+        text: "Welcome to Voice Studio.",
+        voice: "af_bella",
+        speed: 1.0,
       });
       return [
-        "# 1. Start generation — returns a job id immediately",
-        "curl -s -X POST " + base + "/api/generate/txt2img \\",
+        "# 1. Start speech generation — returns a job id immediately",
+        "curl -s -X POST " + base + "/api/generate/txt2speech \\",
         "  -H 'content-type: application/json' \\",
         "  -d '" + body + "'",
         "# → returns: {\"job\": {\"id\": \"abc123\", \"state\": \"queued\", ...}}",
@@ -1077,25 +1078,25 @@ function studio() {
         "# 2. Poll the job until state == done",
         "curl -s " + base + "/api/generate/jobs/abc123",
         "",
-        "# 3. Save the PNG to disk",
-        "curl -s -o out.png " + base + "/api/generate/jobs/abc123/image",
+        "# 3. Save the WAV to disk",
+        "curl -s -o speech.wav " + base + "/api/generate/jobs/abc123/audio",
       ].join("\n");
     },
 
     get jsExample() {
       const base = this.apiBase;
-      const repo = this.gen.repo || "AITRADER/FLUX2-klein-4B-mlx-4bit";
+      const repo = this.gen.repo || "hexgrad/Kokoro-82M";
       const lines = [
         "const SERVER = " + JSON.stringify(base) + ";",
         "",
         "// 1. Kick off generation",
-        "const start = await fetch(SERVER + '/api/generate/txt2img', {",
+        "const start = await fetch(SERVER + '/api/generate/txt2speech', {",
         "  method: 'POST',",
         "  headers: { 'content-type': 'application/json' },",
         "  body: JSON.stringify({",
         "    repo: " + JSON.stringify(repo) + ",",
-        "    prompt: 'a sun-drenched cafe in Lisbon at golden hour',",
-        "    width: 1024, height: 1024, steps: 4, guidance: 3.5, seed: -1,",
+        "    text: 'Welcome to Voice Studio.',",
+        "    voice: 'af_bella', speed: 1.0,",
         "  }),",
         "}).then(r => r.json());",
         "",
@@ -1107,9 +1108,10 @@ function studio() {
         "}",
         "if (job.state === 'error') throw new Error(job.error);",
         "",
-        "// 3. job.output_url is a relative path — fetch and use as a Blob",
+        "// 3. job.output_url is a relative path — fetch and play as a Blob",
         "const blob = await fetch(SERVER + job.output_url).then(r => r.blob());",
-        "const url  = URL.createObjectURL(blob);   // use in <img src> or <a download>",
+        "const url = URL.createObjectURL(blob);",
+        "new Audio(url).play();",
       ];
       return lines.join("\n");
     },
@@ -1121,16 +1123,16 @@ function studio() {
         "# Inspect job metadata (params, seed, output_url, duration, state)",
         "curl -s " + base + "/api/generate/jobs/" + sampleId + " | jq",
         "",
-        "# Re-download the PNG",
-        "curl -s -o image.png " + base + "/api/generate/jobs/" + sampleId + "/image",
+        "# Re-download the WAV",
+        "curl -s -o speech.wav " + base + "/api/generate/jobs/" + sampleId + "/audio",
         "",
         "# Python equivalent",
         "import requests",
         "r = requests.get(" + JSON.stringify(base + "/api/generate/jobs/" + sampleId) + ").json()",
         "print('seed used:', r['job']['resolved_seed'])",
         "print('prompt:', r['job']['params']['prompt'])",
-        "img = requests.get(" + JSON.stringify(base + "/api/generate/jobs/" + sampleId + "/image") + ").content",
-        "open('image.png', 'wb').write(img)",
+        "audio = requests.get(" + JSON.stringify(base + "/api/generate/jobs/" + sampleId + "/audio") + ").content",
+        "open('speech.wav', 'wb').write(audio)",
       ].join("\n");
     },
 
@@ -1140,30 +1142,29 @@ function studio() {
         "# Returns ALL persisted jobs (last 200), latest first",
         "curl -s " + base + "/api/generate/jobs | jq",
         "",
-        "# Just the ids + prompts, for quick browsing",
+        "# Just the ids + text, for quick browsing",
         "curl -s " + base + "/api/generate/jobs | \\",
-        "  jq -r '.jobs[] | \"\\(.id)  \\(.state)  \\(.params.prompt // \"(no prompt)\")\"'",
+        "  jq -r '.jobs[] | \"\\(.id)  \\(.state)  \\(.params.text // \"(no text)\")\"'",
         "",
-        "# Find a job by prompt fragment",
+        "# Find a job by text fragment",
         "curl -s " + base + "/api/generate/jobs | \\",
-        "  jq '.jobs[] | select(.params.prompt | test(\"sunset\"; \"i\"))'",
+        "  jq '.jobs[] | select(.params.text | test(\"welcome\"; \"i\"))'",
       ].join("\n");
     },
 
     get pythonExample() {
       const base = this.apiBase;
-      const repo = this.gen.repo || "AITRADER/FLUX2-klein-4B-mlx-4bit";
+      const repo = this.gen.repo || "hexgrad/Kokoro-82M";
       const lines = [
         "import time, requests",
         "",
         "SERVER = " + JSON.stringify(base),
         "",
         "# 1. Kick off generation",
-        "r = requests.post(f'{SERVER}/api/generate/txt2img', json={",
+        "r = requests.post(f'{SERVER}/api/generate/txt2speech', json={",
         "    'repo': " + JSON.stringify(repo) + ",",
-        "    'prompt': 'a sun-drenched cafe in Lisbon at golden hour',",
-        "    'width': 1024, 'height': 1024,",
-        "    'steps': 4, 'guidance': 3.5, 'seed': -1,",
+        "    'text': 'Welcome to Voice Studio.',",
+        "    'voice': 'af_bella', 'speed': 1.0,",
         "})",
         "r.raise_for_status()",
         "job_id = r.json()['job']['id']",
@@ -1177,12 +1178,11 @@ function studio() {
         "        raise RuntimeError(job['error'])",
         "    time.sleep(1)",
         "",
-        "# 3. Save the PNG",
-        "img = requests.get(f'{SERVER}/api/generate/jobs/{job_id}/image').content",
-        "with open('out.png', 'wb') as f:",
-        "    f.write(img)",
-        "print(f\"saved out.png ({len(img)//1024} KB), seed={job['resolved_seed']}, \"",
-        "      f\"duration={job['duration_seconds']:.1f}s\")",
+        "# 3. Save the WAV",
+        "audio = requests.get(f'{SERVER}/api/generate/jobs/{job_id}/audio').content",
+        "with open('speech.wav', 'wb') as f:",
+        "    f.write(audio)",
+        "print(f\"saved speech.wav ({len(audio)//1024} KB, {job['duration_seconds']:.1f}s)\")",
       ];
       return lines.join("\n");
     },

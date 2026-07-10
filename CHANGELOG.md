@@ -10,6 +10,26 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.8.6] — 2026-07-10
+
+### Fixed — API examples now generate speech instead of copied FLUX images
+
+The API tab and token help still contained Image Studio content: a FLUX repository,
+`txt2img` requests, image dimensions, and PNG download routes. Every generated example
+would fail against Voice Studio's actual API. Curl, JavaScript, Python, re-download, job
+search, endpoint summaries, and token guidance now use `txt2speech`, voice fields, and WAV
+audio routes. Import examples now name a voice model instead of FLUX, and the workspace
+also hides a stale voice preset when no model is selected.
+
+### Verification
+
+- Cross-checked every documented route and request field against `backend/main.py`, ran
+  JavaScript and HTML validation, and exercised the API tab against the live frontend.
+- Byte formatting remains intentionally decimal for downloads; binary units remain only
+  for the voice-upload size limit, where the code and limit use MiB-sized byte constants.
+
+---
+
 ## [1.8.5] — 2026-07-10
 
 ### Changed — Generate opens with a focused voice workspace overview
