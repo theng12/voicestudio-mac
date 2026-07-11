@@ -1,4 +1,4 @@
-fastapi>=0.115
+fastapi>=0.139
 uvicorn[standard]>=0.30
 huggingface_hub>=1.0
 sse-starlette>=2.1

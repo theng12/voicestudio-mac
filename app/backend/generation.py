@@ -960,6 +960,10 @@ class GenerationManager:
                     job.error = f"{type(e).__name__}: {e}"
                     print(f"[gen] error {job.job_id}: {job.error}", file=sys.stderr, flush=True)
                     traceback.print_exc()
+                try:
+                    output_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
             finally:
                 job.finished_at = time.time()
                 self._persist()
@@ -1196,7 +1200,33 @@ class GenerationManager:
         # (its LM backbone), no `mlx_audio.tts.models.qwen2` exists, and you
         # get `ValueError: Model type qwen2 not supported for tts.`
         # See v1.2.8 fix.
-        model = load_model(snapshot_path)
+        # Voxtral's tekken metadata includes voice_num_audio_tokens. mlx-audio
+        # reads that field itself, but mistral-common <=1.9 rejects the extra
+        # AudioConfig kwarg before the tokenizer can load. Ignore it only while
+        # loading this model; mlx-audio already preserved the mapping above.
+        audio_config_cls = None
+        original_audio_config_init = None
+        entry = catalog.get_model(repo)
+        if entry is not None and entry.family == "voxtral-tts":
+            try:
+                import inspect
+                from mistral_common.tokens.tokenizers.tekken import AudioConfig
+                if "voice_num_audio_tokens" not in inspect.signature(AudioConfig).parameters:
+                    audio_config_cls = AudioConfig
+                    original_audio_config_init = AudioConfig.__init__
+
+                    def _compatible_audio_config_init(instance, *args,
+                                                      voice_num_audio_tokens=None, **kwargs):
+                        return original_audio_config_init(instance, *args, **kwargs)
+
+                    AudioConfig.__init__ = _compatible_audio_config_init
+            except (ImportError, TypeError, ValueError):
+                pass
+        try:
+            model = load_model(snapshot_path)
+        finally:
+            if audio_config_cls is not None and original_audio_config_init is not None:
+                audio_config_cls.__init__ = original_audio_config_init
         self._mlx_audio_model = model
         self._mlx_audio_model_repo = repo
         return model
@@ -1838,13 +1868,16 @@ class GenerationManager:
         )
         audio = model.generate(text=text, instruct=instruct, speed=speed)
 
-        # OmniVoiceMLX.generate() returns audio as a list/tuple of np.ndarrays
-        # (one per batch item, per the HF model card: `sf.write(..., audio[0], 24000)`).
-        # Fall back to treating it as a single ndarray if the shape implies that.
-        try:
-            audio_np = audio[0] if hasattr(audio, "__getitem__") and getattr(audio, "ndim", 1) > 1 else audio
-        except Exception:
-            audio_np = audio
+        # OmniVoice always returns one ndarray per batch item. Passing that
+        # outer list to SoundFile makes it interpret every sample as a channel.
+        import numpy as np
+        if isinstance(audio, (list, tuple)):
+            if not audio:
+                raise RuntimeError("OmniVoice produced no audio")
+            audio = audio[0]
+        audio_np = np.asarray(audio, dtype="float32").squeeze()
+        if audio_np.ndim != 1:
+            raise RuntimeError(f"OmniVoice returned an unexpected audio shape: {audio_np.shape}")
 
         sr = int(getattr(model, "sampling_rate", None) or model_entry.sample_rate_hz or 24000)
         sf.write(str(output_path), audio_np, sr, format="WAV", subtype="PCM_16")

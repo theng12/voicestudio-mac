@@ -10,6 +10,36 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.9.1] — 2026-07-12
+
+### Fixed — Voice generation failures and misleading controls
+
+- OmniVoice now unwraps its one-item batch before writing WAV audio. The old code
+  passed the outer list to SoundFile, which interpreted thousands of samples as
+  channels and left an empty, unreadable output file.
+- Voxtral now tolerates its `voice_num_audio_tokens` tekken metadata with current
+  `mistral-common`; mlx-audio already reads that mapping, so the compatibility shim
+  ignores only the unsupported constructor keyword while loading the tokenizer.
+- Chatterbox's Generate button now requires a reference-library voice, and all
+  disabled Generate states explain the actual missing field instead of always saying
+  “Type some text.” OmniVoice guidance now lists its real fixed trait vocabulary and
+  provides valid presets instead of suggesting unsupported free-form prose.
+- Failed generations remove partial or empty WAV files.
+
+### Security
+
+- Hugging Face token storage is forced to owner-only (`0600`) permissions.
+- Remote version metadata is rendered with `textContent`, closing the update-banner
+  HTML injection path.
+- FastAPI/Starlette were raised to patched releases identified by `pip-audit`.
+
+### Verification
+
+- Python/JavaScript/HTML checks pass; the Voxtral tokenizer loads under the scoped
+  compatibility shim, OmniVoice output-shape handling is covered with synthetic data,
+  and the generation truth audit remains clean. LAN binding/CORS remain unchanged as
+  part of the documented service-mode contract.
+
 ## [1.9.0] — 2026-07-10
 
 ### Added — Audio-generator overhaul: live feedback, per-job actions, disk management

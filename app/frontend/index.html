@@ -672,15 +672,21 @@
 
         <!-- OmniVoice (MLX): required natural-language voice description. -->
         <section class="control-block" x-show="isOmniVoice(gen.repo)" x-cloak>
-          <label>Voice description <span class="muted small">(required)</span></label>
+          <label>Voice traits <span class="muted small">(required)</span></label>
           <input type="text" class="prompt-input" x-model="gen.voice_design_prompt"
-                 placeholder="e.g. 'female, british accent, slow' · 'elderly man, raspy' · 'young woman, whispering'">
+                 placeholder="e.g. male, british accent · young adult, female, whisper">
           <p class="muted hint">
-            OmniVoice synthesizes a voice matching this description — 646 languages
-            supported. Non-verbal symbols like <code>[laughter]</code> /
-            <code>[cough]</code> can be embedded inline in the text above. Voice
-            cloning isn't yet wired on the MLX backend.
+            OmniVoice accepts comma-separated traits rather than free-form prose.
+            Supported examples include <code>male</code>, <code>female</code>,
+            <code>young adult</code>, <code>elderly</code>, <code>british accent</code>,
+            <code>low pitch</code>, and <code>whisper</code>. Voice cloning isn't yet
+            wired on the MLX backend.
           </p>
+          <div class="design-presets">
+            <button class="btn ghost small" @click="gen.voice_design_prompt='male, british accent'">Male · British</button>
+            <button class="btn ghost small" @click="gen.voice_design_prompt='female, young adult, whisper'">Young · Whisper</button>
+            <button class="btn ghost small" @click="gen.voice_design_prompt='elderly, male, low pitch'">Elderly · Low</button>
+          </div>
         </section>
 
         <!-- Chatterbox-MLX: exaggeration / intensity dial (reuses cfg_value). -->
@@ -751,9 +757,8 @@
                      x-model.number="gen.batchCount">
             </div>
           </div>
-          <p class="muted hint" x-show="!canSubmit && !gen.submitting && gen.available && cachedModels.length > 0">
-            Type some text to enable Generate.
-          </p>
+          <p class="muted hint" x-show="!canSubmit && !gen.submitting && gen.available && cachedModels.length > 0"
+             x-text="submitHint"></p>
           <p class="muted hint" x-show="gen.batchCount > 1 && canSubmit">
             <span x-show="gen.seed >= 0">
               💡 Batch of <span x-text="gen.batchCount"></span> — seeds <span x-text="gen.seed"></span>
@@ -2244,18 +2249,18 @@
       if (s.generation_required && s.generation_ok === false) {
         key = "kh-gen-missing"; bg = "#f3b562"; fg = "#1a1204";
         msg = "\u26A0 Generation engine not installed \u2014 the Generate tab won\u2019t work. " +
-              "In the Pinokio sidebar, click <b>Install Generation</b> (or <b>Update</b>).";
+              "In the Pinokio sidebar, click Install Generation (or Update).";
       } else if (s.update_available && s.latest_version) {
         key = "kh-upd-" + s.latest_version; bg = "#6aa7ff"; fg = "#04122a";
         msg = "\u2B06 Update available (v" + s.app_version + " \u2192 v" + s.latest_version + "). " +
-              "In the Pinokio sidebar, click <b>Update</b>.";
+              "In the Pinokio sidebar, click Update.";
       } else { return; }
       try { if (localStorage.getItem(key) === "1") return; } catch (e) {}
       var bar = document.createElement("div");
       bar.style.cssText = "position:sticky;top:0;z-index:99999;display:flex;align-items:center;gap:12px;" +
         "padding:8px 16px;font:13px/1.4 system-ui,-apple-system,sans-serif;background:" + bg + ";color:" + fg +
         ";border-bottom:1px solid rgba(0,0,0,.25)";
-      var span = document.createElement("span"); span.style.flex = "1"; span.innerHTML = msg;
+      var span = document.createElement("span"); span.style.flex = "1"; span.textContent = msg;
       var btn = document.createElement("button"); btn.textContent = "\u2715";
       btn.setAttribute("aria-label", "Dismiss");
       btn.style.cssText = "background:transparent;border:0;cursor:pointer;font-size:14px;color:inherit;opacity:.7";

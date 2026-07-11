@@ -924,9 +924,28 @@ function studio() {
       if (mode === "custom" && !this.gen.preset_speaker) return false;
       // OmniVoice requires a voice description on the MLX backend.
       if (this.isOmniVoice(this.gen.repo) && !this.gen.voice_design_prompt.trim()) return false;
+      // Chatterbox is voice-cloning only; prevent a guaranteed backend error.
+      if (this.isChatterboxMlx(this.gen.repo) && !this.gen.voice_library_id) return false;
       // F5-TTS requires a library voice (voice cloning only — no zero-shot).
       if (this.isF5TTS(this.gen.repo) && !this.gen.voice_library_id) return false;
       return true;
+    },
+
+    get submitHint() {
+      if (this.gen.submitting) return "";
+      if (!this.gen.available) return "Install the generation engine to continue.";
+      if (!this.gen.repo) return "Choose a downloaded model to continue.";
+      if (!this.gen.text.trim()) return "Type some text to enable Generate.";
+      if (!this.isModelReady(this.gen.repo)) return "This model is not ready yet.";
+      const mode = this.qwen3Mode(this.gen.repo);
+      if (mode === "design" && !this.gen.voice_design_prompt.trim()) return "Describe the voice you want.";
+      if (mode === "clone" && !this.gen.voice_library_id) return "Pick a reference voice from your library.";
+      if (mode === "custom" && !this.gen.preset_speaker) return "Pick a preset speaker.";
+      if (this.isOmniVoice(this.gen.repo) && !this.gen.voice_design_prompt.trim()) return "Choose supported voice traits below.";
+      if ((this.isChatterboxMlx(this.gen.repo) || this.isF5TTS(this.gen.repo)) && !this.gen.voice_library_id) {
+        return "Pick a reference voice from your library.";
+      }
+      return "Complete the required fields to continue.";
     },
 
     get latestJob() {
