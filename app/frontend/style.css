@@ -1506,6 +1506,21 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
   background: color-mix(in srgb, var(--warn) 50%, transparent);
 }
 
+/* Recent-generations header: title left, actions right */
+.audio-recent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.audio-recent-actions { display: flex; gap: 8px; align-items: center; }
+/* Armed state for the two-click "Clear history" (ghost variant) */
+.btn.ghost.btn-warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
 /* ──────── Bark tag chips ──────── */
 .bark-tag-row {
   display: flex;

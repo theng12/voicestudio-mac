@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.8.8] — 2026-07-10
+
+### Fixed — "Clear history" now works; added an "Open outputs folder" button
+
+- **Clear history** used the native `window.confirm()` dialog, which Pinokio's
+  embedded webview can silently block (it returns false) — so the button did
+  nothing. Replaced with a webview-safe two-click confirm: the first click arms
+  the button ("Click again to clear"), a second click within 3s clears. It now
+  also keeps any in-progress job on screen and only trims finished entries.
+- **Open outputs folder** — new button in the Recent generations header that
+  reveals the folder holding every generated WAV in Finder (via the existing
+  `/api/reveal`). Handy because the history index and the files on disk can
+  diverge (clearing history keeps the WAVs).
+
+### Notes
+- PATCH bump (1.8.7 → 1.8.8) — frontend only (app.js + index.html + style.css). Live on reload; no restart needed.
+
+---
 ## [1.8.7] — 2026-07-10
 
 ### Fixed — download ETA settle-guard, real catalog sizes, memory floors, and dead-entry cleanup

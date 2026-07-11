@@ -869,7 +869,14 @@
               Recent generations
               <span class="muted small" x-text="'(' + historyJobs.length + ')'"></span>
             </h3>
-            <button class="btn ghost small" @click="clearHistory()">Clear history</button>
+            <div class="audio-recent-actions">
+              <button class="btn ghost small" @click="openOutputsFolder()"
+                      title="Open the folder with every generated WAV in Finder">📂 Open outputs folder</button>
+              <button class="btn ghost small" :class="{ 'btn-warn': gen.clearArmed }" @click="clearHistory()">
+                <span x-show="!gen.clearArmed">Clear history</span>
+                <span x-show="gen.clearArmed" x-cloak>Click again to clear</span>
+              </button>
+            </div>
           </div>
           <div class="audio-recent-grid">
             <template x-for="job in pagedHistoryJobs" :key="job.id">

@@ -98,6 +98,7 @@ function studio() {
       // a random seed (-1) gives each its own fresh random.
       batchCount: 1,
       submitting: false,
+      clearArmed: false,           // two-click confirm for "Clear history" (webview-safe)
       jobs: [],
       currentJob: null,
       // Two-click confirm for hard-cap engines (Bark / Orpheus / XTTS) when
@@ -2715,16 +2716,44 @@ function studio() {
     },
 
     async clearHistory() {
-      if (!confirm("Remove all past generations from this list? The WAV files in app/output stay on disk; only the history index is cleared.")) return;
+      // Two-click confirm instead of native confirm(): Pinokio's embedded webview
+      // can silently block window.confirm() (it returns false), which made this
+      // button appear to do nothing. First click arms the button; a second click
+      // within 3s actually clears.
+      if (!this.gen.clearArmed) {
+        this.gen.clearArmed = true;
+        clearTimeout(this._clearArmTimer);
+        this._clearArmTimer = setTimeout(() => { this.gen.clearArmed = false; }, 3000);
+        return;
+      }
+      clearTimeout(this._clearArmTimer);
+      this.gen.clearArmed = false;
       try {
-        await fetch("/api/generate/jobs", { method: "DELETE" });
-        // The SSE stream will pick up the empty list on its next tick.
+        const r = await fetch("/api/generate/jobs", { method: "DELETE" });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        // Backend removed the finished jobs; keep any active ones on screen.
+        // The SSE stream reconciles to the trimmed list on its next tick.
         this.gen.currentJob = null;
-        this.gen.jobs = [];
+        this.gen.jobs = (this.gen.jobs || []).filter(j => ["queued", "running", "cancelling"].includes(j.state));
         this._jobStatePrev = {};
-        this.pushToast({ kind: "info", icon: "🧹", title: "History cleared" });
+        this.pushToast({ kind: "info", icon: "🧹", title: "History cleared",
+          body: "The WAV files stay in your outputs folder." });
       } catch (e) {
         this.pushToast({ kind: "error", icon: "✗", title: "Couldn't clear history", body: String(e) });
+      }
+    },
+
+    /** Open the outputs folder (where every generated WAV lands) in Finder.
+     *  Derived from any generated file's absolute path, so it needs no extra
+     *  endpoint and always points at the real folder on this machine. */
+    openOutputsFolder() {
+      const withPath = (this.gen.jobs || []).find(j => j.output_path);
+      if (withPath && withPath.output_path) {
+        const dir = withPath.output_path.replace(/[/\\][^/\\]+$/, "");   // strip the filename
+        this.revealInFolder(dir);
+      } else {
+        this.pushToast({ kind: "info", icon: "📂", title: "No generations yet",
+          body: "Generate something first — then this opens the folder with all your audio." });
       }
     },
 
