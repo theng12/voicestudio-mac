@@ -116,6 +116,11 @@ class RevealBody(BaseModel):
     path: str
 
 
+class PruneBody(BaseModel):
+    keep_last: int = 0            # keep the newest N outputs, delete the rest
+    older_than_days: float = 0.0  # or: delete outputs older than this many days
+
+
 class SettingsBody(BaseModel):
     hf_token: Optional[str] = None
 
@@ -742,6 +747,28 @@ def cancel_generation_job(job_id: str) -> dict:
         raise HTTPException(status_code=404, detail="job not found or already finished")
     job = gen_manager.get(job_id)
     return {"job": job.serialize() if job else None}
+
+
+@app.delete("/api/generate/history/{job_id}")
+def delete_one_generation(job_id: str) -> dict:
+    """Delete a single FINISHED generation: remove it from history and delete its
+    WAV from disk. (DELETE .../jobs/{id} only cancels active jobs.)"""
+    if not gen_manager.delete_job(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    return {"deleted": job_id}
+
+
+@app.get("/api/output/stats")
+def output_stats() -> dict:
+    """Size + count of generated WAVs on disk, for the disk-usage display."""
+    return gen_manager.output_stats()
+
+
+@app.post("/api/output/prune")
+def prune_outputs(body: PruneBody) -> dict:
+    """Reclaim disk: keep the newest N (keep_last) OR delete files older than
+    older_than_days. History entries for deleted files are trimmed too."""
+    return gen_manager.prune_outputs(keep_last=body.keep_last, older_than_days=body.older_than_days)
 
 
 # ──── Transcription / subtitles (Whisper STT) ────

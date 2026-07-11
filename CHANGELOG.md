@@ -10,6 +10,26 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.9.0] — 2026-07-10
+
+### Added — Audio-generator overhaul: live feedback, per-job actions, disk management
+
+A batch of generator improvements (frontend live immediately; the backend bits below activate after one **Update** — no new Python deps, so no "Install Generation" needed):
+
+- **Live generation feedback.** The progress readout showed "Generating… undefined/undefined" — it read fields that don't exist on the job. Now a real bar + percentage + elapsed time. The queue panel is sticky (stays visible while you scroll) and shows a live progress bar on the running job; the "Generating…" strip echoes the same. *(Backend: workers now report `progress` — per-chunk for Kokoro, phase-based otherwise.)*
+- **Per-generation actions.** Each result now has **Reveal** (show the file in Finder), **Delete** (remove it and its WAV — two-click confirm), plus the existing Download and Reuse. *(Backend: new `DELETE /api/generate/history/<built-in function id>`.)*
+- **Disk management.** A footer shows how many files and how much disk the outputs use, with one-click prune ("keep newest 50" / "delete > 30 days"). Fixes outputs piling up unbounded. *(Backend: `GET /api/output/stats`, `POST /api/output/prune`.)*
+- **Auto-play** toggle — plays the newest result when a generation finishes.
+- **Friendlier empty state** when there are no generations yet.
+
+### Fixed — Three more native `confirm()` dialogs replaced with a webview-safe modal
+
+Remove-token, Import-move, and Remove-voice used `window.confirm()`, which Pinokio's embedded webview silently blocks — so those buttons did nothing. All now use an in-app confirm modal (same class of bug as the Clear-history fix in 1.8.8).
+
+### Notes
+- MINOR bump (1.8.8 → 1.9.0). Frontend (app.js/index.html/style.css) is live on reload; the new endpoints + per-chunk progress need one **Update** (restart) — the UI degrades gracefully until then (disk/delete just show a "run Update" hint). Deferred: MP3/FLAC export (needs an audio-encoder dependency).
+
+---
 ## [1.8.8] — 2026-07-10
 
 ### Fixed — "Clear history" now works; added an "Open outputs folder" button

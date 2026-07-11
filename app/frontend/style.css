@@ -1810,6 +1810,28 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
   0%, 100% { opacity: 0.4; transform: scale(0.9); }
   50%      { opacity: 1;   transform: scale(1.05); }
 }
+
+/* Keep the queue visible while you scroll during a generation */
+.queue-panel { position: sticky; top: 8px; z-index: 5; }
+
+/* Live progress bar in the running queue row */
+.queue-progress { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.queue-progress-bar { flex: 1; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.queue-progress-bar > i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #4b8ef0, var(--accent, #6aa7ff)); transition: width .35s ease; }
+.queue-progress-label { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted, #8a91a0); white-space: nowrap; }
+
+/* Prominent generating strip + auto-play toggle */
+.audio-generating { display: flex; align-items: center; gap: 10px; }
+.autoplay-toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+.autoplay-toggle input { accent-color: var(--accent, #6aa7ff); }
+
+/* Outputs disk-usage footer */
+.output-disk { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border, #2a2a32); }
+.output-disk-actions { display: flex; gap: 8px; }
+
+/* Empty state for the results area */
+.audio-empty { margin-top: 16px; padding: 20px; text-align: center; border: 1px dashed var(--border, #2a2a32); border-radius: 10px; }
+.audio-empty p { margin: 0; }
 .queue-row-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .queue-row-text {
   font-size: 0.92em;

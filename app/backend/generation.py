@@ -828,6 +828,74 @@ class GenerationManager:
         self._persist()
         return len(terminal)
 
+    def delete_job(self, job_id: str) -> bool:
+        """Remove one finished job from history AND delete its WAV file from disk.
+        (The DELETE .../jobs/{id} route only cancels active jobs; this is for a
+        finished job the user wants gone.)"""
+        with self._lock:
+            job = self._jobs.pop(job_id, None)
+        if job is None:
+            return False
+        if job.output_path:
+            try:
+                Path(job.output_path).unlink()
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                print(f"[gen] delete_job unlink failed: {e}", file=sys.stderr, flush=True)
+        self._persist()
+        return True
+
+    def output_stats(self) -> dict:
+        """Total size + count of generated WAVs in the outputs folder — so the UI
+        can show how much disk the outputs are using (history index and the files
+        on disk can diverge)."""
+        total = 0
+        count = 0
+        if OUTPUT_DIR.exists():
+            for p in OUTPUT_DIR.glob("*.wav"):
+                try:
+                    total += p.stat().st_size
+                    count += 1
+                except OSError:
+                    pass
+        return {"bytes": total, "count": count, "dir": str(OUTPUT_DIR.resolve())}
+
+    def prune_outputs(self, keep_last: int = 0, older_than_days: float = 0.0) -> dict:
+        """Delete WAV files to reclaim disk. Exactly one mode:
+          - keep_last > 0: keep the newest N, delete the rest.
+          - older_than_days > 0: delete files older than that many days.
+        History entries for deleted files are trimmed too."""
+        if not OUTPUT_DIR.exists():
+            return {"deleted": 0, "freed_bytes": 0}
+        wavs = sorted(OUTPUT_DIR.glob("*.wav"),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        if keep_last > 0:
+            to_delete = wavs[keep_last:]
+        elif older_than_days > 0:
+            cutoff = time.time() - older_than_days * 86400
+            to_delete = [p for p in wavs if p.stat().st_mtime < cutoff]
+        else:
+            return {"deleted": 0, "freed_bytes": 0}
+        freed = 0
+        deleted = 0
+        stems = set()
+        for p in to_delete:
+            try:
+                sz = p.stat().st_size
+                p.unlink()
+                freed += sz
+                deleted += 1
+                stems.add(p.stem)
+            except OSError:
+                pass
+        if stems:
+            with self._lock:
+                for jid in [j for j in self._jobs if j in stems]:
+                    self._jobs.pop(jid, None)
+            self._persist()
+        return {"deleted": deleted, "freed_bytes": freed}
+
     def start_txt2speech(self, params: dict) -> GenerationJob:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         job = GenerationJob(
@@ -864,6 +932,7 @@ class GenerationManager:
 
             job.state = "running"
             job.started_at = time.time()
+            job.progress = 0.05          # move the bar off zero the moment work starts
             print(f"[gen] starting {job.job_id}: {job.params}", flush=True)
 
             if not TTS_AVAILABLE:
@@ -1022,6 +1091,11 @@ class GenerationManager:
         # KPipeline returns a generator yielding (graphemes, phonemes, audio)
         # for each sentence chunk. We concatenate the audio tensors.
         chunks: list[np.ndarray] = []
+        # Rough chunk estimate for the progress bar — Kokoro's pipeline yields one
+        # audio chunk per sentence, but we don't know the count up front. Capped at
+        # 0.92 so it never overshoots; the worker snaps progress to 1.0 when the
+        # WAV is written. (regex-free to avoid an extra import.)
+        _est_chunks = max(1, len([p for p in text.replace("!", ".").replace("?", ".").replace("\n", ".").split(".") if p.strip()]))
         try:
             generator = pipeline(text, voice=voice, speed=speed, split_pattern=r"\n+")
             for i, (gs, ps, audio) in enumerate(generator):
@@ -1034,6 +1108,7 @@ class GenerationManager:
                 if audio.ndim > 1:
                     audio = audio.squeeze()
                 chunks.append(audio.astype("float32"))
+                job.progress = min(0.92, 0.05 + 0.9 * (i + 1) / _est_chunks)
         except Exception:
             # Drop the cached pipeline if generation blew up — it might be in
             # a bad state. Next call will reload.
