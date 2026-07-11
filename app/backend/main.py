@@ -40,6 +40,7 @@ from .generation import (
 from .downloads import manager
 from .imports import import_path, scan_for_candidates
 from .voices import library as voice_library
+from .fleet_auth import load_token as load_fleet_token, make_middleware as fleet_middleware, manifest
 from .transcription import (
     manager as stt_manager,
     availability as stt_availability,
@@ -97,6 +98,8 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(NoCacheStaticMiddleware)
+FLEET_TOKEN = load_fleet_token()
+app.middleware("http")(fleet_middleware(FLEET_TOKEN))
 
 
 # ───────────── request models ─────────────
@@ -166,6 +169,13 @@ def health() -> dict:
         "hf_home": str(cache.hf_home()),
         "hub_dir": str(cache.hub_dir()),
     }
+
+
+@app.get("/api/capabilities")
+def capabilities() -> dict:
+    return manifest(modality="voice", title=app.title, version=APP_VERSION,
+                    operations=["tts", "voice_clone", "speech_to_text"],
+                    diagnostics="/api/generate/diagnostics")
 
 
 # ── Update / generation health (auto-check surfaced by the web-UI banner) ──
