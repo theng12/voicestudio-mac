@@ -90,8 +90,10 @@ survive server restarts.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import platform
 import sys
 import threading
 import time
@@ -116,23 +118,25 @@ HISTORY_FILE = OUTPUT_DIR / ".history.json"
 HISTORY_MAX = 200
 
 
-# ───────────── soft imports of heavy deps ─────────────
+# ───────────── lightweight dependency discovery ─────────────
 
-TTS_AVAILABLE = False
-TTS_IMPORT_ERROR: Optional[str] = None
-try:
-    import torch  # noqa: F401
-    import transformers  # noqa: F401
-    TTS_AVAILABLE = True
-except Exception as e:
-    TTS_IMPORT_ERROR = f"{type(e).__name__}: {e}"
+# Importing these libraries just to discover whether they are installed adds
+# 10-20 seconds to every server restart. Model workers still perform the real
+# imports when generation begins, while diagnostics performs an explicit deep
+# import when the user asks for it.
+def _package_installed(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
 
-KOKORO_AVAILABLE = False
-try:
-    import kokoro  # noqa: F401
-    KOKORO_AVAILABLE = True
-except Exception:
-    KOKORO_AVAILABLE = False
+
+_TTS_MISSING = [name for name in ("torch", "transformers") if not _package_installed(name)]
+TTS_AVAILABLE = not _TTS_MISSING
+TTS_IMPORT_ERROR: Optional[str] = (
+    f"Missing packages: {', '.join(_TTS_MISSING)}" if _TTS_MISSING else None
+)
+KOKORO_AVAILABLE = _package_installed("kokoro")
 
 
 # ───────────── Kokoro voice catalog ─────────────
@@ -239,53 +243,26 @@ def availability() -> dict:
 
 
 def _have_mlx_audio() -> bool:
-    try:
-        import mlx_audio  # noqa: F401
-        return True
-    except Exception:
-        return False
+    return _package_installed("mlx_audio")
 
 
 def _have_voxcpm() -> bool:
-    try:
-        import voxcpm  # noqa: F401
-        return True
-    except Exception:
-        return False
+    return _package_installed("voxcpm")
 
 
 def _have_bark() -> bool:
-    """Bark is loaded via transformers' BarkModel — no extra package beyond what
-    we already require for VoxCPM v1 / Kokoro. Confirm both transformers AND
-    BarkModel symbol are reachable; some old transformers releases lack it."""
-    try:
-        from transformers import BarkModel  # noqa: F401
-        return True
-    except Exception:
-        return False
+    """Bark is bundled with Transformers; diagnostics deep-checks the package."""
+    return _package_installed("transformers")
 
 
 def _have_omnivoice() -> bool:
-    """OmniVoice (ailuntx's MLX variant). Confirms the omnivoice package +
-    its mlx submodule + the OmniVoiceMLX class are all importable. Three
-    layers because the upstream package may install partially when MLX deps
-    aren't on the platform."""
-    try:
-        from omnivoice.mlx import OmniVoiceMLX  # noqa: F401
-        return True
-    except Exception:
-        return False
+    """Lightweight presence check; diagnostics validates the package imports."""
+    return _package_installed("omnivoice")
 
 
 def _have_f5_tts() -> bool:
-    """F5-TTS (SWivid). Confirms the f5_tts package + the F5TTS class are
-    importable. The package pulls in vocos + cached_path + torchdiffeq + a
-    handful of other transitive deps via requirements-generation.txt."""
-    try:
-        from f5_tts.api import F5TTS  # noqa: F401
-        return True
-    except Exception:
-        return False
+    """Lightweight presence check; diagnostics validates the package and deps."""
+    return _package_installed("f5_tts")
 
 
 VOXCPM_EMOTION_EXAMPLES = [
@@ -300,24 +277,14 @@ VOXCPM_EMOTION_EXAMPLES = [
 
 
 def _detect_device() -> str:
-    """Pick the best torch device. MPS on Apple Silicon, else CPU."""
-    try:
-        import torch
-        if torch.backends.mps.is_available():
-            return "mps"
-        if torch.cuda.is_available():
-            return "cuda"
-    except Exception:
-        pass
+    """Report the native Voice Studio target without importing PyTorch."""
+    if sys.platform == "darwin" and platform.machine() == "arm64":
+        return "mps"
     return "cpu"
 
 
 def _have_diffusers() -> bool:
-    try:
-        import diffusers  # noqa: F401
-        return True
-    except Exception:
-        return False
+    return _package_installed("diffusers")
 
 
 # ───────────── diagnostics ─────────────

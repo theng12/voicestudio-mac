@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.10.2] — 2026-07-13
+
+### Fixed — Voice Studio restarts no longer preload every model library
+
+- Server startup now checks whether PyTorch, Transformers, and Kokoro are installed without importing their full model stacks. Real imports still happen when generation starts, and the diagnostics endpoint still performs deep package checks on demand.
+- This removes the restart-time import chain through PyTorch, spaCy, pandas, SciPy, and scikit-learn. On the reference Mac, the full backend import fell from 16.7 seconds to about 3 seconds.
+- Normal engine availability checks are lightweight too, and the UI no longer waits for the deliberate deep diagnostics scan before becoming usable.
+- Added a regression test that fails if the generation module imports a heavy model library during server startup.
+
+No launcher or dependency changes; **Just run Update**.
+
 ## [1.10.1] — 2026-07-13
 
 ### Fixed — saved fleet credentials apply without restarting Voice Studio

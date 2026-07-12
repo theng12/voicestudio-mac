@@ -295,7 +295,10 @@ function studio() {
       this._initFilterPreferences();
       this._initFamilyLibrary();
       await this.refreshGenAvailability();
-      await this.refreshDiagnostics();
+      // Deep engine diagnostics intentionally import every model stack. Let
+      // the core UI finish loading first, then validate those packages in the
+      // background so a restart never leaves the interface waiting on PyTorch.
+      setTimeout(() => this.refreshDiagnostics(), 750);
       await this.refreshLoras();
       await this.refreshSettings();
       await this.refreshVoices();
