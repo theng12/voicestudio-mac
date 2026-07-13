@@ -10,6 +10,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.13.0] — 2026-07-14
+
+### Added — Five-provider cloud audio gateway
+
+- Added GenAIPro, Fish Audio, fal.ai, and Kie.ai alongside ElevenLabs. All five use the existing focused provider cards, paid-use consent, key tests, voice mappings, cloud model picker, and shared generation history.
+- GenAIPro loads its live Labs voice catalog and recalls asynchronous task IDs. Fish Audio exposes owned and public reference voices and returns speech directly. fal.ai and Kie.ai use their documented queue/task APIs with curated speech models and voices.
+- Active asynchronous jobs now persist provider task metadata and automatically resume polling after an Update or restart. Existing paid tasks are never re-submitted, including fal queue jobs whose status and result URLs are opaque.
+
+### Fixed
+
+- Cloud generation no longer depends on the optional local TTS engine being installed.
+- Generated MP3 and other supported cloud audio files now count toward output storage and cleanup, rather than only WAV files.
+- Provider result downloads validate HTTPS hosts and every redirect target to prevent internal-network requests from untrusted task responses.
+- fal credential testing now uses a read-only model request; invalid keys reliably report an error and the Test button cannot create a paid generation.
+
+### Verification
+
+- Fifteen backend tests pass, including provider request/response contracts, restart recovery without re-submission, task metadata persistence, SSRF rejection, and cloud MP3 storage cleanup.
+- Invalid-key smoke checks against GenAIPro, Fish Audio, fal.ai, and Kie.ai return authentication errors without submitting paid work.
+- No dependency or launcher changes. The production process on port 47870 was not restarted; run **Update** once when ready.
+
+No new dependency is required; **Just run Update**.
+
 ## [1.12.0] — 2026-07-14
 
 ### Added — Cloud audio-provider gateway · Phase 1

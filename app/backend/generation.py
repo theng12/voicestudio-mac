@@ -116,6 +116,7 @@ _GEN_LOCK = threading.Lock()
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 HISTORY_FILE = OUTPUT_DIR / ".history.json"
 HISTORY_MAX = 200
+_AUDIO_OUTPUT_SUFFIXES = {".wav", ".mp3", ".ogg", ".flac", ".m4a"}
 
 
 # ───────────── lightweight dependency discovery ─────────────
@@ -697,6 +698,7 @@ class GenerationJob:
     provider_task_id: Optional[str] = None  # async provider task id — persisted so a
                                             # retry/restart RECALLS it instead of
                                             # re-submitting (never double-charge)
+    provider_task_meta: dict = field(default_factory=dict)  # opaque recall URLs/tokens
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: Optional[threading.Thread] = None
 
@@ -710,6 +712,7 @@ class GenerationJob:
             "mode": self.mode,
             "state": self.state,
             "provider": self.provider,
+            "provider_task_id": self.provider_task_id,
             "progress": self.progress,
             "params": self.params,
             "output_path": self.output_path,
@@ -759,6 +762,7 @@ class GenerationManager:
         self._f5_tts_model = None
         self._f5_tts_model_repo: Optional[str] = None
         self._load_history()
+        self._resume_cloud_jobs()
 
     def is_available(self) -> bool:
         return TTS_AVAILABLE
@@ -784,6 +788,18 @@ class GenerationManager:
             return False
         job.cancel_event.set()
         if job.state == "queued":
+            if job.provider and job.provider_task_id:
+                try:
+                    from . import providers as _P
+                    pair = _P.adapter_for(job.params.get("repo", ""))
+                    if pair is not None:
+                        pair[0].adapter.cancel(
+                            _P.get_api_key(job.provider),
+                            job.provider_task_id,
+                            job.provider_task_meta,
+                        )
+                except Exception:
+                    pass
             job.state = "cancelled"
             job.finished_at = time.time()
             try:
@@ -802,7 +818,7 @@ class GenerationManager:
         return len(terminal)
 
     def delete_job(self, job_id: str) -> bool:
-        """Remove one finished job from history AND delete its WAV file from disk.
+        """Remove one finished job from history AND delete its audio file from disk.
         (The DELETE .../jobs/{id} route only cancels active jobs; this is for a
         finished job the user wants gone.)"""
         with self._lock:
@@ -820,13 +836,15 @@ class GenerationManager:
         return True
 
     def output_stats(self) -> dict:
-        """Total size + count of generated WAVs in the outputs folder — so the UI
+        """Total size + count of generated audio in the outputs folder — so the UI
         can show how much disk the outputs are using (history index and the files
         on disk can diverge)."""
         total = 0
         count = 0
         if OUTPUT_DIR.exists():
-            for p in OUTPUT_DIR.glob("*.wav"):
+            for p in OUTPUT_DIR.iterdir():
+                if not p.is_file() or p.suffix.lower() not in _AUDIO_OUTPUT_SUFFIXES:
+                    continue
                 try:
                     total += p.stat().st_size
                     count += 1
@@ -835,19 +853,25 @@ class GenerationManager:
         return {"bytes": total, "count": count, "dir": str(OUTPUT_DIR.resolve())}
 
     def prune_outputs(self, keep_last: int = 0, older_than_days: float = 0.0) -> dict:
-        """Delete WAV files to reclaim disk. Exactly one mode:
+        """Delete generated audio files to reclaim disk. Exactly one mode:
           - keep_last > 0: keep the newest N, delete the rest.
           - older_than_days > 0: delete files older than that many days.
         History entries for deleted files are trimmed too."""
         if not OUTPUT_DIR.exists():
             return {"deleted": 0, "freed_bytes": 0}
-        wavs = sorted(OUTPUT_DIR.glob("*.wav"),
-                      key=lambda p: p.stat().st_mtime, reverse=True)
+        audio_files = sorted(
+            (
+                p for p in OUTPUT_DIR.iterdir()
+                if p.is_file() and p.suffix.lower() in _AUDIO_OUTPUT_SUFFIXES
+            ),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
         if keep_last > 0:
-            to_delete = wavs[keep_last:]
+            to_delete = audio_files[keep_last:]
         elif older_than_days > 0:
             cutoff = time.time() - older_than_days * 86400
-            to_delete = [p for p in wavs if p.stat().st_mtime < cutoff]
+            to_delete = [p for p in audio_files if p.stat().st_mtime < cutoff]
         else:
             return {"deleted": 0, "freed_bytes": 0}
         freed = 0
@@ -911,13 +935,14 @@ class GenerationManager:
             job.progress = 0.05          # move the bar off zero the moment work starts
             print(f"[gen] starting {job.job_id}: {job.params}", flush=True)
 
-            if not TTS_AVAILABLE:
+            if not TTS_AVAILABLE and not job.provider:
                 job.state = "error"
                 job.error = f"TTS engine not installed: {TTS_IMPORT_ERROR}"
                 job.finished_at = time.time()
                 self._persist()
                 return
 
+            output_path: Optional[Path] = None
             try:
                 if job.provider:
                     output_path = self._run_cloud(job)
@@ -939,10 +964,11 @@ class GenerationManager:
                     job.error = f"{type(e).__name__}: {e}"
                     print(f"[gen] error {job.job_id}: {job.error}", file=sys.stderr, flush=True)
                     traceback.print_exc()
-                try:
-                    output_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                if output_path is not None:
+                    try:
+                        output_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
             finally:
                 job.finished_at = time.time()
                 self._persist()
@@ -980,15 +1006,20 @@ class GenerationManager:
             if not job.provider_task_id:
                 sub = adapter.submit(api_key, text, model, voice, job.params)
                 job.provider_task_id = sub.task_id
+                job.provider_task_meta = dict(sub.metadata or {})
                 self._persist()   # persist the task id BEFORE polling — recall-safe
             while True:
                 if job.cancel_event.is_set():
                     try:
-                        adapter.cancel(api_key, job.provider_task_id)
+                        adapter.cancel(
+                            api_key, job.provider_task_id, job.provider_task_meta
+                        )
                     except Exception:
                         pass
                     return OUTPUT_DIR / f"{job.job_id}.mp3"
-                res = adapter.poll(api_key, job.provider_task_id)
+                res = adapter.poll(
+                    api_key, job.provider_task_id, job.provider_task_meta
+                )
                 if res.progress:
                     job.progress = max(job.progress, min(0.95, res.progress))
                 if res.done:
@@ -1000,6 +1031,8 @@ class GenerationManager:
         else:
             job.progress = 0.2
             audio, mime = adapter.synthesize(api_key, text, model, voice, job.params)
+        if not audio:
+            raise RuntimeError(f"{prov.name} returned no audio data.")
         ext = "mp3" if ("mpeg" in (mime or "") or "mp3" in (mime or "")) else "wav"
         out = OUTPUT_DIR / f"{job.job_id}.{ext}"
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -2099,11 +2132,19 @@ class GenerationManager:
     def _persist(self) -> None:
         try:
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            recoverable = [
+                j for j in self._jobs.values()
+                if j.provider
+                and j.provider_task_id
+                and j.state in ("queued", "running")
+            ]
             terminal = [j for j in self._jobs.values()
                         if j.state in ("done", "error", "cancelled")]
             terminal.sort(key=lambda j: j.finished_at or 0, reverse=True)
             terminal = terminal[:HISTORY_MAX]
-            payload = {"jobs": [self._to_disk(j) for j in terminal]}
+            payload = {
+                "jobs": [self._to_disk(j) for j in recoverable + terminal]
+            }
             tmp = HISTORY_FILE.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(payload, default=str))
             os.replace(tmp, HISTORY_FILE)
@@ -2123,6 +2164,36 @@ class GenerationManager:
         except Exception as e:
             print(f"[gen] load history failed: {e}", file=sys.stderr, flush=True)
 
+    def _resume_cloud_jobs(self) -> None:
+        """Resume persisted async tasks by polling their existing provider id.
+
+        Local jobs and cloud jobs that never received a task id are deliberately
+        not resumed: only an existing provider task can be recalled without any
+        risk of creating a second paid request.
+        """
+        recoverable = [
+            job for job in self._jobs.values()
+            if job.provider
+            and job.provider_task_id
+            and job.state in ("queued", "running")
+        ]
+        for job in recoverable:
+            job.state = "queued"
+            job.error = None
+            job.finished_at = None
+            job.thread = threading.Thread(
+                target=self._run_txt2speech,
+                args=(job,),
+                name=f"gen-recover-{job.job_id}",
+                daemon=True,
+            )
+            job.thread.start()
+        if recoverable:
+            print(
+                f"[gen] resumed {len(recoverable)} cloud provider task(s)",
+                flush=True,
+            )
+
     @staticmethod
     def _to_disk(job: GenerationJob) -> dict:
         return {
@@ -2131,6 +2202,7 @@ class GenerationManager:
             "state": job.state,
             "provider": job.provider,
             "provider_task_id": job.provider_task_id,
+            "provider_task_meta": job.provider_task_meta,
             "progress": job.progress,
             "params": job.params,
             "output_path": job.output_path,
@@ -2153,6 +2225,7 @@ class GenerationManager:
                 state=raw.get("state", "done"),
                 provider=raw.get("provider"),
                 provider_task_id=raw.get("provider_task_id"),
+                provider_task_meta=raw.get("provider_task_meta") or {},
                 progress=raw.get("progress", 1.0),
                 output_path=output_path,
                 resolved_seed=raw.get("resolved_seed"),

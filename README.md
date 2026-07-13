@@ -2,7 +2,7 @@
 
 Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX image generation) and **MusicStudio Mac** (MusicGen / Stable Audio). Same scaffolding, focused on TTS.
 
-> **Current status**: local TTS generation, voice cloning, transcription, model management, and the Phase 1 cloud audio-provider gateway are available from one UI and API.
+> **Current status**: local TTS generation, voice cloning, transcription, model management, and a five-provider cloud audio gateway are available from one UI and API.
 
 ## What it does
 
@@ -17,7 +17,8 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 - **Smart downloads** — filters out redundant duplicate weight formats automatically. F5-TTS goes from 6.3 GB → 1.3 GB, Bark from 20 GB → 4 GB, Chatterbox from 11 GB → 3 GB.
 - **Resume on retry** — partial downloads pick up where they left off.
 - **Imports** — link or move TTS weights from other launchers (e.g. a standalone VoxCPM webui).
-- **Cloud audio gateway** — connect ElevenLabs in Settings, explicitly allow paid use, map provider-native IDs onto voices in the library, then use cloud and local models from the same Generate workspace.
+- **Cloud audio gateway** — connect ElevenLabs, GenAIPro, Fish Audio, fal.ai, or Kie.ai in Settings, explicitly allow paid use, map provider-native IDs onto voices in the library, then use cloud and local models from the same Generate workspace.
+- **Restart-safe cloud jobs** — asynchronous provider tasks are saved immediately and recalled after an Update or restart, so Voice Studio polls the existing paid task instead of submitting it twice.
 - **Direct API** — bound on `0.0.0.0:47870`, hit it from your main Mac over LAN, Tailscale, or anywhere on the network.
 
 ## How to use
@@ -26,7 +27,7 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 2. Start: click **Start** (runs uvicorn on port 47870 across all interfaces).
 3. Click **Open UI** to see the catalog. Pick models from **Models** → **Download**.
 4. **Install Generation** (the ✨ wand sidebar item) to use local models. Cloud models do not require the local generation engine.
-5. For cloud speech, open **Settings → Cloud audio providers**, save a key, enable paid usage, then map a provider voice under **Voices → Edit**.
+5. For cloud speech, open **Settings → Cloud audio providers**, choose a provider card, save and test its key, enable paid usage, then map a provider voice under **Voices → Edit**.
 
 ## Versioning
 
@@ -70,7 +71,7 @@ Once running, the API is at `http://<your-mac-ip>:47870`. Examples:
 const r = await fetch("http://localhost:47870/api/catalog");
 const { models, families } = await r.json();
 
-// Inspect cloud providers. Models appear only after key + paid consent + enabled.
+// Inspect all five cloud providers. Models appear after key + paid consent + enabled.
 const providers = await fetch("http://localhost:47870/api/providers").then(r => r.json());
 
 // Start a download

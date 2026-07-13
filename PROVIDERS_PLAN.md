@@ -18,7 +18,7 @@ Repo: `~/pinokio/api/voicestudio-mac.git` (this app). Reference: `~/pinokio/api/
 2. Voice Studio is a **live production app** on `http://localhost:47870` — **never kill/restart it**. Verify frontend changes by `curl` against 47870 (served no-cache) or in the browser; verify backend changes by **boot-testing a second instance on a temp port** (see §7), never against the live server.
 3. Backend changes only go live after the user clicks **Update** in the Pinokio sidebar (restart). Frontend changes are live on browser reload. The UI must **degrade gracefully** until the backend restarts.
 4. Ship each slice: bump `VERSION`, prepend a `CHANGELOG.md` entry, `git add` only your files, commit, `git push origin main`. Follow the existing changelog voice.
-5. Current state as of this plan: **v1.12.0** — Phase 0 and Phase 1 are done. Next up: **Phase 2 adapters + restart recovery** (§5).
+5. Current state as of this plan: **v1.13.0** — the provider UI, ElevenLabs, GenAIPro, Fish Audio, fal.ai, Kie.ai, and restart recovery are done. Next up: **fleet health** (§6).
 
 ---
 
@@ -28,16 +28,17 @@ Repo: `~/pinokio/api/voicestudio-mac.git` (this app). Reference: `~/pinokio/api/
 |---|---|---|
 | `providers.py` (adapter interface + registry) | ✅ done | `app/backend/providers.py` |
 | ElevenLabs adapter (sync) | ✅ done | `providers.py → ElevenLabsAdapter` |
-| Self-healing job fields + `_run_cloud` worker | ✅ done | `app/backend/generation.py` |
+| Self-healing jobs + restart recovery | ✅ done | `app/backend/generation.py` |
 | Cloud routing in `start_txt2speech` + catalog merge + mp3 serving | ✅ done | `app/backend/main.py` |
 | `/api/providers*` endpoints | ✅ done | `app/backend/main.py` |
 | **Settings → Providers UI** (key/paid/test/enable) | ✅ done | `app/frontend/*` |
 | **Voice-library provider tags** (multi-provider) | ✅ done | `voices.py` + `app/frontend/*` |
 | **Cloud models in the Generate UI** | ✅ done | `app/frontend/*` |
-| fal adapter (async submit/poll) | ⬜ Phase 2 | `providers.py` |
-| Fish Audio adapter | ⬜ Phase 2 | `providers.py` |
-| kie adapter | ⬜ Phase 3 | `providers.py` |
-| Fleet "provider health" surface (Hub) | ⬜ Phase 3 | `studiohub-mac` |
+| GenAIPro adapter (async + live voices) | ✅ done | `providers.py` |
+| Fish Audio adapter (sync + live voices) | ✅ done | `providers.py` |
+| fal.ai adapter (async submit/poll/cancel) | ✅ done | `providers.py` |
+| Kie.ai adapter (async submit/poll) | ✅ done | `providers.py` |
+| Fleet "provider health" surface (Hub) | ⬜ next | `studiohub-mac` |
 
 ---
 
@@ -146,26 +147,22 @@ working play/download/reveal — over the existing job engine.
 
 ---
 
-## 5. Phase 2 — fal + Fish Audio (async is where self-healing matters)
+## 5. COMPLETE — Provider adapters + restart recovery (v1.13.0)
 
-- **fal** (`fal.ai`) — **async queue** API: submit → `request_id` → poll status → result.
-  Implement as `is_async = True`: `submit()` returns `SubmitResult(request_id)`, `poll()`
-  maps queued/in-progress→`done=False` (with `progress`), completed→`done=True` with the
-  audio (download the result URL), failed→`error`. This is exactly what the persisted
-  `provider_task_id` + submit-once-poll design was built for. Reuse the base URL pattern
-  from Chat's fal entry. fal has a **wider voice library** — surface it via `list_voices`.
-  Also add **restart recovery**: persist in-flight cloud jobs (currently `_persist` only
-  saves terminal jobs) and, on startup after `_load_history`, re-poll any running job that
-  has a `provider_task_id` instead of re-submitting.
-- **Fish Audio** — REST TTS with a reference-model concept; write `synthesize` (likely
-  sync) + `list_models`/`list_voices`.
-- Register both in `PROVIDERS`; the router, catalog merge, endpoints, and UI all work
-  unchanged — only the adapter is new.
+- **GenAIPro** — Labs task submit/poll/cancel, live paginated voice listing, account test,
+  and secure result download.
+- **Fish Audio** — synchronous S2-Pro/S1 speech plus owned and public reference-model
+  voice listings and credit test.
+- **fal.ai** — asynchronous queue submit/poll/cancel. Opaque status, response, and cancel
+  URLs persist with the task ID so restart recovery can recall the exact paid request.
+- **Kie.ai** — asynchronous Market `createTask` + unified `recordInfo` polling for its
+  documented ElevenLabs Multilingual v2 and Turbo 2.5 speech models.
+- Active asynchronous tasks are stored in `.history.json` and resumed after startup only
+  when a provider task ID already exists. No task ID means no automatic resubmission.
+- Provider result URLs and redirects are HTTPS allowlisted before download.
 
-## 6. Phase 3 — kie + fleet health
+## 6. Next — fleet health
 
-- **kie** (`kie.ai`) — resells ElevenLabs models; adapter maps its REST shape. Curate
-  models if it has no clean listing endpoint.
 - **Fleet health:** surface per-provider live/linked status to Story Studio / Studio Hub
   so the fleet shows which cloud providers are connected and current.
 
@@ -205,7 +202,7 @@ GET  /api/providers/{key}/models/live                   → {models:[{id,label,n
 GET  /api/providers/{key}/voices/live                   → {voices:[{id,label,lang,gender,preview_url}]}
 PUT  /api/voices/{id}/providers          {providers:[{provider,voice_id}]}
 GET  /api/catalog                        → now includes cloud models (kind:"cloud")
-POST /api/generate/txt2speech            {repo:"provider:elevenlabs:<model>", voice:"<voiceid>", text}
+POST /api/generate/txt2speech            {repo:"provider:<key>:<model>", voice:"<voiceid>", text}
 ```
 Generation, jobs, history, SSE stream, per-job reveal/delete, disk stats/prune — all
 shared with local generation, unchanged.
