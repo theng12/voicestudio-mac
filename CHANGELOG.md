@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.10.4] — 2026-07-13
+
+### Added — one-click Whisper transcripts for new voices
+
+- The Add Voice dialog can now transcribe the selected or recorded reference clip with the existing cached Whisper model.
+- The returned transcript is placed into the editable transcript field for review before the voice is saved, including the transcript needed by F5-TTS.
+- If no Whisper model is downloaded, the dialog explains where to download one; no extra dependency is required.
+
+### Verification
+
+- JavaScript syntax and whitespace checks pass.
+- The live server was not restarted during this change.
+
+No launcher or dependency changes; **Just run Update**.
+
 ## [1.10.3] — 2026-07-13
 
 ### Added — official OmniVoice voice cloning on Apple Silicon

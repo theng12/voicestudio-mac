@@ -163,6 +163,7 @@ function studio() {
     voiceUploader: {
       open: false,
       uploading: false,
+      transcribing: false,
       error: "",
       // audio source mode: 'upload' | 'paste' | 'record'
       source: "upload",
@@ -1587,6 +1588,7 @@ function studio() {
       this.clearVoiceUploaderAudio();
       Object.assign(this.voiceUploader, {
         uploading: false,
+        transcribing: false,
         error: "",
         name: "",
         language: "en",
@@ -1641,6 +1643,57 @@ function studio() {
       this._acceptVoiceFile(file);
       // Reset the input so picking the same file twice still triggers @change.
       try { event.target.value = ""; } catch { /* ignore */ }
+    },
+
+    async transcribeVoiceClip() {
+      const u = this.voiceUploader;
+      if (!u.audioBlob || u.transcribing) return;
+      u.transcribing = true;
+      u.error = "";
+      try {
+        // The Voices tab can be opened before the Models tab has populated STT
+        // state, so make sure we have a current availability/model list first.
+        if (this.stt.available === null || !this.stt.models.length) {
+          await this.refreshTranscribe();
+        }
+        if (!this.stt.available) {
+          throw new Error("Whisper is unavailable. Check the Transcriber setup in Models first.");
+        }
+
+        // Prefer the selected model, but fall back to any already-downloaded
+        // Whisper model so this one-click helper does not require model setup
+        // in another tab.
+        let model = this.stt.models.find(m => m.repo === this.stt.model);
+        if (!model?.cached) {
+          model = this.stt.models.find(m => m.cached);
+          if (model) this.stt.model = model.repo;
+        }
+        if (!model?.cached) {
+          throw new Error("Download a Whisper model from Models → Transcriber, then try again.");
+        }
+
+        const fd = new FormData();
+        fd.append("file", u.audioBlob, u.audioFilename || "reference.wav");
+        fd.append("model", model.repo);
+        if (u.language) fd.append("language", u.language);
+        const r = await fetch("/api/transcribe", { method: "POST", body: fd });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          u.error = (r.status === 409 ? "Model not downloaded yet. " : "")
+            + this._formatApiError(err, r.status);
+          return;
+        }
+        const data = await r.json();
+        const text = (data.text || "").trim();
+        if (!text) throw new Error("Whisper did not detect any speech in this clip.");
+        u.transcript = text;
+        this.pushToast({ kind: "success", icon: "📝", title: "Transcript ready",
+          body: `Review it below before adding ${u.name ? `“${u.name}”` : "the voice"} to your library.` });
+      } catch (e) {
+        u.error = String(e);
+      } finally {
+        u.transcribing = false;
+      }
     },
 
     async submitVoiceUpload() {

@@ -1670,6 +1670,16 @@
       <!-- Transcript (collapsible) -->
       <details class="control-block">
         <summary>Add transcript (required by F5-TTS, optional otherwise)</summary>
+        <div class="form-row" style="margin-top: 10px; align-items: center;">
+          <button type="button" class="btn ghost small"
+                  :disabled="!voiceUploader.audioBlob || voiceUploader.transcribing"
+                  @click.stop="transcribeVoiceClip()">
+            <span x-show="!voiceUploader.transcribing">📝 Transcribe this clip</span>
+            <span x-show="voiceUploader.transcribing">Transcribing…</span>
+          </button>
+          <span class="muted small" x-show="!voiceUploader.audioBlob">Add an audio clip first.</span>
+          <span class="muted small" x-show="voiceUploader.audioBlob && !voiceUploader.transcribing">Uses your cached Whisper model.</span>
+        </div>
         <textarea x-model="voiceUploader.transcript" rows="3"
                   placeholder="Exact words spoken in the reference clip. Required only if you'll use F5-TTS with this voice."></textarea>
       </details>
