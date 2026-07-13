@@ -18,7 +18,7 @@ Repo: `~/pinokio/api/voicestudio-mac.git` (this app). Reference: `~/pinokio/api/
 2. Voice Studio is a **live production app** on `http://localhost:47870` — **never kill/restart it**. Verify frontend changes by `curl` against 47870 (served no-cache) or in the browser; verify backend changes by **boot-testing a second instance on a temp port** (see §7), never against the live server.
 3. Backend changes only go live after the user clicks **Update** in the Pinokio sidebar (restart). Frontend changes are live on browser reload. The UI must **degrade gracefully** until the backend restarts.
 4. Ship each slice: bump `VERSION`, prepend a `CHANGELOG.md` entry, `git add` only your files, commit, `git push origin main`. Follow the existing changelog voice.
-5. Current state as of this plan: **v1.13.0** — the provider UI, ElevenLabs, GenAIPro, Fish Audio, fal.ai, Kie.ai, and restart recovery are done. Next up: **fleet health** (§6).
+5. Current state as of this plan: **Voice Studio v1.13.0** has the provider UI, ElevenLabs, GenAIPro, Fish Audio, fal.ai, Kie.ai, and restart recovery. **Studio Hub v1.36.0** completes fleet provider health (§6).
 
 ---
 
@@ -38,7 +38,7 @@ Repo: `~/pinokio/api/voicestudio-mac.git` (this app). Reference: `~/pinokio/api/
 | Fish Audio adapter (sync + live voices) | ✅ done | `providers.py` |
 | fal.ai adapter (async submit/poll/cancel) | ✅ done | `providers.py` |
 | Kie.ai adapter (async submit/poll) | ✅ done | `providers.py` |
-| Fleet "provider health" surface (Hub) | ⬜ next | `studiohub-mac` |
+| Fleet "provider health" surface (Hub) | ✅ done | `studiohub-mac` v1.36.0 |
 
 ---
 
@@ -161,10 +161,14 @@ working play/download/reveal — over the existing job engine.
   when a provider task ID already exists. No task ID means no automatic resubmission.
 - Provider result URLs and redirects are HTTPS allowlisted before download.
 
-## 6. Next — fleet health
+## 6. COMPLETE — fleet health (Studio Hub v1.36.0)
 
-- **Fleet health:** surface per-provider live/linked status to Story Studio / Studio Hub
-  so the fleet shows which cloud providers are connected and current.
+- Studio Hub reads the public `/api/providers` surface from each local Voice Studio and
+  federates the key-free result through its existing peer resource snapshots.
+- Voice cards show ready, configured, unlinked, stale, and older-version states; the
+  aggregate is also available from `GET /api/hub/providers` and the live Hub summary.
+- The Hub retains only an explicit public-field allowlist. Provider credentials never
+  enter Hub state or fleet snapshots.
 
 ---
 
