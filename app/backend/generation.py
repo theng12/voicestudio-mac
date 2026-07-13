@@ -19,7 +19,7 @@ Currently wired (workers exist):
 - vibevoice       → mlx-audio worker
 - voxtral-tts     → mlx-audio worker (20 preset voices / 9 langs)
 - marvis          → mlx-audio worker (sesame/csm engine; 2 preset voices)
-- omnivoice       → ailuntx/OmniVoice-MLX (separate worker)
+- omnivoice       → official OmniVoice/MPS for cloning, OmniVoice-MLX for design
 - f5-tts          → f5_tts.api.F5TTS (separate worker)
 
 Removed in v1.3.1:
@@ -747,6 +747,7 @@ class GenerationManager:
         # tokenizer on PyTorch.
         self._omnivoice_model = None
         self._omnivoice_model_repo: Optional[str] = None
+        self._omnivoice_model_mode: Optional[str] = None
         # F5-TTS — single F5TTS instance cached per repo. Holds the flow-matching
         # transformer + VoCoS vocoder (~1.5 GB on disk, more at runtime). Heavy
         # cold-start because the vocoder also loads from HF.
@@ -1746,13 +1747,16 @@ class GenerationManager:
 
     # ----- OmniVoice (ailuntx's MLX variant) -----
 
-    def _omnivoice_get_model(self, repo: str):
-        """Lazy-load + cache an OmniVoiceMLX instance per repo. Evicts on repo
+    def _omnivoice_get_model(self, repo: str, official: bool = False):
+        """Lazy-load + cache an OmniVoice instance per repo and backend. Evicts on repo
         switch — Apple Silicon shares system RAM with the GPU, and holding two
         diffusion-LM-style TTS models concurrently would OOM. The MLX variant
         also keeps the Higgs audio tokenizer on PyTorch, so eviction releases
         both halves of the hybrid stack."""
-        if self._omnivoice_model_repo == repo and self._omnivoice_model is not None:
+        mode = "official" if official else "mlx"
+        if (self._omnivoice_model_repo == repo
+                and self._omnivoice_model_mode == mode
+                and self._omnivoice_model is not None):
             return self._omnivoice_model
 
         if self._omnivoice_model is not None:
@@ -1763,29 +1767,32 @@ class GenerationManager:
                 pass
             self._omnivoice_model = None
             self._omnivoice_model_repo = None
+            self._omnivoice_model_mode = None
             _release_device_memory("mps")
 
-        from omnivoice.mlx import OmniVoiceMLX
         snapshot_path = self._mlx_audio_snapshot_path(repo)
-        print(f"[gen] loading OmniVoiceMLX from {snapshot_path}", flush=True)
-        # The on-disk precision (4-bit / 8-bit / bf16 / fp32) is encoded in the
-        # repo and the loader picks the right format automatically. dtype here
-        # only affects ops that aren't pre-quantized — matches the upstream
-        # example.
-        model = OmniVoiceMLX.from_pretrained(str(snapshot_path), dtype="float16")
+        if official:
+            from omnivoice import OmniVoice
+            import torch
+            print(f"[gen] loading official OmniVoice/MPS from {snapshot_path}", flush=True)
+            model = OmniVoice.from_pretrained(
+                str(snapshot_path), device_map="mps", dtype=torch.float16
+            )
+        else:
+            from omnivoice.mlx import OmniVoiceMLX
+            print(f"[gen] loading OmniVoiceMLX from {snapshot_path}", flush=True)
+            # The on-disk precision (4-bit / 8-bit / bf16 / fp32) is encoded in
+            # the repo and the loader picks the right format automatically.
+            model = OmniVoiceMLX.from_pretrained(str(snapshot_path), dtype="float16")
         self._omnivoice_model = model
         self._omnivoice_model_repo = repo
+        self._omnivoice_model_mode = mode
         return model
 
     def _generate_omnivoice(self, job: GenerationJob, model_entry, output_path: Path) -> None:
-        """OmniVoice (MLX variant by ailuntx). Voice-design mode only on this
-        backend today — voice cloning lives in the official PyTorch API
-        (`ref_audio` + `ref_text`) but isn't yet exposed in the MLX loader.
-
-        Required input: `voice_design_prompt` — a natural-language description
-        like 'female, british accent' or 'elderly man, raspy, slow'. If a
-        `voice_library_id` was selected we raise a clear NotImplementedError so
-        the user sees why their reference clip didn't take effect."""
+        """Run OmniVoice voice design through MLX or voice cloning through the
+        official PyTorch/MPS implementation, selected by the catalog repo and
+        whether a reference voice is supplied."""
         import soundfile as sf
 
         params = job.params
@@ -1794,30 +1801,24 @@ class GenerationManager:
         if not text:
             raise ValueError("text is required")
 
-        # Voice cloning is unsupported on the MLX backend today.
         voice_id = (params.get("voice_library_id") or "").strip()
-        if voice_id:
-            raise NotImplementedError(
-                "OmniVoice voice cloning isn't yet wired on the MLX backend. The "
-                "upstream MLX loader only exposes voice-design (instruct). Either "
-                "clear the reference voice and use the Voice description field, "
-                "or pick a clone-capable engine (VoxCPM2, Spark-TTS, Chatterbox)."
-            )
-
         instruct = (params.get("voice_design_prompt") or "").strip()
-        if not instruct:
+        official = model_entry.repo == "k2-fsa/OmniVoice"
+        if voice_id and not official:
             raise ValueError(
-                "OmniVoice needs a voice description (e.g. 'female, british accent'). "
-                "Fill in the Voice description field on the Generate tab."
+                "OmniVoice voice cloning requires the official k2-fsa/OmniVoice "
+                "model. Select that model, or clear the reference voice to use "
+                "MLX voice design."
+            )
+        if not instruct and not voice_id:
+            raise ValueError(
+                "OmniVoice needs either a reference voice or a voice description "
+                "(e.g. 'female, british accent')."
             )
 
         speed = float(params.get("speed", 1.0))
         speed = max(0.5, min(speed, 2.0))
 
-        # OmniVoiceMLX doesn't expose a seed kwarg in current versions — we
-        # stamp a random seed onto the job for history reproducibility logging
-        # only. "Reuse params" in the UI will still copy the description back
-        # even though re-running won't be bit-identical.
         seed = params.get("seed")
         if seed is None or seed < 0:
             import random
@@ -1827,13 +1828,33 @@ class GenerationManager:
         if job.cancel_event.is_set():
             return
 
-        model = self._omnivoice_get_model(model_entry.repo)
+        ref_path = None
+        ref_text = None
+        if voice_id:
+            from . import voices as voices_module
+            voice = voices_module.library.get(voice_id)
+            if voice is None:
+                raise ValueError(f"Voice {voice_id} not found in library")
+            ref_path = voices_module.library.reference_path(voice_id)
+            if ref_path is None or not ref_path.exists():
+                raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
+            ref_text = (params.get("ref_transcript") or "").strip()
+            if not ref_text:
+                ref_text = voices_module.library.transcript(voice_id) or None
+
+        model = self._omnivoice_get_model(model_entry.repo, official=official)
 
         print(
-            f"[gen] omnivoice voice-design ({len(text)} chars, instruct={instruct[:40]!r}, speed={speed})",
+            f"[gen] omnivoice {'voice-clone' if ref_path else 'voice-design'} "
+            f"({len(text)} chars, instruct={instruct[:40]!r}, speed={speed})",
             flush=True,
         )
-        audio = model.generate(text=text, instruct=instruct, speed=speed)
+        if ref_path:
+            audio = model.generate(
+                text=text, ref_audio=str(ref_path), ref_text=ref_text, speed=speed
+            )
+        else:
+            audio = model.generate(text=text, instruct=instruct, speed=speed)
 
         # OmniVoice always returns one ndarray per batch item. Passing that
         # outer list to SoundFile makes it interpret every sample as a channel.

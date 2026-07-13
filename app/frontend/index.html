@@ -671,23 +671,40 @@
           </p>
         </section>
 
-        <!-- OmniVoice (MLX): required natural-language voice description. -->
+        <!-- OmniVoice: MLX voice design or official PyTorch/MPS cloning. -->
         <section class="control-block" x-show="isOmniVoice(gen.repo)" x-cloak>
-          <label>Voice traits <span class="muted small">(required)</span></label>
+          <label>Voice traits <span class="muted small" x-show="isOmniVoiceDesign(gen.repo)">(required)</span><span class="muted small" x-show="isOmniVoiceOfficial(gen.repo)">(optional when cloning)</span></label>
           <input type="text" class="prompt-input" x-model="gen.voice_design_prompt"
                  placeholder="e.g. male, british accent · young adult, female, whisper">
           <p class="muted hint">
-            OmniVoice accepts comma-separated traits rather than free-form prose.
+            <span x-show="isOmniVoiceDesign(gen.repo)">MLX OmniVoice accepts comma-separated traits rather than free-form prose.</span>
+            <span x-show="isOmniVoiceOfficial(gen.repo)">Use these traits to design a new voice, or leave blank when cloning a reference voice below.</span>
             Supported examples include <code>male</code>, <code>female</code>,
             <code>young adult</code>, <code>elderly</code>, <code>british accent</code>,
-            <code>low pitch</code>, and <code>whisper</code>. Voice cloning isn't yet
-            wired on the MLX backend.
+            <code>low pitch</code>, and <code>whisper</code>.
           </p>
           <div class="design-presets">
             <button class="btn ghost small" @click="gen.voice_design_prompt='male, british accent'">Male · British</button>
             <button class="btn ghost small" @click="gen.voice_design_prompt='female, young adult, whisper'">Young · Whisper</button>
             <button class="btn ghost small" @click="gen.voice_design_prompt='elderly, male, low pitch'">Elderly · Low</button>
           </div>
+        </section>
+
+        <!-- Official OmniVoice: reference-voice cloning through PyTorch/MPS. -->
+        <section class="control-block" x-show="isOmniVoiceOfficial(gen.repo)" x-cloak>
+          <label>Reference voice <span class="muted small">(optional — overrides voice design)</span></label>
+          <select x-model="gen.voice_library_id">
+            <option value="">— design a new voice instead —</option>
+            <template x-for="v in voices" :key="v.id">
+              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' "></option>
+            </template>
+          </select>
+          <p class="muted hint" x-show="voices.length === 0">
+            Add a clean 3–10 second reference clip in the <a class="link-accent" @click="tab='voices'">Voices library</a> first.
+          </p>
+          <p class="muted hint" x-show="voices.length > 0">
+            The official checkpoint clones the selected speaker. Use a clear clip with one speaker; the transcript is optional.
+          </p>
         </section>
 
         <!-- Chatterbox-MLX: exaggeration / intensity dial (reuses cfg_value). -->

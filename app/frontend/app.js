@@ -925,8 +925,11 @@ function studio() {
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return false;
       if (mode === "clone"  && !this.gen.voice_library_id) return false;
       if (mode === "custom" && !this.gen.preset_speaker) return false;
-      // OmniVoice requires a voice description on the MLX backend.
-      if (this.isOmniVoice(this.gen.repo) && !this.gen.voice_design_prompt.trim()) return false;
+      // MLX OmniVoice needs a design prompt; official OmniVoice accepts either
+      // a design prompt or a reference voice for cloning.
+      if (this.isOmniVoiceDesign(this.gen.repo) && !this.gen.voice_design_prompt.trim()) return false;
+      if (this.isOmniVoiceOfficial(this.gen.repo)
+          && !this.gen.voice_library_id && !this.gen.voice_design_prompt.trim()) return false;
       // Chatterbox is voice-cloning only; prevent a guaranteed backend error.
       if (this.isChatterboxMlx(this.gen.repo) && !this.gen.voice_library_id) return false;
       // F5-TTS requires a library voice (voice cloning only — no zero-shot).
@@ -944,7 +947,10 @@ function studio() {
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return "Describe the voice you want.";
       if (mode === "clone" && !this.gen.voice_library_id) return "Pick a reference voice from your library.";
       if (mode === "custom" && !this.gen.preset_speaker) return "Pick a preset speaker.";
-      if (this.isOmniVoice(this.gen.repo) && !this.gen.voice_design_prompt.trim()) return "Choose supported voice traits below.";
+      if (this.isOmniVoice(this.gen.repo)
+          && !this.gen.voice_library_id && !this.gen.voice_design_prompt.trim()) {
+        return "Choose a reference voice or describe the voice traits below.";
+      }
       if ((this.isChatterboxMlx(this.gen.repo) || this.isF5TTS(this.gen.repo)) && !this.gen.voice_library_id) {
         return "Pick a reference voice from your library.";
       }
@@ -2188,6 +2194,12 @@ function studio() {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "omnivoice";
     },
+    isOmniVoiceOfficial(repo) {
+      return repo === "k2-fsa/OmniVoice";
+    },
+    isOmniVoiceDesign(repo) {
+      return this.isOmniVoice(repo) && !this.isOmniVoiceOfficial(repo);
+    },
     isF5TTS(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "f5-tts";
@@ -2620,7 +2632,7 @@ function studio() {
         // Voice library: every cloner family + Qwen3 clone mode + VoxCPM v1 + F5-TTS.
         const passesLibraryVoice = mode === "clone" || this.isVoxCPM(repo)
                                 || this.isMlxCloner(repo)
-                                || this.isF5TTS(repo);
+                                || this.isF5TTS(repo) || this.isOmniVoiceOfficial(repo);
 
         return {
           repo,

@@ -96,8 +96,8 @@ f5-tts>=1.1.0
 # ailuntx. The MLX backend runs the diffusion LM in MLX and keeps the Higgs
 # audio tokenizer on PyTorch/Transformers — both stacks already required by
 # other engines above. Import path is `omnivoice.mlx.OmniVoiceMLX`. Apache-2.0.
-# Note: voice cloning lives in the official PyTorch API but isn't yet exposed
-# in the MLX variant — current integration is voice-design-only.
+# The same package also exposes the official PyTorch/MPS OmniVoice class used
+# for reference-voice cloning; the MLX class remains the lightweight design path.
 omnivoice @ git+https://github.com/ailuntx/OmniVoice-MLX.git
 
 # Lightweight TTS-specific helpers.

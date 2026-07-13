@@ -333,15 +333,15 @@ FAMILIES: dict[str, Family] = {
             "supporting 600+ languages with voice design (gender / accent / age "
             "/ whisper via natural-language) and non-verbal symbols ([laughter], "
             "[cough]). MLX backend (experimental) by ailuntx. Apache-2.0. "
-            "Diffusion LM in MLX + audio tokenizer on PyTorch — hybrid stack."
+            "Official PyTorch/MPS weights support voice cloning; the MLX "
+            "variants support fast voice design."
         ),
         how_to_use=(
-            "Type your voice-design prompt into the Voice description field "
-            "(e.g. 'female, british accent', 'elderly man, raspy, slow') and "
-            "the text to speak. Generation is voice-design-only on the MLX "
-            "backend today; voice cloning support will land once the upstream "
-            "MLX loader exposes ref_audio. 4-bit is the recommended starter; "
-            "fp32 only if you want maximum fidelity."
+            "Choose an MLX variant for voice design from comma-separated traits "
+            "(e.g. 'female, british accent', 'elderly man, raspy, slow'), or "
+            "choose the official model to clone a 3–10 second reference voice. "
+            "The official path runs on PyTorch/MPS; the MLX path remains the "
+            "lighter/faster design option."
         ),
         # Audit (v1.2.4): mlx_audio omnivoice/omnivoice.py:483 — flow-matching (diffusion).
         # Takes explicit duration_s or estimates via RuleDurationEstimator. No GPT-style cliff.
@@ -1228,6 +1228,27 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("weak",  "3.3 GB on disk — biggest OmniVoice tier"),
             ("weak",  "No quality gain over bf16 for inference"),
             ("avoid", "Day-to-day use — pick bf16 / 8-bit / 4-bit instead"),
+        ),
+    ),
+    ModelEntry(
+        repo="k2-fsa/OmniVoice",
+        label="OmniVoice 0.6B official (MPS) — voice cloning",
+        family="omnivoice",
+        size_gb=3.3,
+        gated=False,
+        min_unified_memory_gb=12,
+        recommended_hardware="M1 Pro / M2 16 GB+ recommended for comfortable cloning.",
+        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
+        best_for="The official OmniVoice checkpoint with zero-shot voice cloning from a 3–10 second reference clip. Runs through PyTorch on Apple Silicon MPS and is the OmniVoice choice when the same speaker must carry across multiple passages.",
+        sample_rate_hz=24000,
+        languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "+636 more"),
+        use_cases=(
+            ("good",  "Voice cloning from a short reference clip in the Voices library"),
+            ("good",  "600+ languages with cross-lingual generation"),
+            ("good",  "Use a generated design sample as a reusable reference voice"),
+            ("weak",  "3.3 GB checkpoint plus higher runtime memory than the MLX 4-bit variant"),
+            ("weak",  "PyTorch/MPS path is slower and less memory-efficient than MLX voice design"),
+            ("avoid", "Unauthorized impersonation or cloning without the speaker's permission"),
         ),
     ),
 

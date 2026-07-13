@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.10.3] — 2026-07-13
+
+### Added — official OmniVoice voice cloning on Apple Silicon
+
+- Added the official `k2-fsa/OmniVoice` checkpoint to the Models catalog. It runs through the installed PyTorch/MPS API and supports cloning from a 3–10 second reference clip in the Voices library.
+- Kept the existing `mlx-community/OmniVoice-*` variants as the lightweight voice-design path. The Generate UI now makes the backend choice explicit instead of implying that every OmniVoice entry can clone.
+- Reference transcripts are used when saved; otherwise OmniVoice may auto-transcribe the reference clip. A generated voice-design sample can be saved to the library and reused as a cloning reference.
+
+### Verification
+
+- Python compilation, JavaScript syntax checks, startup regression test, catalog smoke test, and `audit_truth.py` all pass.
+- The live server was not restarted during this change. Download the new official checkpoint from Models, then use the existing Update/restart workflow before first generation.
+
+No new package is required beyond the already-installed OmniVoice package; **Just run Update**.
+
 ## [1.10.2] — 2026-07-13
 
 ### Fixed — Voice Studio restarts no longer preload every model library
