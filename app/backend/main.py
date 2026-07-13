@@ -31,7 +31,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import cache, catalog, settings as app_settings
+from . import cache, catalog, providers, settings as app_settings
 from .generation import (
     manager as gen_manager,
     availability as gen_availability,
@@ -130,6 +130,18 @@ class SettingsBody(BaseModel):
 
 class TokenTestBody(BaseModel):
     hf_token: Optional[str] = None
+
+
+class ProviderKeyBody(BaseModel):
+    api_key: Optional[str] = None
+
+
+class ProviderToggleBody(BaseModel):
+    value: bool = False
+
+
+class ProviderTestBody(BaseModel):
+    api_key: Optional[str] = None   # test a not-yet-saved key; falls back to saved
 
 
 class Txt2SpeechBody(BaseModel):
@@ -282,7 +294,13 @@ def get_catalog() -> dict:
         d["cache"] = _cache_with_companions(m.repo)
         active = manager.active_for_repo(m.repo)
         d["active_download"] = active.serialize() if active else None
+        d["kind"] = "local"
         models.append(d)
+    # Cloud provider models (ElevenLabs, ...) — only LIVE ones (key + paid + on).
+    # No download/cache; they're "ready" the moment the provider is live, so
+    # Story Studio sees one unified list of local + cloud models.
+    for cm in providers.cloud_models_for_catalog():
+        models.append({**cm, "cache": {"state": "cloud"}, "active_download": None})
     return {"families": families, "models": models}
 
 
@@ -510,6 +528,64 @@ def connectivity(request: Request) -> dict:
     }
 
 
+# ───────────── API: cloud TTS providers (the audio gateway) ─────────────
+
+@app.get("/api/providers")
+def list_providers() -> dict:
+    """All cloud audio providers with status + (when live) their model list.
+    A model only appears once the provider has a saved key AND the 'paid'
+    consent toggle is on — so nothing bills by accident."""
+    return {"providers": providers.list_providers_public(include_models=True)}
+
+
+@app.post("/api/providers/{key}/key")
+def set_provider_key(key: str, body: ProviderKeyBody) -> dict:
+    if key not in providers.PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
+    providers.set_key(key, body.api_key)
+    return providers.serialize_provider(key)
+
+
+@app.post("/api/providers/{key}/paid")
+def set_provider_paid(key: str, body: ProviderToggleBody) -> dict:
+    if key not in providers.PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
+    providers.set_paid(key, body.value)
+    return providers.serialize_provider(key)
+
+
+@app.post("/api/providers/{key}/enabled")
+def set_provider_enabled(key: str, body: ProviderToggleBody) -> dict:
+    if key not in providers.PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
+    providers.set_enabled(key, body.value)
+    return providers.serialize_provider(key)
+
+
+@app.post("/api/providers/{key}/test")
+def test_provider(key: str, body: ProviderTestBody) -> dict:
+    """Validate a provider's key (the one passed, else the saved one)."""
+    prov = providers.PROVIDERS.get(key)
+    if prov is None:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
+    api_key = (body.api_key or "").strip() or providers.get_api_key(key)
+    if not api_key:
+        return {"ok": False, "message": "No API key set."}
+    ok, message = prov.adapter.test(api_key)
+    return {"ok": ok, "message": message}
+
+
+@app.get("/api/providers/{key}/models/live")
+def provider_models_live(key: str) -> dict:
+    """Force a fresh live fetch of a provider's models (bypasses the TTL cache) —
+    surfaces newly-shipped / deprecated models on demand."""
+    if key not in providers.PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
+    models = providers.models_for_provider(key, force=True)
+    return {"models": [{"id": m.id, "label": m.label, "notes": m.notes,
+                        "repo": providers.synthetic_id(key, m.id)} for m in models]}
+
+
 # ───────────── API: generation ─────────────
 
 @app.get("/api/generate/availability")
@@ -696,26 +772,37 @@ def list_loras_stub() -> dict:
 
 @app.post("/api/generate/txt2speech")
 def start_txt2speech(body: Txt2SpeechBody) -> dict:
-    if not gen_manager.is_available():
-        raise HTTPException(
-            status_code=503,
-            detail="TTS generation engine not installed. Run 'Install Generation' from the Pinokio sidebar.",
-        )
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="text is required")
-    model = catalog.get_model(body.repo)
-    if model is None:
-        raise HTTPException(status_code=400, detail=f"Unknown repo: {body.repo}")
-    if "tts" not in (model.capabilities or ()):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Model {body.repo} doesn't support text-to-speech.",
-        )
-    if cache.cache_state(body.repo) != "cached":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Model {body.repo} is not fully cached. Download it from the Models tab first.",
-        )
+
+    if providers.parse_id(body.repo):
+        # ── Cloud provider model ── the worker validates key/paid/model; here we
+        # just require a provider-native voice id (cloud TTS is voice-driven).
+        if not (body.voice or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="A voice is required for cloud providers — pick a voice tagged for this provider.",
+            )
+    else:
+        # ── Local engine model ── needs the generation stack installed + cached.
+        if not gen_manager.is_available():
+            raise HTTPException(
+                status_code=503,
+                detail="TTS generation engine not installed. Run 'Install Generation' from the Pinokio sidebar.",
+            )
+        model = catalog.get_model(body.repo)
+        if model is None:
+            raise HTTPException(status_code=400, detail=f"Unknown repo: {body.repo}")
+        if "tts" not in (model.capabilities or ()):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model {body.repo} doesn't support text-to-speech.",
+            )
+        if cache.cache_state(body.repo) != "cached":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Model {body.repo} is not fully cached. Download it from the Models tab first.",
+            )
 
     params = body.model_dump()
     job = gen_manager.start_txt2speech(params)
@@ -747,7 +834,8 @@ def get_generation_audio(job_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="job not found")
     if not job.output_path:
         raise HTTPException(status_code=425, detail="audio not ready yet")
-    return FileResponse(job.output_path, media_type="audio/wav")
+    mt = "audio/mpeg" if str(job.output_path).lower().endswith(".mp3") else "audio/wav"
+    return FileResponse(job.output_path, media_type=mt)
 
 
 @app.delete("/api/generate/jobs/{job_id}")

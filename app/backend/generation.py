@@ -693,6 +693,10 @@ class GenerationJob:
     error: Optional[str] = None
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
+    provider: Optional[str] = None          # cloud provider key (None = local engine)
+    provider_task_id: Optional[str] = None  # async provider task id — persisted so a
+                                            # retry/restart RECALLS it instead of
+                                            # re-submitting (never double-charge)
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: Optional[threading.Thread] = None
 
@@ -705,6 +709,7 @@ class GenerationJob:
             "id": self.job_id,
             "mode": self.mode,
             "state": self.state,
+            "provider": self.provider,
             "progress": self.progress,
             "params": self.params,
             "output_path": self.output_path,
@@ -866,10 +871,13 @@ class GenerationManager:
 
     def start_txt2speech(self, params: dict) -> GenerationJob:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        from . import providers as _P
+        parsed = _P.parse_id(params.get("repo", ""))
         job = GenerationJob(
             job_id=uuid.uuid4().hex[:12],
             mode="txt2speech",
             params=params,
+            provider=(parsed[0] if parsed else None),   # cloud provider key, else None
         )
         self._jobs[job.job_id] = job
         job.thread = threading.Thread(
@@ -911,8 +919,11 @@ class GenerationManager:
                 return
 
             try:
-                output_path = OUTPUT_DIR / f"{job.job_id}.wav"
-                self._dispatch_txt2speech(job, output_path)
+                if job.provider:
+                    output_path = self._run_cloud(job)
+                else:
+                    output_path = OUTPUT_DIR / f"{job.job_id}.wav"
+                    self._dispatch_txt2speech(job, output_path)
                 if job.cancel_event.is_set():
                     job.state = "cancelled"
                 else:
@@ -935,6 +946,65 @@ class GenerationManager:
             finally:
                 job.finished_at = time.time()
                 self._persist()
+
+    def _run_cloud(self, job: "GenerationJob") -> Path:
+        """Cloud-provider synthesis. Returns the written audio Path.
+
+        SELF-HEALING: async providers submit once, persist the task id, then poll
+        that same id to completion — a retry re-polls instead of re-submitting, so
+        a cloud call is never billed twice. ElevenLabs is synchronous: one atomic
+        call returns the audio (nothing to recall)."""
+        from . import providers as P
+        pair = P.adapter_for(job.params.get("repo", ""))
+        if pair is None:
+            raise ValueError(f"Unknown cloud model: {job.params.get('repo')}")
+        prov, model = pair
+        if not P.is_live(prov.key):
+            raise RuntimeError(
+                f"{prov.name} isn't ready — add an API key and enable paid usage "
+                f"for it in Settings.")
+        api_key = P.get_api_key(prov.key)
+        text = job.params.get("text", "")
+        voice = job.params.get("voice") or job.params.get("voice_id") or ""
+        # Cloud TTS bills per character — hard guardrail so a runaway caller
+        # (e.g. a Story Studio loop) can't rack up a surprise bill.
+        cap = 5000
+        if len(text) > cap:
+            raise ValueError(
+                f"Text is {len(text)} characters — over the {cap}-char safety cap "
+                f"for cloud providers. Split it into shorter requests.")
+        adapter = prov.adapter
+        audio = None
+        mime = None
+        if adapter.is_async:
+            if not job.provider_task_id:
+                sub = adapter.submit(api_key, text, model, voice, job.params)
+                job.provider_task_id = sub.task_id
+                self._persist()   # persist the task id BEFORE polling — recall-safe
+            while True:
+                if job.cancel_event.is_set():
+                    try:
+                        adapter.cancel(api_key, job.provider_task_id)
+                    except Exception:
+                        pass
+                    return OUTPUT_DIR / f"{job.job_id}.mp3"
+                res = adapter.poll(api_key, job.provider_task_id)
+                if res.progress:
+                    job.progress = max(job.progress, min(0.95, res.progress))
+                if res.done:
+                    if res.error:
+                        raise RuntimeError(res.error)
+                    audio, mime = res.audio, res.mime
+                    break
+                time.sleep(2.0)
+        else:
+            job.progress = 0.2
+            audio, mime = adapter.synthesize(api_key, text, model, voice, job.params)
+        ext = "mp3" if ("mpeg" in (mime or "") or "mp3" in (mime or "")) else "wav"
+        out = OUTPUT_DIR / f"{job.job_id}.{ext}"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(audio)
+        return out
 
     def _dispatch_txt2speech(self, job: GenerationJob, output_path: Path) -> None:
         """Pick the right backend pipeline based on model family."""
@@ -2059,6 +2129,8 @@ class GenerationManager:
             "job_id": job.job_id,
             "mode": job.mode,
             "state": job.state,
+            "provider": job.provider,
+            "provider_task_id": job.provider_task_id,
             "progress": job.progress,
             "params": job.params,
             "output_path": job.output_path,
@@ -2079,6 +2151,8 @@ class GenerationManager:
                 mode=raw.get("mode", "txt2speech"),
                 params=raw.get("params") or {},
                 state=raw.get("state", "done"),
+                provider=raw.get("provider"),
+                provider_task_id=raw.get("provider_task_id"),
                 progress=raw.get("progress", 1.0),
                 output_path=output_path,
                 resolved_seed=raw.get("resolved_seed"),

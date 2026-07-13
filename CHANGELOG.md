@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.11.0] — 2026-07-10
+
+### Added — Cloud audio-provider gateway (Phase 0 + ElevenLabs) · backend
+
+Voice Studio can now act as an **audio gateway**: alongside the local engines it exposes cloud TTS providers behind the SAME `/api/generate` contract Story Studio already calls, so Story Studio links **one** connection and sees local + cloud models in one live list. This ships the backend; the Settings/voice-tag UI is the next slice.
+
+- **`providers.py`** — a `TTSAdapter` interface + `Provider` registry. Cloud models are addressed by a synthetic id `provider:<key>:<model_id>`; the generation router sends those to the adapter and reuses the existing async job engine, history, SSE progress, and per-job actions unchanged. (Audio APIs aren't standardized like Chat's OpenAI-compatible LLMs, so each provider gets a thin adapter rather than a shared client.)
+- **ElevenLabs adapter** (first provider) — live model + voice listing, synthesize → MP3, and a key `test()`. Verified against the real API.
+- **Self-healing / never double-charge** — jobs carry a persisted `provider_task_id`; async providers submit once and re-poll that id on retry instead of re-submitting (matters for fal's queue in Phase 2). ElevenLabs is synchronous/atomic. Plus a per-request character cap so a runaway caller can't rack up a bill.
+- **No accidental billing** — a cloud model only appears once the provider has a saved API key AND an explicit per-provider **paid** consent toggle is on. Live model listing is TTL-cached (auto new/deprecated) with a curated fallback.
+- **Endpoints** — `GET /api/providers`, `POST /api/providers/{key}/key|paid|enabled|test`, `GET /api/providers/{key}/models/live`. Cloud models merge into `/api/catalog`; MP3 outputs serve with the right media type.
+
+### Notes
+- MINOR bump (1.10.4 → 1.11.0). Backend only — activates after one **Update** (restart). Adds `httpx` (already installed) to requirements. Next slice: Settings provider panel (key/paid/test), voice-library provider tags, and cloud models in the Generate UI. Then fal / Fish Audio / kie adapters (Phase 2).
+
+---
 ## [1.10.4] — 2026-07-13
 
 ### Added — one-click Whisper transcripts for new voices
