@@ -18,7 +18,7 @@ Repo: `~/pinokio/api/voicestudio-mac.git` (this app). Reference: `~/pinokio/api/
 2. Voice Studio is a **live production app** on `http://localhost:47870` — **never kill/restart it**. Verify frontend changes by `curl` against 47870 (served no-cache) or in the browser; verify backend changes by **boot-testing a second instance on a temp port** (see §7), never against the live server.
 3. Backend changes only go live after the user clicks **Update** in the Pinokio sidebar (restart). Frontend changes are live on browser reload. The UI must **degrade gracefully** until the backend restarts.
 4. Ship each slice: bump `VERSION`, prepend a `CHANGELOG.md` entry, `git add` only your files, commit, `git push origin main`. Follow the existing changelog voice.
-5. Current state as of this plan: **Voice Studio v1.13.0** has the provider UI, ElevenLabs, GenAIPro, Fish Audio, fal.ai, Kie.ai, and restart recovery. **Studio Hub v1.36.0** completes fleet provider health (§6).
+5. Current state as of this plan: **Voice Studio v1.13.1** has the provider UI, ElevenLabs, GenAIPro, Fish Audio, fal.ai, Kie.ai, restart recovery, and root-level verification. **Studio Hub v1.36.0** completes fleet provider health (§6).
 
 ---
 

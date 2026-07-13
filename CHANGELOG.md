@@ -10,6 +10,14 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.13.1] — 2026-07-14
+
+### Fixed — reliable root-level verification
+
+- Added the repository test configuration so `conda_env/bin/python -m pytest` works from the Voice Studio root instead of failing collection because the backend package is under `app`.
+
+Fifteen tests pass from the repository root. No runtime, dependency, launcher, provider, or billing behavior changed; **Just run Update**.
+
 ## [1.13.0] — 2026-07-14
 
 ### Added — Five-provider cloud audio gateway
