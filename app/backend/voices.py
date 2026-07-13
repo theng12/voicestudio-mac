@@ -102,6 +102,7 @@ class Voice:
     duration_seconds: Optional[float] = None
     sample_rate: Optional[int] = None
     channels: Optional[int] = None
+    providers: list[dict] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
 
     def serialize(self) -> dict:
@@ -297,6 +298,7 @@ class VoiceLibrary:
         notes: Optional[str] = None,
         source_url: Optional[str] = None,
         transcript: Optional[str] = None,
+        providers: Optional[list[dict]] = None,
     ) -> Optional[Voice]:
         """Update a voice's metadata. Audio file is never touched — only the
         metadata.json + transcript.txt on disk. Pass None for any field to
@@ -330,6 +332,10 @@ class VoiceLibrary:
                 raise ValueError(
                     f"gender must be one of {sorted(ALLOWED_GENDERS)}"
                 )
+            normalized_providers = (
+                self._normalize_provider_tags(providers)
+                if providers is not None else current.providers
+            )
 
             d = VOICES_DIR / voice_id
             # Transcript lives in its own file, not metadata.json. Treat
@@ -365,6 +371,7 @@ class VoiceLibrary:
                 duration_seconds=current.duration_seconds,
                 sample_rate=current.sample_rate,
                 channels=current.channels,
+                providers=normalized_providers,
                 created_at=current.created_at,
             )
             (d / METADATA_FILENAME).write_text(
@@ -400,6 +407,27 @@ class VoiceLibrary:
             return None
 
     # ── internals ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _normalize_provider_tags(tags: list[dict]) -> list[dict]:
+        if not isinstance(tags, list):
+            raise ValueError("providers must be a list")
+        normalized: list[dict] = []
+        seen: set[str] = set()
+        for raw in tags:
+            if not isinstance(raw, dict):
+                raise ValueError("each provider tag must be an object")
+            provider = str(raw.get("provider") or "").strip().lower()
+            voice_id = str(raw.get("voice_id") or "").strip()
+            if not provider or not voice_id:
+                raise ValueError("provider and voice_id are required for every provider tag")
+            if len(provider) > 80 or len(voice_id) > 300:
+                raise ValueError("provider tag is too long")
+            if provider in seen:
+                raise ValueError(f"provider {provider!r} is tagged more than once")
+            seen.add(provider)
+            normalized.append({"provider": provider, "voice_id": voice_id})
+        return normalized
 
     @staticmethod
     def _probe_audio(path: Path) -> tuple[Optional[float], Optional[int], Optional[int]]:

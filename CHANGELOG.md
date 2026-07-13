@@ -10,6 +10,30 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.12.0] — 2026-07-14
+
+### Added — Cloud audio-provider gateway · Phase 1
+
+- **Focused provider settings** — Settings now has compact searchable provider cards with one focused detail view. API keys, paid-use consent, provider enablement, connection tests, model refreshes, documentation links, loading states, and clear save/error feedback all live in one flow.
+- **Multi-provider voice mappings** — a library voice can now store one provider-native voice ID per cloud provider. The editor can paste an ID or select from the provider's live voice catalog, and voice cards show their cloud mappings without duplicating local audio.
+- **Cloud generation UI** — Generate groups ready models into Local and Cloud sections. Choosing a cloud model filters the voice picker to library voices tagged for that provider and submits the provider-native voice ID through the existing job, history, playback, reveal, and download flow.
+- **Rolling-update compatibility** — the frontend detects older running backends, keeps the provider settings that they already support, and withholds voice mapping and cloud generation until one Update activates the new contract.
+
+### Fixed
+
+- Corrected the edit-voice license choices to use the values accepted by the backend, so permission and public-domain metadata save reliably.
+- Added validation and regression coverage for provider voice mappings, including old voice metadata, duplicate mappings, unknown providers, and live voice-catalog normalization.
+
+### Verification
+
+- Nine backend tests pass; Python compilation, JavaScript syntax, whitespace checks, and temporary-port API smoke tests pass.
+- Settings and voice mapping were browser-checked at desktop and mobile widths with no console warnings or horizontal overflow.
+- The production Voice Studio process on port 47870 was not restarted. Run **Update** once to activate the v1.12 backend.
+
+No new dependency is required; **Just run Update**.
+
+---
+
 ## [1.11.0] — 2026-07-10
 
 ### Added — Cloud audio-provider gateway (Phase 0 + ElevenLabs) · backend

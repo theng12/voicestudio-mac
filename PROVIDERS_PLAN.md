@@ -18,7 +18,7 @@ Repo: `~/pinokio/api/voicestudio-mac.git` (this app). Reference: `~/pinokio/api/
 2. Voice Studio is a **live production app** on `http://localhost:47870` — **never kill/restart it**. Verify frontend changes by `curl` against 47870 (served no-cache) or in the browser; verify backend changes by **boot-testing a second instance on a temp port** (see §7), never against the live server.
 3. Backend changes only go live after the user clicks **Update** in the Pinokio sidebar (restart). Frontend changes are live on browser reload. The UI must **degrade gracefully** until the backend restarts.
 4. Ship each slice: bump `VERSION`, prepend a `CHANGELOG.md` entry, `git add` only your files, commit, `git push origin main`. Follow the existing changelog voice.
-5. Current state as of this plan: **v1.11.0** — Phase 0 + Phase 1 **backend** done. Next up: **Phase 1 frontend** (§4).
+5. Current state as of this plan: **v1.12.0** — Phase 0 and Phase 1 are done. Next up: **Phase 2 adapters + restart recovery** (§5).
 
 ---
 
@@ -31,9 +31,9 @@ Repo: `~/pinokio/api/voicestudio-mac.git` (this app). Reference: `~/pinokio/api/
 | Self-healing job fields + `_run_cloud` worker | ✅ done | `app/backend/generation.py` |
 | Cloud routing in `start_txt2speech` + catalog merge + mp3 serving | ✅ done | `app/backend/main.py` |
 | `/api/providers*` endpoints | ✅ done | `app/backend/main.py` |
-| **Settings → Providers UI** (key/paid/test/enable) | ⬜ **NEXT** | `app/frontend/*` |
-| **Voice-library provider tags** (multi-provider) | ⬜ **NEXT** | `voices.py` + `app/frontend/*` |
-| **Cloud models in the Generate UI** | ⬜ **NEXT** | `app/frontend/*` |
+| **Settings → Providers UI** (key/paid/test/enable) | ✅ done | `app/frontend/*` |
+| **Voice-library provider tags** (multi-provider) | ✅ done | `voices.py` + `app/frontend/*` |
+| **Cloud models in the Generate UI** | ✅ done | `app/frontend/*` |
 | fal adapter (async submit/poll) | ⬜ Phase 2 | `providers.py` |
 | Fish Audio adapter | ⬜ Phase 2 | `providers.py` |
 | kie adapter | ⬜ Phase 3 | `providers.py` |
@@ -106,7 +106,7 @@ is shared with local jobs.
 
 ---
 
-## 4. NEXT — Phase 1 frontend (make ElevenLabs usable in the UI)
+## 4. COMPLETE — Phase 1 frontend (v1.12.0)
 
 Voice frontend is vanilla Alpine.js: `app/frontend/{index.html, app.js, style.css}`,
 served no-cache. Study the existing Settings tab, the Generate model dropdown, and the
@@ -202,6 +202,8 @@ POST /api/providers/{key}/paid           {value:bool}   → serialize_provider(k
 POST /api/providers/{key}/enabled        {value:bool}   → serialize_provider(key)
 POST /api/providers/{key}/test           {api_key?}     → {ok, message}
 GET  /api/providers/{key}/models/live                   → {models:[{id,label,notes,repo}]}
+GET  /api/providers/{key}/voices/live                   → {voices:[{id,label,lang,gender,preview_url}]}
+PUT  /api/voices/{id}/providers          {providers:[{provider,voice_id}]}
 GET  /api/catalog                        → now includes cloud models (kind:"cloud")
 POST /api/generate/txt2speech            {repo:"provider:elevenlabs:<model>", voice:"<voiceid>", text}
 ```

@@ -43,7 +43,7 @@
         <span class="badge" x-show="voices.length > 0" x-text="voices.length"></span>
       </button>
       <button :class="{active: tab==='api'}" @click="tab='api'">API</button>
-      <button :class="{active: tab==='settings'}" @click="tab='settings'; refreshSettings()">Settings</button>
+      <button :class="{active: tab==='settings'}" @click="tab='settings'; refreshSettings(); refreshProviders()">Settings</button>
     </nav>
     <div class="status">
       <span class="version-badge" x-text="'v' + health.app_version" x-show="health.app_version" x-cloak></span>
@@ -63,21 +63,21 @@
       <div class="workspace-meta" aria-label="Current voice workspace status">
         <div class="workspace-stat">
           <span>Model</span>
-          <strong x-text="selectedModel?.label || (cachedModels.length ? 'Choose a model' : 'No model cached')"></strong>
+          <strong x-text="selectedModel?.label || (generationModels.length ? 'Choose a model' : 'No model ready')"></strong>
         </div>
         <div class="workspace-stat">
           <span>Voice</span>
-          <strong x-text="selectedModel ? (gen.voice || 'Model default') : '—'"></strong>
+          <strong x-text="selectedModel ? (isCloudModel(gen.repo) ? (voices.find(v => v.id === gen.voice_library_id)?.name || 'Choose tagged voice') : (gen.voice || 'Model default')) : '—'"></strong>
         </div>
         <div class="workspace-stat">
           <span>Compute</span>
-          <strong x-text="gen.device || system.chip || 'Apple Silicon'"></strong>
+          <strong x-text="isCloudModel(gen.repo) ? (selectedCloudProvider?.name || 'Cloud') : (gen.device || system.chip || 'Apple Silicon')"></strong>
         </div>
       </div>
     </header>
 
     <!-- Engine not installed -->
-    <div class="banner warn" x-show="!gen.available" x-cloak>
+    <div class="banner warn" x-show="!gen.available && !isCloudModel(gen.repo)" x-cloak>
       <div>
         <strong>Generation engine not installed.</strong>
         <p class="muted">
@@ -92,7 +92,7 @@
     </div>
 
     <!-- No cached models -->
-    <div class="banner info" x-show="gen.available && cachedModels.length === 0" x-cloak>
+    <div class="banner info" x-show="gen.available && generationModels.length === 0" x-cloak>
       <div>
         <strong>No TTS models cached yet.</strong>
         <p class="muted">
@@ -102,7 +102,7 @@
       </div>
     </div>
 
-    <p class="muted soft-hint" x-show="gen.available && cachedModels.length > 0 && !genWiredFamilies.length" x-cloak>
+    <p class="muted soft-hint" x-show="gen.available && cachedModels.length > 0 && !genWiredFamilies.length && !isCloudModel(gen.repo)" x-cloak>
       💡 You have models cached but no generation pipelines wired up. Make sure
       <code>kokoro</code> is installed (Install Generation → check the install log).
     </p>
@@ -216,14 +216,21 @@
         <section class="control-block">
           <label>Model</label>
           <select x-model="gen.repo" @change="onModelChange()">
-            <template x-for="m in cachedModels" :key="m.repo">
-              <option :value="m.repo"
-                      :disabled="!isModelReady(m.repo)"
-                      x-text="modelOptionLabel(m)"></option>
-            </template>
+            <optgroup label="Local · runs on this Mac">
+              <template x-for="m in localGenerationModels" :key="m.repo">
+                <option :value="m.repo"
+                        :disabled="!isModelReady(m.repo)"
+                        x-text="modelOptionLabel(m)"></option>
+              </template>
+            </optgroup>
+            <optgroup label="Cloud · billed by provider" x-show="cloudGenerationModels.length">
+              <template x-for="m in cloudGenerationModels" :key="m.repo">
+                <option :value="m.repo" x-text="modelOptionLabel(m)"></option>
+              </template>
+            </optgroup>
           </select>
-          <p class="muted hint" x-show="cachedModels.length === 0">
-            No models cached yet. Download one from the Models tab first.
+          <p class="muted hint" x-show="generationModels.length === 0">
+            No models are ready. Download a local model or connect a provider in Settings.
           </p>
           <!--
             NB: there used to be a second hint here that said "This model's
@@ -285,6 +292,30 @@
                 those families from the Models tab.
               </p>
             </div>
+          </div>
+        </section>
+
+        <!-- Cloud providers use provider-native voice IDs mapped onto the
+             existing Voice library, so the same person can be reused locally
+             and across several services without duplicating the clip. -->
+        <section class="control-block cloud-voice-control" x-show="isCloudModel(gen.repo)" x-cloak>
+          <div class="cloud-control-head">
+            <label>Cloud voice <span class="required">*</span></label>
+            <span class="cloud-provider-badge" x-text="selectedCloudProvider?.name || cloudProviderKey(gen.repo)"></span>
+          </div>
+          <select x-model="gen.voice_library_id">
+            <option value="">— choose a tagged library voice —</option>
+            <template x-for="v in selectedCloudVoices" :key="v.id">
+              <option :value="v.id"
+                      x-text="v.name + ' · ' + providerVoiceLabel(cloudProviderKey(gen.repo), voiceProviderTag(v, cloudProviderKey(gen.repo)).voice_id)"></option>
+            </template>
+          </select>
+          <p class="muted hint" x-show="selectedCloudVoices.length">
+            Voice Studio sends the mapped provider voice ID; your reference audio stays on this Mac.
+          </p>
+          <div class="cloud-voice-empty" x-show="!selectedCloudVoices.length" x-cloak>
+            <span>No library voice is tagged for this provider.</span>
+            <button type="button" class="link small" @click="tab='voices'">Tag a voice</button>
           </div>
         </section>
 
@@ -775,7 +806,7 @@
                      x-model.number="gen.batchCount">
             </div>
           </div>
-          <p class="muted hint" x-show="!canSubmit && !gen.submitting && gen.available && cachedModels.length > 0"
+          <p class="muted hint" x-show="!canSubmit && !gen.submitting && (gen.available || isCloudModel(gen.repo)) && generationModels.length > 0"
              x-text="submitHint"></p>
           <p class="muted hint" x-show="gen.batchCount > 1 && canSubmit">
             <span x-show="gen.seed >= 0">
@@ -991,7 +1022,7 @@
         </section>
 
         <!-- Empty state — no generations yet (and a model is ready) -->
-        <section class="audio-empty" x-show="historyJobs.length === 0 && !gen.busy && gen.available && cachedModels.length > 0" x-cloak>
+        <section class="audio-empty" x-show="historyJobs.length === 0 && !gen.busy && (gen.available || cloudGenerationModels.length) && generationModels.length > 0" x-cloak>
           <p class="muted">No generations yet — enter text above and hit <strong>🎙️ Generate Speech</strong>. Your results collect here with a player, download, reveal, reuse, and delete.</p>
         </section>
       </div>
@@ -1369,6 +1400,10 @@
             <span class="chip gender" x-text="genderLabel(v.gender)"></span>
             <span class="chip license" :class="'license-' + v.license" x-text="licenseLabel(v.license)"></span>
             <span class="chip" x-show="v.has_transcript" title="Has transcript (works with F5-TTS)">📝 transcript</span>
+            <template x-for="tag in (v.providers || [])" :key="tag.provider">
+              <span class="chip provider-tag" :title="tag.voice_id"
+                    x-text="(providers.find(p => p.key === tag.provider)?.name || tag.provider) + ' linked'"></span>
+            </template>
           </div>
           <audio class="voice-audio" :src="v.audio_url" controls preload="metadata"></audio>
           <div class="voice-meta muted small">
@@ -1481,12 +1516,10 @@
 
         <label>License</label>
         <select x-model="voiceEditor.license">
-          <option value="self-owned">Self-owned (I recorded it / have written permission)</option>
+          <option value="self-owned">My own voice</option>
+          <option value="permission">I have the speaker's permission</option>
           <option value="public-domain">Public domain</option>
-          <option value="cc0">CC0</option>
-          <option value="cc-by">CC BY</option>
-          <option value="cc-by-sa">CC BY-SA</option>
-          <option value="other">Other (described in notes)</option>
+          <option value="unknown">Unknown / other</option>
         </select>
 
         <label>Notes <span class="muted small">(optional)</span></label>
@@ -1495,6 +1528,46 @@
         <label>Transcript <span class="muted small">(required for F5-TTS — exact words spoken in the clip)</span></label>
         <textarea x-model="voiceEditor.transcript" rows="3"
                   placeholder="Type or paste the exact transcript of what's said in the reference clip. Leave blank to remove an existing transcript."></textarea>
+
+        <div class="voice-provider-editor" x-show="voiceProviderTagsSupported && providers.length" x-cloak>
+          <div class="voice-provider-editor-head">
+            <div>
+              <label>Cloud provider voices</label>
+              <p class="muted small">Map this library voice to each provider's native voice ID.</p>
+            </div>
+          </div>
+          <template x-for="provider in providers" :key="'voice-map-' + provider.key">
+            <div class="voice-provider-map">
+              <div class="voice-provider-map-name">
+                <strong x-text="provider.name"></strong>
+                <span class="provider-pick-state" :class="provider.has_key ? 'ok' : 'warn'"
+                      x-text="provider.has_key ? 'Connected' : 'Key needed'"></span>
+              </div>
+              <div class="voice-provider-map-input">
+                <input type="text"
+                       :list="'provider-voices-' + provider.key"
+                       :value="voiceEditor.providerTags[provider.key] || ''"
+                       @input="voiceEditor.providerTags = {...voiceEditor.providerTags, [provider.key]: $event.target.value}"
+                       :placeholder="provider.has_key ? 'Select or paste provider voice ID' : 'Paste provider voice ID'">
+                <datalist :id="'provider-voices-' + provider.key">
+                  <template x-for="nativeVoice in (providerVoices[provider.key] || [])" :key="nativeVoice.id">
+                    <option :value="nativeVoice.id" x-text="nativeVoice.label"></option>
+                  </template>
+                </datalist>
+                <button type="button" class="btn ghost small"
+                        x-show="provider.has_key" x-cloak
+                        :disabled="providerBusy[provider.key] === 'voices'"
+                        @click="refreshProviderVoices(provider.key, true)"
+                        title="Refresh provider voice list">↻</button>
+              </div>
+              <small class="muted" x-show="(providerVoices[provider.key] || []).length"
+                     x-text="(providerVoices[provider.key] || []).length + ' provider voices available'"></small>
+            </div>
+          </template>
+        </div>
+        <p class="muted small" x-show="providersSupported && voiceProviderTagsSupported === false" x-cloak>
+          Provider voice mapping will appear here after you run Update once from the Pinokio sidebar.
+        </p>
       </div>
 
       <div class="modal-actions">
@@ -2014,6 +2087,134 @@
       <p class="status-text" x-show="settings.message" :class="settings.messageKind"
          x-text="settings.message" x-cloak></p>
     </section>
+
+    <!-- ─── Cloud audio providers ─── -->
+    <section class="card providers-panel" x-show="providersSupported" x-cloak>
+      <div class="providers-panel-head">
+        <div>
+          <h2>Cloud audio providers</h2>
+          <p class="muted">Connect hosted voices alongside your local engines. Keys stay in local settings and are never logged.</p>
+        </div>
+        <div class="provider-summary">
+          <strong x-text="providers.filter(p => p.live).length + ' ready'"></strong>
+          <small x-text="providers.length + ' available'"></small>
+        </div>
+      </div>
+
+      <div class="provider-toolbar">
+        <input class="provider-search" type="search" x-model="providerSearch"
+               placeholder="Find a provider or model" autocomplete="off">
+        <button class="ghost small" x-show="providerSearch" x-cloak @click="providerSearch=''">Clear</button>
+        <span class="muted small" x-text="visibleProviders().length + ' shown'"></span>
+      </div>
+
+      <div class="provider-picker-grid">
+        <template x-for="provider in visibleProviders()" :key="provider.key">
+          <button type="button" class="provider-pick-card"
+                  :class="{ active: focusedProvider === provider.key, connected: provider.live }"
+                  @click="focusProvider(provider.key)">
+            <span class="provider-pick-top">
+              <strong x-text="provider.name"></strong>
+              <span class="provider-pick-state"
+                    :class="provider.live ? 'ok' : (provider.has_key ? 'idle' : 'warn')"
+                    x-text="provider.live ? 'Ready' : (provider.has_key ? 'Setup' : 'Key needed')"></span>
+            </span>
+            <span class="provider-pick-meta">
+              <span x-text="(providerLiveModels[provider.key] || provider.models || []).length + ' models'"></span>
+              <span x-text="provider.enabled ? 'Enabled' : 'Paused'"></span>
+            </span>
+          </button>
+        </template>
+      </div>
+
+      <p class="muted empty" x-show="visibleProviders().length === 0" x-cloak>No providers match that search.</p>
+
+      <template x-for="provider in providers.filter(item => item.key === focusedProvider)" :key="'detail-' + provider.key">
+        <div class="provider-detail">
+          <div class="provider-detail-head">
+            <div>
+              <div class="provider-title-line">
+                <h3 x-text="provider.name"></h3>
+                <span class="provider-live-dot" :class="provider.live ? 'on' : ''"></span>
+                <span class="muted small" x-text="provider.live ? 'Ready for generation' : 'Not active yet'"></span>
+              </div>
+              <p class="muted small">
+                A key, paid-use consent, and the enabled switch are all required before cloud models appear.
+              </p>
+            </div>
+            <a class="provider-doc-link" :href="provider.docs_url" target="_blank" rel="noopener">Get a key ↗</a>
+          </div>
+
+          <div class="provider-key-row">
+            <input :type="providerShowKeys[provider.key] ? 'text' : 'password'"
+                   :data-provider-key="provider.key"
+                   :value="providerKeyInputs[provider.key] || ''"
+                   @input="providerKeyInputs = {...providerKeyInputs, [provider.key]: $event.target.value}"
+                   placeholder="Paste API key" autocomplete="off" spellcheck="false">
+            <button type="button" class="icon-text-button ghost small"
+                    @click="providerShowKeys = {...providerShowKeys, [provider.key]: !providerShowKeys[provider.key]}"
+                    x-text="providerShowKeys[provider.key] ? 'Hide' : 'Show'"></button>
+            <button class="primary" @click="saveProviderKey(provider.key)"
+                    :disabled="providerBusy[provider.key] || !(providerKeyInputs[provider.key] || '').trim()">
+              <span x-show="providerBusy[provider.key] !== 'save'">Save key</span>
+              <span x-show="providerBusy[provider.key] === 'save'">Saving…</span>
+            </button>
+            <button class="ghost" @click="testProvider(provider.key)"
+                    :disabled="providerBusy[provider.key] || (!provider.has_key && !(providerKeyInputs[provider.key] || '').trim())">
+              <span x-show="providerBusy[provider.key] !== 'test'">Test</span>
+              <span x-show="providerBusy[provider.key] === 'test'">Testing…</span>
+            </button>
+          </div>
+
+          <div class="provider-saved-row" x-show="provider.has_key" x-cloak>
+            <span class="chip ok">Key saved</span>
+            <button class="link small danger" @click="clearProviderKey(provider.key)"
+                    :disabled="providerBusy[provider.key]">Remove key</button>
+          </div>
+
+          <div class="provider-consent-grid">
+            <label class="provider-toggle-row" :class="{ active: provider.paid }">
+              <input type="checkbox" :checked="provider.paid"
+                     @change="setProviderToggle(provider.key, 'paid', $event.target.checked)">
+              <span>
+                <strong>Enable paid usage</strong>
+                <small>This provider bills per use. A saved key alone never enables spending.</small>
+              </span>
+            </label>
+            <label class="provider-toggle-row" :class="{ active: provider.enabled }">
+              <input type="checkbox" :checked="provider.enabled"
+                     @change="setProviderToggle(provider.key, 'enabled', $event.target.checked)">
+              <span>
+                <strong>Provider enabled</strong>
+                <small>Pause cloud models without deleting the key or voice mappings.</small>
+              </span>
+            </label>
+          </div>
+
+          <div class="provider-actions">
+            <button class="ghost small" @click="refreshProviderModels(provider.key)"
+                    :disabled="providerBusy[provider.key] || !provider.has_key">
+              <span x-show="providerBusy[provider.key] !== 'models'">↻ Refresh models</span>
+              <span x-show="providerBusy[provider.key] === 'models'">Refreshing…</span>
+            </button>
+            <span class="muted small"
+                  x-text="(providerLiveModels[provider.key] || provider.models || []).length + ' models visible'"></span>
+          </div>
+
+          <p class="provider-feedback"
+             :class="(providerFeedback[provider.key] || {}).ok ? 'ok' : 'error'"
+             x-show="(providerFeedback[provider.key] || {}).message" x-cloak
+             x-text="(providerFeedback[provider.key] || {}).message"></p>
+        </div>
+      </template>
+    </section>
+
+    <div class="banner info provider-update-hint" x-show="providersSupported === false" x-cloak>
+      <div>
+        <strong>Cloud providers will appear after one Update.</strong>
+        <p class="muted">The frontend is ready, but the running Voice Studio backend predates the provider gateway. Use Update in the Pinokio sidebar when convenient.</p>
+      </div>
+    </div>
 
     <section class="card">
       <h2>Network access — how to reach this app from another device</h2>

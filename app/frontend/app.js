@@ -40,7 +40,7 @@ function studio() {
     _tickHandle: null,
     // True once the user (or a successful persistence restore) has set gen.repo.
     // While true, _reconcileSelectedModel() refuses to override gen.repo unless
-    // the chosen model is truly gone from cachedModels — protects against
+    // the chosen model is truly gone from generationModels — protects against
     // transient catalog-refresh races resetting the user's choice to the first
     // compatible model every 4 seconds (the bug fixed in phase2-repo-persist-1).
     _repoUserConfirmed: false,
@@ -206,6 +206,7 @@ function studio() {
       license: "self-owned",
       notes: "",
       transcript: "",
+      providerTags: {},
     },
 
     // Internal recording handles — kept off voiceUploader to avoid Alpine
@@ -252,6 +253,21 @@ function studio() {
       message: "",
       messageKind: "info",   // "success" | "error" | "info"
     },
+
+    // Cloud audio providers. `supported === false` is the graceful fallback
+    // for a frontend updated before its backend has restarted.
+    providersSupported: null,
+    voiceProviderTagsSupported: null,
+    providersLoading: false,
+    providers: [],
+    providerSearch: "",
+    focusedProvider: "",
+    providerKeyInputs: {},
+    providerShowKeys: {},
+    providerBusy: {},
+    providerFeedback: {},
+    providerLiveModels: {},
+    providerVoices: {},
 
     // ──────── network/connectivity (where the API can be reached) ────────
     conn: {
@@ -302,6 +318,7 @@ function studio() {
       setTimeout(() => this.refreshDiagnostics(), 750);
       await this.refreshLoras();
       await this.refreshSettings();
+      await this.refreshProviders();
       await this.refreshVoices();
       // STT/whisper availability — so the Models tab's "Subtitle models"
       // section is populated regardless of which tab the user opens first.
@@ -322,7 +339,7 @@ function studio() {
         const h = (location.hash || "").replace(/^#\/?/, "");
         if (["generate", "models", "downloads", "imports", "voices", "subtitles", "api", "settings"].includes(h)) this.tab = h;
         if (h === "imports") this.scanImports();
-        if (h === "settings") this.refreshSettings();
+        if (h === "settings") { this.refreshSettings(); this.refreshProviders(); }
         if (h === "subtitles") this.refreshTranscribe();
       };
       window.addEventListener("hashchange", applyHash);
@@ -387,6 +404,7 @@ function studio() {
     get modelsByFamily() {
       const out = {};
       for (const m of this.models) {
+        if (m.kind === "cloud") continue;
         (out[m.family] ||= []).push(m);
       }
       return out;
@@ -461,7 +479,7 @@ function studio() {
                          + (Number(m.size_gb) || 0) * 10
                          + (/recommended/i.test(m.label || "") ? 5 : 0);
       const pick = (predicate) => {
-        const c = (this.models || []).filter(m => fits(m) && predicate(m));
+        const c = (this.models || []).filter(m => m.kind !== "cloud" && fits(m) && predicate(m));
         if (!c.length) return null;
         return c.slice().sort((a, b) => score(b) - score(a))[0];
       };
@@ -534,6 +552,7 @@ function studio() {
       // 2. Group surviving models by family
       const out = {};
       for (const m of this.models) {
+        if (m.kind === "cloud") continue;
         if (!matches(m)) continue;
         (out[m.family] ||= []).push(m);
       }
@@ -556,6 +575,7 @@ function studio() {
     get availableCapabilities() {
       const set = new Set();
       for (const m of this.models) {
+        if (m.kind === "cloud") continue;
         for (const c of (m.capabilities || [])) set.add(c);
       }
       const order = { tts: 0, "voice-cloning": 1, expressive: 2, multilingual: 3, streaming: 4 };
@@ -568,6 +588,7 @@ function studio() {
       const seen = new Set();
       const out = [];
       for (const m of this.models) {
+        if (m.kind === "cloud") continue;
         if (seen.has(m.family)) continue;
         seen.add(m.family);
         out.push({ id: m.family, label: m.family_label || this.families?.[m.family]?.label || m.family });
@@ -777,7 +798,7 @@ function studio() {
     _initGenPersistence() {
       try {
         const lastRepo = localStorage.getItem(this._GEN_LAST_REPO_KEY);
-        if (lastRepo && this.cachedModels.some(m => m.repo === lastRepo)) {
+        if (lastRepo && this.generationModels.some(m => m.repo === lastRepo)) {
           this.gen.repo = lastRepo;
           // Mark as authoritative so the 4s catalog poll's _reconcileSelectedModel
           // doesn't override this restore on a transient cache-state hiccup.
@@ -871,13 +892,39 @@ function studio() {
       return this.models.filter(m => m.cache?.state === "cached");
     },
 
+    get generationModels() {
+      return this.models.filter(m =>
+        m.cache?.state === "cached"
+        || (m.kind === "cloud" && this.voiceProviderTagsSupported === true)
+      );
+    },
+
+    get localGenerationModels() {
+      return this.generationModels.filter(m => m.kind !== "cloud");
+    },
+
+    get cloudGenerationModels() {
+      return this.generationModels.filter(m => m.kind === "cloud");
+    },
+
     get modeCompatibleModels() {
       // Show only cached models that declare TTS support.
-      return this.cachedModels.filter(m => (m.capabilities || []).includes("tts"));
+      return this.generationModels.filter(m => (m.capabilities || []).includes("tts"));
     },
 
     get selectedModel() {
-      return this.cachedModels.find(m => m.repo === this.gen.repo) || null;
+      return this.generationModels.find(m => m.repo === this.gen.repo) || null;
+    },
+
+    get selectedCloudProvider() {
+      const key = this.cloudProviderKey(this.gen.repo);
+      return key ? this.providers.find(p => p.key === key) || null : null;
+    },
+
+    get selectedCloudVoices() {
+      const key = this.cloudProviderKey(this.gen.repo);
+      if (!key) return [];
+      return this.voices.filter(v => this.voiceProviderTag(v, key));
     },
 
     // Per-family text-length guidance for the currently-selected model.
@@ -917,10 +964,11 @@ function studio() {
 
     get canSubmit() {
       if (this.gen.submitting) return false;
-      if (!this.gen.available) return false;
+      if (!this.gen.available && !this.isCloudModel(this.gen.repo)) return false;
       if (!this.gen.repo) return false;
       if (!this.gen.text.trim()) return false;
       if (!this.isModelReady(this.gen.repo)) return false;
+      if (this.isCloudModel(this.gen.repo) && !this.selectedCloudVoiceId()) return false;
       // Per-mode validation
       const mode = this.qwen3Mode(this.gen.repo);
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return false;
@@ -940,10 +988,13 @@ function studio() {
 
     get submitHint() {
       if (this.gen.submitting) return "";
-      if (!this.gen.available) return "Install the generation engine to continue.";
+      if (!this.gen.available && !this.isCloudModel(this.gen.repo)) return "Install the generation engine to continue.";
       if (!this.gen.repo) return "Choose a downloaded model to continue.";
       if (!this.gen.text.trim()) return "Type some text to enable Generate.";
       if (!this.isModelReady(this.gen.repo)) return "This model is not ready yet.";
+      if (this.isCloudModel(this.gen.repo) && !this.selectedCloudVoiceId()) {
+        return `Tag a library voice for ${this.selectedCloudProvider?.name || "this provider"}.`;
+      }
       const mode = this.qwen3Mode(this.gen.repo);
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return "Describe the voice you want.";
       if (mode === "clone" && !this.gen.voice_library_id) return "Pick a reference voice from your library.";
@@ -1271,12 +1322,12 @@ function studio() {
       // polling interval). If the user has authoritatively chosen a model
       // (`_repoUserConfirmed=true`), we MUST NOT override it just because a
       // transient catalog payload doesn't list it as "mode compatible" — only
-      // a genuine disappearance from cachedModels should trigger a reset.
+      // a genuine disappearance from generationModels should trigger a reset.
       // Previously this used `modeCompatibleModels` which made any momentary
       // race (cache.status_snapshot reporting "partial" while a download is
       // being indexed, etc.) snap the selection back to the first model.
       const currentRepo = this.gen.repo;
-      const cached = this.cachedModels;
+      const cached = this.generationModels;
 
       if (this._repoUserConfirmed && currentRepo) {
         // User has made an explicit choice. Keep it as long as it's still
@@ -1285,7 +1336,7 @@ function studio() {
       } else if (currentRepo && cached.some(m => m.repo === currentRepo)) {
         // No user confirmation yet but gen.repo somehow already matches a
         // cached model (e.g. set by some other code path) — treat that as
-        // valid too. The dropdown only shows cachedModels anyway.
+        // valid too. The dropdown only shows generationModels anyway.
         return;
       }
 
@@ -1467,6 +1518,206 @@ function studio() {
         this.settings.messageKind = "error";
       } finally {
         this.settings.busy = false;
+      }
+    },
+
+    // ──────── cloud audio providers ────────
+    async refreshProviders() {
+      this.providersLoading = true;
+      try {
+        const r = await fetch("/api/providers");
+        if (r.status === 404) {
+          this.providersSupported = false;
+          this.providers = [];
+          return;
+        }
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this.providersSupported = true;
+        this.providers = data.providers || [];
+        this.voiceProviderTagsSupported = this.providers.some(
+          provider => provider.voice_mapping_supported === true
+        );
+        if (!this.providers.some(p => p.key === this.focusedProvider)) {
+          this.focusedProvider = this.providers[0]?.key || "";
+        }
+        this._reconcileSelectedModel();
+      } catch (e) {
+        if (this.providersSupported === null) this.providersSupported = false;
+      } finally {
+        this.providersLoading = false;
+      }
+    },
+
+    providerMatches(provider) {
+      const q = (this.providerSearch || "").trim().toLowerCase();
+      if (!q) return true;
+      const models = (provider.models || [])
+        .map(m => `${m.label || ""} ${m.id || ""} ${m.notes || ""}`)
+        .join(" ");
+      return [provider.name, provider.key, models]
+        .some(value => String(value || "").toLowerCase().includes(q));
+    },
+
+    visibleProviders() {
+      return this.providers.filter(provider => this.providerMatches(provider));
+    },
+
+    get focusedProviderData() {
+      return this.providers.find(provider => provider.key === this.focusedProvider) || null;
+    },
+
+    focusProvider(key) {
+      this.focusedProvider = key;
+      setTimeout(() => {
+        document.querySelector(".provider-detail input[type='password'], .provider-detail input[data-provider-key]")
+          ?.focus({ preventScroll: true });
+      }, 80);
+    },
+
+    _replaceProvider(updated) {
+      const index = this.providers.findIndex(provider => provider.key === updated.key);
+      if (index >= 0) this.providers.splice(index, 1, updated);
+      else this.providers.push(updated);
+    },
+
+    _setProviderBusy(key, action) {
+      this.providerBusy = { ...this.providerBusy, [key]: action || "" };
+    },
+
+    _setProviderFeedback(key, ok, message) {
+      this.providerFeedback = { ...this.providerFeedback, [key]: { ok, message } };
+    },
+
+    async saveProviderKey(key) {
+      const apiKey = (this.providerKeyInputs[key] || "").trim();
+      if (!apiKey) {
+        this._setProviderFeedback(key, false, "Paste an API key first.");
+        return;
+      }
+      this._setProviderBusy(key, "save");
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/key`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ api_key: apiKey }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this._replaceProvider(data);
+        this.providerKeyInputs = { ...this.providerKeyInputs, [key]: "" };
+        this.providerShowKeys = { ...this.providerShowKeys, [key]: false };
+        this._setProviderFeedback(key, true, "Key saved on this Mac.");
+        this.pushToast({ kind: "success", icon: "✓", title: "Provider key saved", body: data.name });
+        await this.refreshCatalog();
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+      } finally {
+        this._setProviderBusy(key, "");
+      }
+    },
+
+    async clearProviderKey(key) {
+      const provider = this.providers.find(item => item.key === key);
+      if (!await this.askConfirm(
+        `Remove ${provider?.name || key} key?`,
+        "Cloud models from this provider will disappear, but local models and voice tags are kept.",
+        "Remove key"
+      )) return;
+      this._setProviderBusy(key, "clear");
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/key`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ api_key: "" }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this._replaceProvider(data);
+        this._setProviderFeedback(key, true, "Saved key removed.");
+        await this.refreshCatalog();
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+      } finally {
+        this._setProviderBusy(key, "");
+      }
+    },
+
+    async testProvider(key) {
+      const apiKey = (this.providerKeyInputs[key] || "").trim();
+      this._setProviderBusy(key, "test");
+      this._setProviderFeedback(key, true, "Testing connection…");
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/test`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ api_key: apiKey || null }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this._setProviderFeedback(key, !!data.ok, data.message || (data.ok ? "Connected." : "Connection failed."));
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+      } finally {
+        this._setProviderBusy(key, "");
+      }
+    },
+
+    async setProviderToggle(key, field, value) {
+      this._setProviderBusy(key, field);
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/${field}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ value: !!value }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this._replaceProvider(data);
+        const message = field === "paid"
+          ? (value ? "Paid usage enabled." : "Paid usage disabled.")
+          : (value ? "Provider enabled." : "Provider paused.");
+        this._setProviderFeedback(key, true, message);
+        await this.refreshCatalog();
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+        await this.refreshProviders();
+      } finally {
+        this._setProviderBusy(key, "");
+      }
+    },
+
+    async refreshProviderModels(key) {
+      this._setProviderBusy(key, "models");
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/models/live`);
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this.providerLiveModels = { ...this.providerLiveModels, [key]: data.models || [] };
+        this._setProviderFeedback(key, true, `Found ${(data.models || []).length} current models.`);
+        await this.refreshProviders();
+        await this.refreshCatalog();
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+      } finally {
+        this._setProviderBusy(key, "");
+      }
+    },
+
+    async refreshProviderVoices(key, force = false) {
+      if (!force && this.providerVoices[key]) return this.providerVoices[key];
+      this._setProviderBusy(key, "voices");
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/voices/live`);
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this.providerVoices = { ...this.providerVoices, [key]: data.voices || [] };
+        return data.voices || [];
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+        return [];
+      } finally {
+        this._setProviderBusy(key, "");
       }
     },
 
@@ -2059,6 +2310,7 @@ function studio() {
       // Fetch the transcript fresh from the API so we get current state
       // (the listing response doesn't include the transcript body).
       let transcript = "";
+      let providerTags = voice.providers || [];
       try {
         const r = await fetch("/api/voices/" + encodeURIComponent(voice.id));
         if (r.ok) {
@@ -2066,6 +2318,7 @@ function studio() {
           // GET /api/voices/{id} returns the voice flat at the top level
           // and tucks the transcript into a separate `transcript` field.
           transcript = data.transcript || "";
+          providerTags = data.providers || providerTags;
         }
       } catch {}
       Object.assign(this.voiceEditor, {
@@ -2079,7 +2332,13 @@ function studio() {
         license: voice.license || "self-owned",
         notes: voice.notes || "",
         transcript,
+        providerTags: Object.fromEntries(
+          providerTags.map(tag => [tag.provider, tag.voice_id])
+        ),
       });
+      for (const provider of this.providers.filter(item => item.has_key)) {
+        this.refreshProviderVoices(provider.key);
+      }
     },
     closeVoiceEditor() {
       this.voiceEditor.open = false;
@@ -2100,6 +2359,12 @@ function studio() {
           license: e.license,
           notes: e.notes,
           transcript: e.transcript,
+          providers: Object.entries(e.providerTags || {})
+            .filter(([, voiceId]) => String(voiceId || "").trim())
+            .map(([provider, voiceId]) => ({
+              provider,
+              voice_id: String(voiceId).trim(),
+            })),
         };
         const r = await fetch("/api/voices/" + encodeURIComponent(e.voice.id), {
           method: "PATCH",
@@ -2148,6 +2413,15 @@ function studio() {
 
     genderLabel(g) {
       return ({ m: "♂ male", f: "♀ female", n: "neutral" })[g] || g;
+    },
+
+    voiceProviderTag(voice, providerKey) {
+      return (voice?.providers || []).find(tag => tag.provider === providerKey) || null;
+    },
+
+    providerVoiceLabel(providerKey, voiceId) {
+      const match = (this.providerVoices[providerKey] || []).find(voice => voice.id === voiceId);
+      return match?.label || voiceId;
     },
 
     licenseLabel(lic) {
@@ -2356,6 +2630,10 @@ function studio() {
       // not-cached. (The $watch on gen.repo also sets this, but flipping it
       // here too means we don't depend on watcher ordering.)
       this._repoUserConfirmed = true;
+      if (this.isCloudModel(this.gen.repo)) {
+        const valid = this.selectedCloudVoices.some(voice => voice.id === this.gen.voice_library_id);
+        if (!valid) this.gen.voice_library_id = this.selectedCloudVoices[0]?.id || "";
+      }
       // Apply per-family default knob values when the user switches engines.
       // Saves the user from having to remember each model's sweet-spot defaults.
       if (this.isVoxCPMMlx(this.gen.repo)) {
@@ -2409,6 +2687,7 @@ function studio() {
     },
     isModelReady(repo) {
       if (!repo) return false;
+      if (this.isCloudModel(repo)) return true;
       const e = this.modelEngine(repo);
       // No diagnostic data yet → don't block. We assume ready until we know
       // otherwise; the backend will still 503 on submit if it's actually broken.
@@ -2428,6 +2707,7 @@ function studio() {
       return e ? (e.missing || []) : [];
     },
     modelOptionLabel(m) {
+      if (m.kind === "cloud") return `${m.label} · cloud`;
       const e = (this.diag.engines || []).find(x => x.family === m.family);
       if (!e || e.ready) return m.label;
       // Distinguish "missing packages" (fixable by user) from "worker in roadmap"
@@ -2439,6 +2719,28 @@ function studio() {
     },
     kokoroVoicesFor(langCode, gender) {
       return (this.gen.kokoro_voices || []).filter(v => v.lang === langCode && v.gender === gender);
+    },
+
+    isCloudModel(repo) {
+      if (!repo) return false;
+      const model = (this.models || []).find(item => item.repo === repo);
+      return model?.kind === "cloud" || repo.startsWith("provider:");
+    },
+
+    cloudProviderKey(repo) {
+      if (!this.isCloudModel(repo)) return "";
+      const model = (this.models || []).find(item => item.repo === repo);
+      if (model?.provider) return model.provider;
+      return String(repo || "").split(":")[1] || "";
+    },
+
+    selectedCloudVoiceId() {
+      const providerKey = this.cloudProviderKey(this.gen.repo);
+      if (!providerKey || !this.gen.voice_library_id) return "";
+      return this.voiceProviderTag(
+        this.voices.find(voice => voice.id === this.gen.voice_library_id),
+        providerKey
+      )?.voice_id || "";
     },
     randomTextPrompt() {
       if (!window.SAMPLE_PROMPTS || !window.SAMPLE_PROMPTS.length) return;
@@ -2638,14 +2940,14 @@ function studio() {
     },
 
     async submitGenerate() {
-      if (!this.gen.available) {
+      if (!this.gen.available && !this.isCloudModel(this.gen.repo)) {
         this.pushToast({ kind: "warn", icon: "⚠", title: "Engine not installed",
           body: "Click Install Generation in the Pinokio sidebar." });
         return;
       }
       if (!this.selectedModel) {
-        this.pushToast({ kind: "warn", icon: "⚠", title: "Pick a cached model first",
-          body: "Open the Models tab and download one." });
+        this.pushToast({ kind: "warn", icon: "⚠", title: "Pick an available model first",
+          body: "Download a local model or connect a cloud provider." });
         return;
       }
       if (!this.gen.text.trim()) return;
@@ -2669,7 +2971,7 @@ function studio() {
         // Voice field: passed for Kokoro (PyTorch picker), the new MLX voice-
         // picker families (Kokoro-MLX, Orpheus), AND Spark-TTS-MLX (which
         // accepts an optional preset voice name).
-        const passesVoice = this.isKokoro(repo) || this.isMlxVoicePicker(repo)
+        const passesVoice = this.isCloudModel(repo) || this.isKokoro(repo) || this.isMlxVoicePicker(repo)
                           || this.isSparkTtsMlx(repo);
 
         // Instruct / voice description: Qwen3 custom (tone), Qwen3 design (full
@@ -2690,7 +2992,9 @@ function studio() {
         return {
           repo,
           text: this.gen.text.trim(),
-          voice: passesVoice ? ((this.gen.voice || "").trim() || null) : null,
+          voice: this.isCloudModel(repo)
+                 ? (this.selectedCloudVoiceId() || null)
+                 : (passesVoice ? ((this.gen.voice || "").trim() || null) : null),
           language: (this.gen.language || "").trim() || null,
           speed: Number(this.gen.speed),
           seed: seedForThis,
@@ -3050,7 +3354,8 @@ function studio() {
         .slice(0, 40) || "speech";
       const seed = job.resolved_seed ?? "seed";
       const voice = job.params?.voice ? `-${job.params.voice}` : "";
-      return `${text}${voice}-${seed}-${job.id}.wav`;
+      const extension = job.provider || /\.mp3$/i.test(job.output_path || "") ? "mp3" : "wav";
+      return `${text}${voice}-${seed}-${job.id}.${extension}`;
     },
 
     reuseParams(job) {
@@ -3058,14 +3363,21 @@ function studio() {
       if (!p) return;
       this.tab = "generate";
       if (p.repo) {
-        const stillCached = this.cachedModels.some(m => m.repo === p.repo);
-        if (stillCached) {
+        const stillAvailable = this.generationModels.some(m => m.repo === p.repo);
+        if (stillAvailable) {
           this.gen.repo = p.repo;
           this._repoUserConfirmed = true;
         }
       }
       this.gen.text = p.text || "";
-      if (p.voice)    this.gen.voice = p.voice;
+      if (p.voice && this.isCloudModel(p.repo)) {
+        const providerKey = this.cloudProviderKey(p.repo);
+        this.gen.voice_library_id = this.voices.find(voice =>
+          this.voiceProviderTag(voice, providerKey)?.voice_id === p.voice
+        )?.id || "";
+      } else if (p.voice) {
+        this.gen.voice = p.voice;
+      }
       if (p.language) this.gen.language = p.language;
       if (typeof p.speed === "number") this.gen.speed = p.speed;
       const reuseSeed = job.resolved_seed ?? p.seed;

@@ -29,7 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import cache, catalog, providers, settings as app_settings
 from .generation import (
@@ -142,6 +142,15 @@ class ProviderToggleBody(BaseModel):
 
 class ProviderTestBody(BaseModel):
     api_key: Optional[str] = None   # test a not-yet-saved key; falls back to saved
+
+
+class VoiceProviderTagBody(BaseModel):
+    provider: str
+    voice_id: str
+
+
+class UpdateVoiceProvidersBody(BaseModel):
+    providers: list[VoiceProviderTagBody] = Field(default_factory=list)
 
 
 class Txt2SpeechBody(BaseModel):
@@ -586,6 +595,14 @@ def provider_models_live(key: str) -> dict:
                         "repo": providers.synthetic_id(key, m.id)} for m in models]}
 
 
+@app.get("/api/providers/{key}/voices/live")
+def provider_voices_live(key: str) -> dict:
+    """Provider-native voices for mapping a library voice to its cloud ID."""
+    if key not in providers.PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
+    return {"voices": providers.voices_for_provider(key, force=True)}
+
+
 # ───────────── API: generation ─────────────
 
 @app.get("/api/generate/availability")
@@ -700,12 +717,24 @@ class UpdateVoiceBody(BaseModel):
     notes: Optional[str] = None
     source_url: Optional[str] = None
     transcript: Optional[str] = None
+    providers: Optional[list[VoiceProviderTagBody]] = None
 
 
 @app.patch("/api/voices/{voice_id}")
 def update_voice(voice_id: str, body: UpdateVoiceBody) -> dict:
     """Edit a voice's metadata (most commonly: add a transcript to a clip
     that was uploaded without one — required for F5-TTS compatibility)."""
+    provider_tags = None
+    if body.providers is not None:
+        provider_tags = [tag.model_dump() for tag in body.providers]
+        unknown = sorted(
+            {tag["provider"] for tag in provider_tags} - set(providers.PROVIDERS)
+        )
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown providers: {', '.join(unknown)}",
+            )
     try:
         updated = voice_library.update(
             voice_id,
@@ -716,7 +745,28 @@ def update_voice(voice_id: str, body: UpdateVoiceBody) -> dict:
             notes=body.notes,
             source_url=body.source_url,
             transcript=body.transcript,
+            providers=provider_tags,
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"voice {voice_id} not found")
+    return {"voice": updated.serialize()}
+
+
+@app.put("/api/voices/{voice_id}/providers")
+def update_voice_providers(voice_id: str, body: UpdateVoiceProvidersBody) -> dict:
+    """Replace a voice's provider mappings atomically.
+
+    One library voice may map to several cloud providers, but only once per
+    provider. Provider-native IDs are opaque and are never treated as paths.
+    """
+    tags = [tag.model_dump() for tag in body.providers]
+    unknown = sorted({tag["provider"] for tag in tags} - set(providers.PROVIDERS))
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown providers: {', '.join(unknown)}")
+    try:
+        updated = voice_library.update(voice_id, providers=tags)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if updated is None:

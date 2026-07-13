@@ -302,6 +302,7 @@ def set_enabled(key: str, enabled: bool) -> None:
 
 _LIVE_TTL_S = 300.0
 _live_cache: dict[str, tuple[float, list[CloudModel]]] = {}
+_voice_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
 def models_for_provider(key: str, force: bool = False) -> list[CloudModel]:
@@ -323,6 +324,39 @@ def models_for_provider(key: str, force: bool = False) -> list[CloudModel]:
         except Exception:
             pass  # fall through to curated
     return list(prov.curated_models)
+
+
+def voices_for_provider(key: str, force: bool = False) -> list[dict]:
+    """Provider-native voice catalog, cached briefly like model listings.
+
+    Voice discovery is a convenience for mapping Voice Studio library entries
+    to provider IDs. It never affects generation routing and never raises: a
+    missing key or provider outage simply leaves the picker empty.
+    """
+    prov = PROVIDERS.get(key)
+    if prov is None or not has_key(key):
+        return []
+    now = time.time()
+    cached = _voice_cache.get(key)
+    if not force and cached and (now - cached[0]) < _LIVE_TTL_S:
+        return cached[1]
+    try:
+        voices = prov.adapter.list_voices(get_api_key(key))
+        cleaned = [
+            {
+                "id": str(v.get("id") or "").strip(),
+                "label": str(v.get("label") or v.get("id") or "").strip(),
+                "lang": str(v.get("lang") or "").strip(),
+                "gender": str(v.get("gender") or "").strip(),
+                "preview_url": str(v.get("preview_url") or "").strip(),
+            }
+            for v in voices
+            if str(v.get("id") or "").strip()
+        ]
+        _voice_cache[key] = (now, cleaned)
+        return cleaned
+    except Exception:
+        return []
 
 
 def synthetic_id(key: str, model_id: str) -> str:
@@ -361,6 +395,7 @@ def serialize_provider(key: str, include_models: bool = True) -> dict:
         "paid": paid_enabled(key),
         "enabled": is_enabled(key),
         "live": is_live(key),
+        "voice_mapping_supported": True,
     }
     if include_models:
         # Only surface models when the provider is actually usable, so Story
