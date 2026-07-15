@@ -91,15 +91,6 @@ voxcpm>=0.4
 # via the HF_HOME env var. Non-commercial license — fine for personal use.
 f5-tts>=1.1.0
 
-# ─── OmniVoice (MLX, experimental) ───
-# k2-fsa's 0.6B diffusion-LM TTS with 646-language support, ported to MLX by
-# ailuntx. The MLX backend runs the diffusion LM in MLX and keeps the Higgs
-# audio tokenizer on PyTorch/Transformers — both stacks already required by
-# other engines above. Import path is `omnivoice.mlx.OmniVoiceMLX`. Apache-2.0.
-# The same package also exposes the official PyTorch/MPS OmniVoice class used
-# for reference-voice cloning; the MLX class remains the lightweight design path.
-omnivoice @ git+https://github.com/ailuntx/OmniVoice-MLX.git
-
 # Lightweight TTS-specific helpers.
 #
 # IMPORTANT: do NOT declare `phonemizer` here. misaki (Kokoro's G2P) pulls

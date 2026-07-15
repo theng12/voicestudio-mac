@@ -19,7 +19,7 @@ Currently wired (workers exist):
 - vibevoice       → mlx-audio worker
 - voxtral-tts     → mlx-audio worker (20 preset voices / 9 langs)
 - marvis          → mlx-audio worker (sesame/csm engine; 2 preset voices)
-- omnivoice       → official OmniVoice/MPS for cloning, OmniVoice-MLX for design
+- omnivoice       → mlx-audio worker (voice design + cloning)
 - f5-tts          → f5_tts.api.F5TTS (separate worker)
 
 Removed in v1.3.1:
@@ -76,7 +76,6 @@ COMPLIANCE TABLE (keep current when adding workers):
 | Worker                | Pattern                                                       | Status |
 |-----------------------|---------------------------------------------------------------|--------|
 | _generate_mlx_audio   | load_model(snapshot_path)  Path not str (v1.2.8)              | OK     |
-| _generate_omnivoice   | OmniVoiceMLX.from_pretrained(str(snapshot_path))              | OK     |
 | _generate_f5_tts      | F5TTS(ckpt_file=…, vocab_file=…)  (v1.3.4)                    | OK     |
 | _generate_voxcpm      | voxcpm.VoxCPM.from_pretrained(str(snapshot_path), local_files_only=True) | OK |
 | _generate_bark        | BarkModel.from_pretrained(str(snapshot_path), local_files_only=True)     | OK |
@@ -198,7 +197,7 @@ def availability() -> dict:
     qwen3_ok = _have_mlx_audio()
     voxcpm_ok = _have_voxcpm()
     bark_ok = _have_bark()
-    omnivoice_ok = _have_omnivoice()
+    omnivoice_ok = qwen3_ok
     f5_tts_ok = _have_f5_tts()
     wired = []
     if KOKORO_AVAILABLE:
@@ -212,8 +211,6 @@ def availability() -> dict:
         wired.append("voxcpm")
     if bark_ok:
         wired.append("bark")
-    if omnivoice_ok:
-        wired.append("omnivoice")
     if f5_tts_ok:
         wired.append("f5-tts")
     return {
@@ -254,11 +251,6 @@ def _have_voxcpm() -> bool:
 def _have_bark() -> bool:
     """Bark is bundled with Transformers; diagnostics deep-checks the package."""
     return _package_installed("transformers")
-
-
-def _have_omnivoice() -> bool:
-    """Lightweight presence check; diagnostics validates the package imports."""
-    return _package_installed("omnivoice")
 
 
 def _have_f5_tts() -> bool:
@@ -304,14 +296,12 @@ _PACKAGE_CHECKLIST = [
     ("phonemizer",    "IPA conversion for Bark / future engines"),
     # MLX-side packages (Qwen3-TTS family). Apple Silicon native, not PyTorch.
     ("mlx",           "Apple Silicon ML framework (Qwen3-TTS)"),
-    ("mlx_audio",     "MLX inference wrapper for audio models (Prince Canuma's mlx-audio)"),
+    ("mlx_audio",     "MLX inference wrapper for audio models (including OmniVoice)"),
     # VoxCPM (OpenBMB) — PyTorch + custom audiovae, official inference wrapper.
     ("voxcpm",        "VoxCPM TTS engine (OpenBMB official inference package)"),
     # F5-TTS (SWivid) — flow-matching voice cloning.
     ("f5_tts",        "F5-TTS flow-matching TTS engine"),
     ("vocos",         "VoCoS vocoder used by F5-TTS"),
-    # OmniVoice (ailuntx's MLX port) — diffusion-LM TTS with 646-language support.
-    ("omnivoice",     "OmniVoice diffusion-LM TTS (ailuntx/OmniVoice-MLX)"),
 ]
 
 _ENGINE_REQUIREMENTS = {
@@ -328,8 +318,7 @@ _ENGINE_REQUIREMENTS = {
     "orpheus":        ["mlx", "mlx_audio", "soundfile", "numpy"],
     "kittentts":      ["mlx", "mlx_audio", "soundfile", "numpy"],
     "vibevoice":      ["mlx", "mlx_audio", "soundfile", "numpy"],
-    # OmniVoice (ailuntx/OmniVoice-MLX) — separate worker, hybrid MLX + PyTorch stack.
-    "omnivoice":      ["omnivoice", "torch", "transformers", "soundfile", "numpy"],
+    "omnivoice":      ["mlx", "mlx_audio", "torch", "transformers", "soundfile", "numpy"],
     # F5-TTS (PyTorch, flow-matching). Wired in v1.3.0.
     "f5-tts":     ["f5_tts", "torch", "vocos", "soundfile"],
 }
@@ -343,7 +332,6 @@ _WIRED_FAMILIES = {
     "qwen3-tts", "voxcpm-mlx", "kokoro-mlx",
     "chatterbox-mlx", "spark-tts-mlx", "orpheus",
     "kittentts", "vibevoice", "voxtral-tts", "marvis",
-    # Its own loader (ailuntx/OmniVoice-MLX) — separate worker.
     "omnivoice",
     # Its own loader (f5_tts.api.F5TTS) — separate worker.
     "f5-tts",
@@ -434,6 +422,12 @@ MLX_AUDIO_FAMILIES: dict[str, dict] = {
         "uses_cfg": False,
         "mode": "voice_picker",
         "label": "Marvis TTS",
+    },
+    "omnivoice": {
+        "default_sample_rate": 24000,
+        "uses_cfg": False,
+        "mode": "omnivoice",
+        "label": "OmniVoice (MLX)",
     },
 }
 
@@ -750,12 +744,6 @@ class GenerationManager:
         self._bark_model = None
         self._bark_processor = None
         self._bark_model_repo: Optional[str] = None
-        # OmniVoice (experimental MLX variant by ailuntx) — single OmniVoiceMLX
-        # instance cached per repo. Hybrid stack: diffusion LM in MLX + audio
-        # tokenizer on PyTorch.
-        self._omnivoice_model = None
-        self._omnivoice_model_repo: Optional[str] = None
-        self._omnivoice_model_mode: Optional[str] = None
         # F5-TTS — single F5TTS instance cached per repo. Holds the flow-matching
         # transformer + VoCoS vocoder (~1.5 GB on disk, more at runtime). Heavy
         # cold-start because the vocoder also loads from HF.
@@ -1085,13 +1073,6 @@ class GenerationManager:
                     "from the Pinokio sidebar (this installs the MLX + mlx-audio stack)."
                 )
             self._generate_mlx_audio(job, model, output_path)
-        elif family == "omnivoice":
-            if not _have_omnivoice():
-                raise RuntimeError(
-                    "The `omnivoice` package (ailuntx's MLX variant) isn't installed. "
-                    "Run 'Install Generation' from the Pinokio sidebar to pick it up."
-                )
-            self._generate_omnivoice(job, model, output_path)
         else:
             raise NotImplementedError(f"No worker implemented for family '{family}'.")
 
@@ -1423,9 +1404,11 @@ class GenerationManager:
         if mode == "voice_picker":
             return self._mlx_kwargs_voice_picker(family, params, gen_kwargs)
         if mode == "clone_with_intensity":
-            return self._mlx_kwargs_clone_with_intensity(params, gen_kwargs, voices_module)
+            return self._mlx_kwargs_clone_with_intensity(model_entry, params, gen_kwargs, voices_module)
         if mode == "voice_or_clone":
             return self._mlx_kwargs_voice_or_clone(params, gen_kwargs, voices_module)
+        if mode == "omnivoice":
+            return self._mlx_kwargs_omnivoice(params, gen_kwargs, voices_module)
         raise RuntimeError(f"Unknown mlx-audio mode {mode!r} for family {family!r}")
 
     # --- per-mode kwarg builders ---
@@ -1513,7 +1496,7 @@ class GenerationManager:
             gen_kwargs["instruct"] = instruct
         return f"voice={voice}" + (f" instruct={len(instruct)}c" if instruct else "")
 
-    def _mlx_kwargs_clone_with_intensity(self, params, gen_kwargs, voices_module) -> str:
+    def _mlx_kwargs_clone_with_intensity(self, model_entry, params, gen_kwargs, voices_module) -> str:
         """Chatterbox (MLX): requires a reference audio for voice cloning,
         plus an optional `exaggeration` knob for emotion intensity."""
         voice_id = (params.get("voice_library_id") or "").strip()
@@ -1526,10 +1509,56 @@ class GenerationManager:
         # Exaggeration is a Chatterbox-specific dial (0.0–1.0, default 0.5).
         # Surface it via the generic `cfg_value` slot in params so the UI
         # doesn't need a brand-new field per family.
-        exaggeration = float(params.get("cfg_value", 0.5))
-        exaggeration = max(0.0, min(exaggeration, 1.0))
-        gen_kwargs["exaggeration"] = exaggeration
-        return f"clone (voice={voice_id}, exaggeration={exaggeration:.2f})"
+        turbo = "turbo" in model_entry.repo.lower()
+        exaggeration = max(0.0, min(float(params.get("cfg_value", 0.5)), 1.0))
+        if not turbo:
+            gen_kwargs["exaggeration"] = exaggeration
+        gen_kwargs["temperature"] = max(0.05, min(float(params.get("temperature", 0.8)), 2.0))
+        gen_kwargs["repetition_penalty"] = max(
+            1.0, min(float(params.get("chatterbox_repetition_penalty", 1.2)), 2.0)
+        )
+        gen_kwargs["top_p"] = max(0.05, min(float(params.get("chatterbox_top_p", 1.0)), 1.0))
+        if not turbo:
+            gen_kwargs["cfg_weight"] = max(
+                0.0, min(float(params.get("chatterbox_cfg_weight", 0.5)), 1.0)
+            )
+            gen_kwargs["min_p"] = max(
+                0.0, min(float(params.get("chatterbox_min_p", 0.05)), 1.0)
+            )
+        detail = "turbo sampling" if turbo else f"exaggeration={exaggeration:.2f}"
+        return f"clone (voice={voice_id}, {detail})"
+
+    def _mlx_kwargs_omnivoice(self, params, gen_kwargs, voices_module) -> str:
+        """OmniVoice MLX supports voice design, cloning, or both together."""
+        instruct = (params.get("voice_design_prompt") or "").strip()
+        voice_id = (params.get("voice_library_id") or "").strip()
+        if not instruct and not voice_id:
+            raise ValueError(
+                "OmniVoice needs either a reference voice or voice traits such as "
+                "'female, british accent'."
+            )
+        if instruct:
+            gen_kwargs["instruct"] = instruct
+        if voice_id:
+            self._inject_voice_clone(
+                voice_id, params, gen_kwargs, voices_module, fallback_transcript="."
+            )
+            gen_kwargs["ref_audio_max_duration_s"] = 10.0
+
+        gen_kwargs["num_steps"] = max(
+            4, min(int(params.get("omnivoice_num_steps", 32)), 64)
+        )
+        gen_kwargs["guidance_scale"] = max(
+            0.0, min(float(params.get("omnivoice_guidance_scale", 2.0)), 8.0)
+        )
+        duration = params.get("omnivoice_duration_s")
+        if duration is not None:
+            gen_kwargs["duration_s"] = max(0.5, min(float(duration), 120.0))
+        if voice_id and instruct:
+            return f"combined (clone={voice_id} + traits)"
+        if voice_id:
+            return f"clone (voice={voice_id})"
+        return f"design ({len(instruct)} char traits)"
 
     def _mlx_kwargs_voice_or_clone(self, params, gen_kwargs, voices_module) -> str:
         """Spark-TTS (MLX): EITHER a voice picker (preset) OR a reference
@@ -1847,132 +1876,6 @@ class GenerationManager:
         sr = int(getattr(getattr(model, "generation_config", None), "sample_rate", 24000) or 24000)
         sf.write(str(output_path), audio_np, sr, format="WAV", subtype="PCM_16")
         print(f"[gen] bark saved WAV at {sr} Hz, {len(audio_np)/sr:.2f}s: {output_path}", flush=True)
-
-    # ----- OmniVoice (ailuntx's MLX variant) -----
-
-    def _omnivoice_get_model(self, repo: str, official: bool = False):
-        """Lazy-load + cache an OmniVoice instance per repo and backend. Evicts on repo
-        switch — Apple Silicon shares system RAM with the GPU, and holding two
-        diffusion-LM-style TTS models concurrently would OOM. The MLX variant
-        also keeps the Higgs audio tokenizer on PyTorch, so eviction releases
-        both halves of the hybrid stack."""
-        mode = "official" if official else "mlx"
-        if (self._omnivoice_model_repo == repo
-                and self._omnivoice_model_mode == mode
-                and self._omnivoice_model is not None):
-            return self._omnivoice_model
-
-        if self._omnivoice_model is not None:
-            print(f"[gen] evicting cached OmniVoice model ({self._omnivoice_model_repo})", flush=True)
-            try:
-                del self._omnivoice_model
-            except Exception:
-                pass
-            self._omnivoice_model = None
-            self._omnivoice_model_repo = None
-            self._omnivoice_model_mode = None
-            _release_device_memory("mps")
-
-        snapshot_path = self._mlx_audio_snapshot_path(repo)
-        if official:
-            from omnivoice import OmniVoice
-            import torch
-            print(f"[gen] loading official OmniVoice/MPS from {snapshot_path}", flush=True)
-            model = OmniVoice.from_pretrained(
-                str(snapshot_path), device_map="mps", dtype=torch.float16
-            )
-        else:
-            from omnivoice.mlx import OmniVoiceMLX
-            print(f"[gen] loading OmniVoiceMLX from {snapshot_path}", flush=True)
-            # The on-disk precision (4-bit / 8-bit / bf16 / fp32) is encoded in
-            # the repo and the loader picks the right format automatically.
-            model = OmniVoiceMLX.from_pretrained(str(snapshot_path), dtype="float16")
-        self._omnivoice_model = model
-        self._omnivoice_model_repo = repo
-        self._omnivoice_model_mode = mode
-        return model
-
-    def _generate_omnivoice(self, job: GenerationJob, model_entry, output_path: Path) -> None:
-        """Run OmniVoice voice design through MLX or voice cloning through the
-        official PyTorch/MPS implementation, selected by the catalog repo and
-        whether a reference voice is supplied."""
-        import soundfile as sf
-
-        params = job.params
-
-        text = (params.get("text") or "").strip()
-        if not text:
-            raise ValueError("text is required")
-
-        voice_id = (params.get("voice_library_id") or "").strip()
-        instruct = (params.get("voice_design_prompt") or "").strip()
-        official = model_entry.repo == "k2-fsa/OmniVoice"
-        if voice_id and not official:
-            raise ValueError(
-                "OmniVoice voice cloning requires the official k2-fsa/OmniVoice "
-                "model. Select that model, or clear the reference voice to use "
-                "MLX voice design."
-            )
-        if not instruct and not voice_id:
-            raise ValueError(
-                "OmniVoice needs either a reference voice or a voice description "
-                "(e.g. 'female, british accent')."
-            )
-
-        speed = float(params.get("speed", 1.0))
-        speed = max(0.5, min(speed, 2.0))
-
-        seed = params.get("seed")
-        if seed is None or seed < 0:
-            import random
-            seed = random.randint(0, 2**32 - 1)
-        job.resolved_seed = int(seed)
-
-        if job.cancel_event.is_set():
-            return
-
-        ref_path = None
-        ref_text = None
-        if voice_id:
-            from . import voices as voices_module
-            voice = voices_module.library.get(voice_id)
-            if voice is None:
-                raise ValueError(f"Voice {voice_id} not found in library")
-            ref_path = voices_module.library.reference_path(voice_id)
-            if ref_path is None or not ref_path.exists():
-                raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
-            ref_text = (params.get("ref_transcript") or "").strip()
-            if not ref_text:
-                ref_text = voices_module.library.transcript(voice_id) or None
-
-        model = self._omnivoice_get_model(model_entry.repo, official=official)
-
-        print(
-            f"[gen] omnivoice {'voice-clone' if ref_path else 'voice-design'} "
-            f"({len(text)} chars, instruct={instruct[:40]!r}, speed={speed})",
-            flush=True,
-        )
-        if ref_path:
-            audio = model.generate(
-                text=text, ref_audio=str(ref_path), ref_text=ref_text, speed=speed
-            )
-        else:
-            audio = model.generate(text=text, instruct=instruct, speed=speed)
-
-        # OmniVoice always returns one ndarray per batch item. Passing that
-        # outer list to SoundFile makes it interpret every sample as a channel.
-        import numpy as np
-        if isinstance(audio, (list, tuple)):
-            if not audio:
-                raise RuntimeError("OmniVoice produced no audio")
-            audio = audio[0]
-        audio_np = np.asarray(audio, dtype="float32").squeeze()
-        if audio_np.ndim != 1:
-            raise RuntimeError(f"OmniVoice returned an unexpected audio shape: {audio_np.shape}")
-
-        sr = int(getattr(model, "sampling_rate", None) or model_entry.sample_rate_hz or 24000)
-        sf.write(str(output_path), audio_np, sr, format="WAV", subtype="PCM_16")
-        print(f"[gen] omnivoice saved WAV at {sr} Hz, {len(audio_np)/sr:.2f}s: {output_path}", flush=True)
 
     # ----- F5-TTS (SWivid flow-matching) -----
 

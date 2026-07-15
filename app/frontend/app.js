@@ -70,6 +70,7 @@ function studio() {
       voice: "af_bella",
       language: "",
       speed: 1.0,
+      temperature: 0.8,
       seed: -1,
       // Qwen3-TTS — CustomVoice
       preset_speaker: "Ryan",
@@ -85,13 +86,20 @@ function studio() {
       cfg_value: 2.0,
       inference_timesteps: 10,
       normalize_text: false,
+      chatterbox_cfg_weight: 0.5,
+      chatterbox_repetition_penalty: 1.2,
+      chatterbox_min_p: 0.05,
+      chatterbox_top_p: 1.0,
       // Bark
       bark_available: false,
       bark_voice_preset: "v2/en_speaker_6",
       bark_voice_presets: [],     // populated from /api/generate/availability
       bark_tags: [],              // populated from /api/generate/availability
-      // OmniVoice (experimental MLX, voice-design only for now)
+      // OmniVoice (MLX voice design + cloning)
       omnivoice_available: false,
+      omnivoice_num_steps: 32,
+      omnivoice_guidance_scale: 2.0,
+      omnivoice_duration_s: null,
       // F5-TTS (SWivid flow-matching, voice-cloning only — no zero-shot mode)
       f5_tts_available: false,
       // Batch / queue — Level 2 of the queue UX. Pinning a seed makes each
@@ -756,9 +764,12 @@ function studio() {
     // session state (jobs, submitting, text content, etc).
     _GEN_PRESET_FIELDS: [
       "voice", "preset_speaker", "bark_voice_preset", "voice_library_id",
-      "speed", "seed", "batchCount",
+      "language", "speed", "temperature", "seed", "batchCount",
       "cfg_value", "inference_timesteps", "normalize_text",
       "instruct", "voice_design_prompt", "ref_transcript",
+      "chatterbox_cfg_weight", "chatterbox_repetition_penalty",
+      "chatterbox_min_p", "chatterbox_top_p",
+      "omnivoice_num_steps", "omnivoice_guidance_scale", "omnivoice_duration_s",
     ],
 
     _loadAllGenPresets() {
@@ -916,6 +927,29 @@ function studio() {
       return this.generationModels.find(m => m.repo === this.gen.repo) || null;
     },
 
+    get selectedVoiceSummary() {
+      if (!this.selectedModel) return "—";
+      if (this.isCloudModel(this.gen.repo)) {
+        return this.voices.find(v => v.id === this.gen.voice_library_id)?.name
+            || "Choose tagged voice";
+      }
+      const qwenMode = this.qwen3Mode(this.gen.repo);
+      if (qwenMode === "custom") return this.gen.preset_speaker || "Choose speaker";
+      if (this.isBark(this.gen.repo)) return this.gen.bark_voice_preset || "Random voice";
+      const cloneMode = qwenMode === "clone" || this.isVoxCPM(this.gen.repo)
+                     || this.isMlxCloner(this.gen.repo) || this.isF5TTS(this.gen.repo);
+      if (cloneMode && this.gen.voice_library_id) {
+        return this.voices.find(v => v.id === this.gen.voice_library_id)?.name
+            || "Reference voice";
+      }
+      if (qwenMode === "design" || this.isOmniVoice(this.gen.repo)) return "Designed voice";
+      if (this.isKokoro(this.gen.repo) || this.isMlxVoicePicker(this.gen.repo)
+          || this.isSparkTtsMlx(this.gen.repo)) {
+        return this.gen.voice || "Model default";
+      }
+      return "Model default";
+    },
+
     get selectedCloudProvider() {
       const key = this.cloudProviderKey(this.gen.repo);
       return key ? this.providers.find(p => p.key === key) || null : null;
@@ -974,10 +1008,7 @@ function studio() {
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return false;
       if (mode === "clone"  && !this.gen.voice_library_id) return false;
       if (mode === "custom" && !this.gen.preset_speaker) return false;
-      // MLX OmniVoice needs a design prompt; official OmniVoice accepts either
-      // a design prompt or a reference voice for cloning.
-      if (this.isOmniVoiceDesign(this.gen.repo) && !this.gen.voice_design_prompt.trim()) return false;
-      if (this.isOmniVoiceOfficial(this.gen.repo)
+      if (this.isOmniVoice(this.gen.repo)
           && !this.gen.voice_library_id && !this.gen.voice_design_prompt.trim()) return false;
       // Chatterbox is voice-cloning only; prevent a guaranteed backend error.
       if (this.isChatterboxMlx(this.gen.repo) && !this.gen.voice_library_id) return false;
@@ -2521,12 +2552,6 @@ function studio() {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "omnivoice";
     },
-    isOmniVoiceOfficial(repo) {
-      return repo === "k2-fsa/OmniVoice";
-    },
-    isOmniVoiceDesign(repo) {
-      return this.isOmniVoice(repo) && !this.isOmniVoiceOfficial(repo);
-    },
     isF5TTS(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "f5-tts";
@@ -2576,7 +2601,8 @@ function studio() {
     /** True for any mlx-audio-backed family that supports voice cloning from
      *  the Voices library. Used to show the voice-library picker. */
     isMlxCloner(repo) {
-      return this.isVoxCPMMlx(repo) || this.isChatterboxMlx(repo) || this.isSparkTtsMlx(repo);
+      return this.isVoxCPMMlx(repo) || this.isChatterboxMlx(repo)
+          || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo);
     },
     /** Group Bark voice presets by language for the optgroup picker. */
     barkPresetsByLang() {
@@ -2618,7 +2644,7 @@ function studio() {
       return this.isQwen3(repo) || this.isVoxCPMMlx(repo) || this.isKokoroMlx(repo)
           || this.isChatterboxMlx(repo) || this.isSparkTtsMlx(repo) || this.isOrpheus(repo)
           || this.isKittenTts(repo) || this.isVibeVoice(repo)
-          || this.isVoxtral(repo) || this.isMarvis(repo);
+          || this.isVoxtral(repo) || this.isMarvis(repo) || this.isOmniVoice(repo);
     },
     setVoxcpmEmotionExample(text) {
       this.gen.instruct = text;
@@ -2987,7 +3013,7 @@ function studio() {
         // Voice library: every cloner family + Qwen3 clone mode + VoxCPM v1 + F5-TTS.
         const passesLibraryVoice = mode === "clone" || this.isVoxCPM(repo)
                                 || this.isMlxCloner(repo)
-                                || this.isF5TTS(repo) || this.isOmniVoiceOfficial(repo);
+                                || this.isF5TTS(repo);
 
         return {
           repo,
@@ -2997,6 +3023,7 @@ function studio() {
                  : (passesVoice ? ((this.gen.voice || "").trim() || null) : null),
           language: (this.gen.language || "").trim() || null,
           speed: Number(this.gen.speed),
+          temperature: Number(this.gen.temperature),
           seed: seedForThis,
           preset_speaker: mode === "custom" ? (this.gen.preset_speaker || null) : null,
           instruct: passesInstruct ? ((this.gen.instruct || "").trim() || null) : null,
@@ -3013,6 +3040,15 @@ function studio() {
           cfg_value: Number(this.gen.cfg_value),
           inference_timesteps: Number(this.gen.inference_timesteps),
           normalize_text: !!this.gen.normalize_text,
+          chatterbox_cfg_weight: Number(this.gen.chatterbox_cfg_weight),
+          chatterbox_repetition_penalty: Number(this.gen.chatterbox_repetition_penalty),
+          chatterbox_min_p: Number(this.gen.chatterbox_min_p),
+          chatterbox_top_p: Number(this.gen.chatterbox_top_p),
+          omnivoice_num_steps: Number(this.gen.omnivoice_num_steps),
+          omnivoice_guidance_scale: Number(this.gen.omnivoice_guidance_scale),
+          omnivoice_duration_s: this.gen.omnivoice_duration_s === null
+                                || this.gen.omnivoice_duration_s === ""
+                                ? null : Number(this.gen.omnivoice_duration_s),
           bark_voice_preset: this.isBark(repo)
                              ? (this.gen.bark_voice_preset || null)
                              : null,
@@ -3380,6 +3416,7 @@ function studio() {
       }
       if (p.language) this.gen.language = p.language;
       if (typeof p.speed === "number") this.gen.speed = p.speed;
+      if (typeof p.temperature === "number") this.gen.temperature = p.temperature;
       const reuseSeed = job.resolved_seed ?? p.seed;
       if (typeof reuseSeed === "number") this.gen.seed = reuseSeed;
       // Qwen3-TTS mode params
@@ -3391,6 +3428,14 @@ function studio() {
       if (typeof p.cfg_value === "number")           this.gen.cfg_value = p.cfg_value;
       if (typeof p.inference_timesteps === "number") this.gen.inference_timesteps = p.inference_timesteps;
       if (typeof p.normalize_text === "boolean")     this.gen.normalize_text = p.normalize_text;
+      if (typeof p.chatterbox_cfg_weight === "number") this.gen.chatterbox_cfg_weight = p.chatterbox_cfg_weight;
+      if (typeof p.chatterbox_repetition_penalty === "number") this.gen.chatterbox_repetition_penalty = p.chatterbox_repetition_penalty;
+      if (typeof p.chatterbox_min_p === "number") this.gen.chatterbox_min_p = p.chatterbox_min_p;
+      if (typeof p.chatterbox_top_p === "number") this.gen.chatterbox_top_p = p.chatterbox_top_p;
+      if (typeof p.omnivoice_num_steps === "number") this.gen.omnivoice_num_steps = p.omnivoice_num_steps;
+      if (typeof p.omnivoice_guidance_scale === "number") this.gen.omnivoice_guidance_scale = p.omnivoice_guidance_scale;
+      this.gen.omnivoice_duration_s = typeof p.omnivoice_duration_s === "number"
+                                      ? p.omnivoice_duration_s : null;
     },
 
     async copyImageUrl(job) {

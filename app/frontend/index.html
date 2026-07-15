@@ -67,7 +67,7 @@
         </div>
         <div class="workspace-stat">
           <span>Voice</span>
-          <strong x-text="selectedModel ? (isCloudModel(gen.repo) ? (voices.find(v => v.id === gen.voice_library_id)?.name || 'Choose tagged voice') : (gen.voice || 'Model default')) : '—'"></strong>
+          <strong x-text="selectedVoiceSummary"></strong>
         </div>
         <div class="workspace-stat">
           <span>Compute</span>
@@ -702,14 +702,14 @@
           </p>
         </section>
 
-        <!-- OmniVoice: MLX voice design or official PyTorch/MPS cloning. -->
+        <!-- OmniVoice MLX: voice design, cloning, or both. -->
         <section class="control-block" x-show="isOmniVoice(gen.repo)" x-cloak>
-          <label>Voice traits <span class="muted small" x-show="isOmniVoiceDesign(gen.repo)">(required)</span><span class="muted small" x-show="isOmniVoiceOfficial(gen.repo)">(optional when cloning)</span></label>
+          <label>Voice traits <span class="muted small">(optional when cloning)</span></label>
           <input type="text" class="prompt-input" x-model="gen.voice_design_prompt"
                  placeholder="e.g. male, british accent · young adult, female, whisper">
           <p class="muted hint">
-            <span x-show="isOmniVoiceDesign(gen.repo)">MLX OmniVoice accepts comma-separated traits rather than free-form prose.</span>
-            <span x-show="isOmniVoiceOfficial(gen.repo)">Use these traits to design a new voice, or leave blank when cloning a reference voice below.</span>
+            Design a voice with comma-separated traits, leave blank to clone the reference exactly,
+            or combine traits with a reference to steer its delivery.
             Supported examples include <code>male</code>, <code>female</code>,
             <code>young adult</code>, <code>elderly</code>, <code>british accent</code>,
             <code>low pitch</code>, and <code>whisper</code>.
@@ -721,9 +721,8 @@
           </div>
         </section>
 
-        <!-- Official OmniVoice: reference-voice cloning through PyTorch/MPS. -->
-        <section class="control-block" x-show="isOmniVoiceOfficial(gen.repo)" x-cloak>
-          <label>Reference voice <span class="muted small">(optional — overrides voice design)</span></label>
+        <section class="control-block" x-show="isOmniVoice(gen.repo)" x-cloak>
+          <label>Reference voice <span class="muted small">(optional — enables MLX cloning)</span></label>
           <select x-model="gen.voice_library_id">
             <option value="">— design a new voice instead —</option>
             <template x-for="v in voices" :key="v.id">
@@ -734,12 +733,42 @@
             Add a clean 3–10 second reference clip in the <a class="link-accent" @click="tab='voices'">Voices library</a> first.
           </p>
           <p class="muted hint" x-show="voices.length > 0">
-            The official checkpoint clones the selected speaker. Use a clear clip with one speaker; the transcript is optional.
+            Every OmniVoice MLX tier can clone the selected speaker. A clean 3–10 second clip with one speaker works best.
           </p>
         </section>
 
+        <section class="control-block" x-show="isOmniVoice(gen.repo) && gen.voice_library_id" x-cloak>
+          <label>Reference transcript override <span class="muted small">(optional)</span></label>
+          <textarea x-model="gen.ref_transcript" rows="2"
+                    placeholder="Leave blank to use the transcript saved in the Voices library."></textarea>
+        </section>
+
+        <details class="control-block" x-show="isOmniVoice(gen.repo)" x-cloak>
+          <summary>Advanced OmniVoice controls</summary>
+          <div class="advanced-inner">
+            <label>Quality steps</label>
+            <div class="slider-row">
+              <input type="range" min="4" max="64" step="1" x-model.number="gen.omnivoice_num_steps">
+              <input type="number" class="num-input" min="4" max="64" step="1" x-model.number="gen.omnivoice_num_steps">
+            </div>
+            <p class="muted hint">32 is the quality default. Use 16 for faster drafts; more steps trade speed for refinement.</p>
+
+            <label class="advanced-label">Guidance strength</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="8" step="0.1" x-model.number="gen.omnivoice_guidance_scale">
+              <input type="number" class="num-input" min="0" max="8" step="0.1" x-model.number="gen.omnivoice_guidance_scale">
+            </div>
+            <p class="muted hint">2.0 is the default. Higher values follow the traits more strongly but can sound less natural.</p>
+
+            <label class="advanced-label">Target duration <span class="muted small">(seconds, optional)</span></label>
+            <input type="number" min="0.5" max="120" step="0.5" x-model.number="gen.omnivoice_duration_s"
+                   placeholder="Automatic">
+            <p class="muted hint">Leave blank for automatic timing. Set a duration only when you need the line to fit a fixed slot.</p>
+          </div>
+        </details>
+
         <!-- Chatterbox-MLX: exaggeration / intensity dial (reuses cfg_value). -->
-        <section class="control-block" x-show="isChatterboxMlx(gen.repo)" x-cloak>
+        <section class="control-block" x-show="isChatterboxMlx(gen.repo) && !(gen.repo || '').toLowerCase().includes('turbo')" x-cloak>
           <label>Exaggeration <span class="muted small">(0.0 – 1.0)</span></label>
           <div class="slider-row">
             <input type="range" min="0.0" max="1.0" step="0.01" x-model.number="gen.cfg_value">
@@ -751,8 +780,50 @@
           </p>
         </section>
 
+        <details class="control-block" x-show="isChatterboxMlx(gen.repo)" x-cloak>
+          <summary>Advanced Chatterbox controls</summary>
+          <div class="advanced-inner">
+            <label>Sampling temperature</label>
+            <div class="slider-row">
+              <input type="range" min="0.05" max="2" step="0.05" x-model.number="gen.temperature">
+              <input type="number" class="num-input" min="0.05" max="2" step="0.05" x-model.number="gen.temperature">
+            </div>
+            <p class="muted hint">0.8 is the default. Lower is steadier; higher adds variation.</p>
+
+            <label class="advanced-label">Repetition penalty</label>
+            <div class="slider-row">
+              <input type="range" min="1" max="2" step="0.05" x-model.number="gen.chatterbox_repetition_penalty">
+              <input type="number" class="num-input" min="1" max="2" step="0.05" x-model.number="gen.chatterbox_repetition_penalty">
+            </div>
+
+            <label class="advanced-label">Top-p</label>
+            <div class="slider-row">
+              <input type="range" min="0.05" max="1" step="0.05" x-model.number="gen.chatterbox_top_p">
+              <input type="number" class="num-input" min="0.05" max="1" step="0.05" x-model.number="gen.chatterbox_top_p">
+            </div>
+
+            <template x-if="!(gen.repo || '').toLowerCase().includes('turbo')">
+              <div>
+                <label class="advanced-label">Voice guidance</label>
+                <div class="slider-row">
+                  <input type="range" min="0" max="1" step="0.05" x-model.number="gen.chatterbox_cfg_weight">
+                  <input type="number" class="num-input" min="0" max="1" step="0.05" x-model.number="gen.chatterbox_cfg_weight">
+                </div>
+                <label class="advanced-label">Minimum probability</label>
+                <div class="slider-row">
+                  <input type="range" min="0" max="1" step="0.01" x-model.number="gen.chatterbox_min_p">
+                  <input type="number" class="num-input" min="0" max="1" step="0.01" x-model.number="gen.chatterbox_min_p">
+                </div>
+              </div>
+            </template>
+            <p class="muted hint" x-show="(gen.repo || '').toLowerCase().includes('turbo')">
+              Turbo does not use exaggeration, voice guidance, or minimum probability; its useful controls are temperature, top-p, and repetition penalty.
+            </p>
+          </div>
+        </details>
+
         <!-- Speed slider — all mlx-audio families that accept it (everything except Bark + VoxCPM v1). -->
-        <section class="control-block" x-show="isKokoro(gen.repo) || isMlxAudio(gen.repo) || isOmniVoice(gen.repo) || isF5TTS(gen.repo)" x-cloak>
+        <section class="control-block" x-show="isKokoro(gen.repo) || (isMlxAudio(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo)) || isF5TTS(gen.repo)" x-cloak>
           <label>Speed</label>
           <div class="slider-row">
             <input type="range" min="0.5" max="2.0" step="0.01" x-model.number="gen.speed">

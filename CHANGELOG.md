@@ -10,6 +10,43 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.14.0] — 2026-07-15
+
+### Added — priority MLX voice-cloning workflow
+
+- Added the requested `Qwen3-TTS-12Hz-1.7B-Base-8bit` model for higher-quality
+  voice cloning alongside the faster 0.6B Base tier.
+- Wired voice cloning into every curated OmniVoice MLX tier through the pinned
+  `mlx-audio` engine. A reference clip, voice traits, or both can now be used in
+  one workflow, with optional transcript override, quality steps, guidance, and
+  target duration.
+- Added Chatterbox's real sampling controls: temperature, repetition penalty,
+  top-p, and the standard model's voice guidance and minimum probability.
+  Turbo only shows and sends the controls its engine actually supports.
+
+### Refined
+
+- Reduced Qwen3-TTS to four distinct jobs: fast cloning, quality cloning,
+  quality preset speakers, and VoiceDesign. The redundant 0.6B CustomVoice row
+  was removed.
+- Reduced Chatterbox to standard 4-bit, standard 8-bit, and Turbo 4-bit. Removed
+  the redundant fp16 and Turbo 8-bit downloads.
+- Reduced OmniVoice to MLX 4-bit, 8-bit, and bf16. Removed the duplicate fp32
+  and separate PyTorch/MPS rows, plus the obsolete second OmniVoice package.
+- Updated model descriptions so Base, CustomVoice, and VoiceDesign capabilities
+  are no longer conflated.
+- The workspace summary now reports the active preset, reference, or designed
+  voice instead of leaking Kokoro's default voice into other model families.
+- New engine controls, temperature, and language now persist per model and are
+  restored with job parameter reuse.
+
+### Verification
+
+- Added focused catalog and parameter-routing tests for Qwen3 1.7B cloning,
+  Chatterbox standard/Turbo controls, and OmniVoice clone-plus-traits behavior.
+- No new dependency is required; the pinned `mlx-audio` build already contains
+  the OmniVoice MLX cloning implementation. **Just run Update.**
+
 ## [1.13.1] — 2026-07-14
 
 ### Fixed — reliable root-level verification

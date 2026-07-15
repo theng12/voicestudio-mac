@@ -171,16 +171,17 @@ FAMILIES: dict[str, Family] = {
         label="Qwen3-TTS (MLX)",
         summary=(
             "Alibaba's Qwen3-TTS, quantized to 8-bit and ported to MLX for native "
-            "Apple Silicon inference (via Prince Canuma's mlx-audio). Two model "
-            "tiers (0.6B / 1.7B) × two specialties (CustomVoice cloning / "
-            "VoiceDesign from natural-language descriptions). Apache-2.0."
+            "Apple Silicon inference (via mlx-audio). Base models clone a reference "
+            "voice, CustomVoice provides named speakers with emotion control, and "
+            "VoiceDesign creates a voice from a description. Apache-2.0."
         ),
         how_to_use=(
-            "Pick by use case. CustomVoice variants take a reference clip and "
-            "clone that voice. VoiceDesign takes a natural-language prompt like "
+            "Pick a Base model to clone a voice from a short reference clip. "
+            "CustomVoice uses built-in preset speakers; it does not clone. "
+            "VoiceDesign takes a natural-language prompt like "
             "'deep male voice, slow, contemplative' and synthesizes a matching "
-            "voice without needing audio. 1.7B variants are noticeably better; "
-            "0.6B is faster on lower-memory Macs."
+            "voice without needing audio. Use 0.6B Base for speed or 1.7B Base "
+            "for the strongest cloning quality."
         ),
         # Audit (v1.2.4): mlx_audio qwen3_tts/qwen3_tts.py:1149 max_tokens=4096 per segment
         # @ 12 Hz ≈ 5.7 min. Default split_pattern="\n" for transparent text splitting.
@@ -332,16 +333,14 @@ FAMILIES: dict[str, Family] = {
             "k2-fsa's OmniVoice — a 0.6B-parameter diffusion language-model TTS "
             "supporting 600+ languages with voice design (gender / accent / age "
             "/ whisper via natural-language) and non-verbal symbols ([laughter], "
-            "[cough]). MLX backend (experimental) by ailuntx. Apache-2.0. "
-            "Official PyTorch/MPS weights support voice cloning; the MLX "
-            "variants support fast voice design."
+            "[cough]). The current mlx-audio backend supports both voice design "
+            "and zero-shot cloning from a 3–10 second clip. Apache-2.0."
         ),
         how_to_use=(
-            "Choose an MLX variant for voice design from comma-separated traits "
-            "(e.g. 'female, british accent', 'elderly man, raspy, slow'), or "
-            "choose the official model to clone a 3–10 second reference voice. "
-            "The official path runs on PyTorch/MPS; the MLX path remains the "
-            "lighter/faster design option."
+            "Choose a reference voice to clone it, enter voice traits to design a "
+            "new voice, or combine both to steer the cloned delivery. Start with "
+            "4-bit for speed, move to 8-bit if the voice has artifacts, and use "
+            "bf16 for final-quality work on a Mac with enough memory."
         ),
         # Audit (v1.2.4): mlx_audio omnivoice/omnivoice.py:483 — flow-matching (diffusion).
         # Takes explicit duration_s or estimates via RuleDurationEstimator. No GPT-style cliff.
@@ -639,7 +638,7 @@ CATALOG: tuple[ModelEntry, ...] = (
     ),
 
     # ──────────── Qwen3-TTS (MLX) ────────────
-    # All four variants come pre-quantized to 8-bit by mlx-community for native
+    # Four focused variants come pre-quantized to 8-bit by mlx-community for native
     # Apple Silicon inference. Inference is via the `mlx-audio` package (not
     # transformers/diffusers), so the worker is a separate code path. Apache-2.0.
     ModelEntry(
@@ -653,7 +652,7 @@ CATALOG: tuple[ModelEntry, ...] = (
         # Base model handles voice CLONING from a reference audio clip — pair
         # with a voice from the Voices library. Not a "plain TTS" model.
         capabilities=("tts", "voice-cloning", "multilingual"),
-        best_for="Voice cloning at the smaller / faster tier. Pair with a reference clip from your Voices library and Qwen3-TTS will clone that voice. Pick this when memory is tight; the 1.7B CustomVoice is preferred for richer preset voices.",
+        best_for="Fast, memory-friendly voice cloning. Pair it with a reference clip from the Voices library; use the 1.7B Base model when likeness and prosody matter more than speed.",
         sample_rate_hz=24000,
         languages=("en", "zh", "ja", "ko", "fr", "de", "es", "it", "pt", "ru", "ar"),
         use_cases=(
@@ -661,29 +660,27 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Multilingual cloning across en/zh/ja/ko/fr/de/+5 more"),
             ("good",  "MLX-native — no PyTorch install needed"),
             ("weak",  "Less prosodic nuance than the 1.7B tier — voice character may sound flatter"),
-            ("avoid", "If you have 16 GB+, the 1.7B CustomVoice is a clearer pick"),
+            ("avoid", "Final-quality cloning on 16 GB+ Macs — use the 1.7B Base model"),
         ),
     ),
     ModelEntry(
-        repo="mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
-        label="Qwen3-TTS 0.6B CustomVoice — preset speakers (MLX 8-bit)",
+        repo="mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+        label="Qwen3-TTS 1.7B Base — quality voice cloning (MLX 8-bit)",
         family="qwen3-tts",
-        size_gb=1.9,
+        size_gb=2.9,
         gated=False,
         min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        # CustomVoice = pick from 9 preset speakers (Ryan, Vivian, Sohee, etc.)
-        # with optional emotion/tone instruction. NOT voice cloning.
-        capabilities=("tts", "multilingual", "expressive"),
-        best_for="9 preset speakers across English / Chinese / Japanese / Korean, with emotion control via natural-language instructions ('sad and crying, speaking slowly'). The fastest tier — pick this for quick narration with named voices.",
+        recommended_hardware="M1 Pro / M2 16 GB recommended.",
+        capabilities=("tts", "voice-cloning", "multilingual"),
+        best_for="The preferred Qwen3 voice-cloning model. It uses the larger 1.7B Base checkpoint for better speaker likeness, phrasing, and cross-lingual consistency from the same short reference clip.",
         sample_rate_hz=24000,
         languages=("en", "zh", "ja", "ko", "fr", "de", "es", "it", "pt", "ru", "ar"),
         use_cases=(
-            ("good",  "Fastest Qwen3-TTS tier — 8 GB Mac friendly"),
-            ("good",  "9 preset speakers (Ryan, Vivian, Sohee, Ono_Anna, etc.) across en/zh/ja/ko"),
-            ("good",  "Emotion / tone steering via natural-language instructions"),
-            ("avoid", "Voice cloning — this variant doesn't clone, use the Base variant for that"),
-            ("avoid", "Final-quality work — the 1.7B CustomVoice is noticeably richer"),
+            ("good",  "Best Qwen3 speaker likeness and natural prosody from a reference clip"),
+            ("good",  "Multilingual and cross-lingual cloning across 11 languages"),
+            ("good",  "MLX 8-bit keeps the larger model practical on Apple Silicon"),
+            ("weak",  "Slower and roughly 1 GB larger than the 0.6B Base tier"),
+            ("avoid", "8 GB Macs under memory pressure — use 0.6B Base instead"),
         ),
     ),
     ModelEntry(
@@ -703,7 +700,7 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "9 preset speakers with rich prosody (much better than 0.6B)"),
             ("good",  "Emotion / tone control via natural-language instructions"),
             ("good",  "Multilingual: en/zh/ja/ko + 7 more"),
-            ("avoid", "Voice cloning — use the 0.6B Base variant for that"),
+            ("avoid", "Voice cloning — use either Base variant for that"),
         ),
     ),
     ModelEntry(
@@ -723,7 +720,7 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Character creation: 'gruff old man', 'cheerful young woman', 'sinister whisper'"),
             ("good",  "Rapid iteration on voice character without sourcing clips"),
             ("weak",  "Same description twice may produce slightly different voices (no preset stability)"),
-            ("avoid", "Cloning a specific real voice — use the 0.6B Base or VoxCPM2 for that"),
+            ("avoid", "Cloning a specific real voice — use the 1.7B Base model for that"),
         ),
     ),
 
@@ -812,23 +809,6 @@ CATALOG: tuple[ModelEntry, ...] = (
         ),
     ),
     ModelEntry(
-        repo="mlx-community/chatterbox-fp16",
-        label="Chatterbox fp16 (MLX, 2026 build) — full precision",
-        family="chatterbox-mlx",
-        size_gb=2.6,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="M1 Pro / M2 16 GB recommended.",
-        capabilities=("tts", "voice-cloning", "expressive", "multilingual"),
-        best_for="Full-precision fp16 Chatterbox. Reference quality for final renders.",
-        sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "fr", "de", "es", "+16 more"),
-        use_cases=(
-            ("good",  "Reference Chatterbox quality — no quantization"),
-            ("weak",  "2.6 GB on disk — biggest standard Chatterbox tier"),
-        ),
-    ),
-    ModelEntry(
         repo="mlx-community/chatterbox-turbo-4bit",
         label="Chatterbox Turbo 4-bit (MLX) — faster variant",
         family="chatterbox-mlx",
@@ -844,23 +824,6 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Faster inference than standard Chatterbox at the same precision"),
             ("good",  "Same voice cloning + exaggeration controls"),
             ("weak",  "Quality may differ subtly from standard Chatterbox — A/B test on your reference voice"),
-        ),
-    ),
-    ModelEntry(
-        repo="mlx-community/chatterbox-turbo-8bit",
-        label="Chatterbox Turbo 8-bit (MLX)",
-        family="chatterbox-mlx",
-        size_gb=1.0,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        capabilities=("tts", "voice-cloning", "expressive"),
-        best_for="Higher-precision Chatterbox Turbo. Pick when Turbo 4-bit shows artifacts.",
-        sample_rate_hz=24000,
-        languages=("en",),
-        use_cases=(
-            ("good",  "Faster than standard Chatterbox 8-bit"),
-            ("good",  "Higher fidelity than Turbo 4-bit"),
         ),
     ),
 
@@ -1140,10 +1103,8 @@ CATALOG: tuple[ModelEntry, ...] = (
     ),
 
     # ──────────── OmniVoice (MLX) ────────────
-    # k2-fsa's OmniVoice ported to MLX by ailuntx. 0.6B diffusion-LM TTS with
-    # voice design + 646-language support. Apache-2.0. Voice cloning exists in
-    # the official PyTorch API but isn't yet exposed in the experimental MLX
-    # variant — voice-design only for now.
+    # k2-fsa's OmniVoice through mlx-audio. The current MLX implementation
+    # supports both voice design and cloning from a 3–10 second reference clip.
     ModelEntry(
         repo="mlx-community/OmniVoice-4bit",
         label="OmniVoice 0.6B 4-bit (MLX) — recommended",
@@ -1152,8 +1113,8 @@ CATALOG: tuple[ModelEntry, ...] = (
         gated=False,
         min_unified_memory_gb=8,
         recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        capabilities=("tts", "multilingual", "expressive"),
-        best_for="The recommended OmniVoice pick. Tiny 4-bit quant of k2-fsa's 0.6B diffusion-LM TTS — covers 646 languages with voice design (gender / accent / age / whisper). Apache-2.0, commercial use OK. RTF ~0.025 (40× real-time).",
+        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
+        best_for="The recommended OmniVoice pick. Compact MLX quant with 646-language voice cloning and voice design; start here for fast iteration and move to 8-bit only if a reference voice shows artifacts.",
         sample_rate_hz=24000,
         languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "ru", "+636 more"),
         use_cases=(
@@ -1162,9 +1123,9 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Non-verbal symbols inline ([laughter], [cough])"),
             ("good",  "Apache-2.0 — commercial use OK (rare for multilingual TTS)"),
             ("good",  "8 GB Mac friendly — only 1.1 GB on disk"),
-            ("weak",  "Voice cloning NOT yet wired on the MLX backend (use VoxCPM2 or Spark for cloning)"),
+            ("good",  "Voice cloning from a clean 3–10 second clip in the Voices library"),
             ("weak",  "Upstream MLX backend is marked experimental — quality may vary by language"),
-            ("avoid", "Tasks requiring voice cloning today — wait for upstream MLX clone support"),
+            ("avoid", "Unauthorized impersonation or cloning without the speaker's permission"),
         ),
     ),
     ModelEntry(
@@ -1175,15 +1136,15 @@ CATALOG: tuple[ModelEntry, ...] = (
         gated=False,
         min_unified_memory_gb=8,
         recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        capabilities=("tts", "multilingual", "expressive"),
-        best_for="Higher-precision OmniVoice. Pick when 4-bit shows quantization artifacts in your target language or voice description. Still 8 GB Mac friendly.",
+        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
+        best_for="Higher-precision OmniVoice cloning and voice design. Pick it when 4-bit produces audible artifacts in your reference speaker or target language.",
         sample_rate_hz=24000,
         languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "ru", "+636 more"),
         use_cases=(
             ("good",  "Higher fidelity when 4-bit shows artifacts in a specific language"),
+            ("good",  "Voice cloning and voice design through the same MLX workflow"),
             ("good",  "Apache-2.0 — commercial-friendly multilingual TTS"),
             ("weak",  "~2× memory of 4-bit, slightly slower"),
-            ("avoid", "Voice cloning — not yet wired on MLX backend"),
         ),
     ),
     ModelEntry(
@@ -1194,61 +1155,15 @@ CATALOG: tuple[ModelEntry, ...] = (
         gated=False,
         min_unified_memory_gb=8,
         recommended_hardware="M1 Pro / M2 16 GB recommended.",
-        capabilities=("tts", "multilingual", "expressive"),
-        best_for="Full bf16 OmniVoice — reference quality at modest memory cost. Recommended over fp32 unless you specifically need fp32 numerics.",
+        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
+        best_for="Full bf16 OmniVoice for final-quality cloning and voice design. It preserves the reference checkpoint precision without the redundant fp32 download.",
         sample_rate_hz=24000,
         languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "ru", "+636 more"),
         use_cases=(
             ("good",  "Reference-quality OmniVoice at half the size of fp32"),
-            ("good",  "Apache-2.0, 646 languages, voice design"),
+            ("good",  "Apache-2.0, 646 languages, voice cloning and voice design"),
             ("weak",  "12 GB recommended"),
             ("avoid", "8 GB Macs — use 4-bit or 8-bit instead"),
-        ),
-    ),
-    ModelEntry(
-        repo="mlx-community/OmniVoice-fp32",
-        label="OmniVoice 0.6B fp32 (MLX) — full precision",
-        family="omnivoice",
-        # Was cataloged as 2.4 GB; the real repo (main model.safetensors +
-        # bundled audio_tokenizer/model.safetensors) is 3,267,485,238 bytes =
-        # 3.27 GB decimal. Confirmed via the HF API's blobs=true file listing.
-        # Also identical byte-for-byte to mlx-community/OmniVoice (the
-        # collection's unsuffixed "default fp32 entry" — same repo, not added
-        # separately to avoid cataloging a duplicate download).
-        size_gb=3.3,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="M2 Pro / M3 16 GB+ for comfortable headroom.",
-        capabilities=("tts", "multilingual", "expressive"),
-        best_for="Dense fp32 reference export. Mostly useful as a baseline against the quants — bf16 has the same numerics for inference at half the size.",
-        sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "ru", "+636 more"),
-        use_cases=(
-            ("good",  "Numerical reference vs the quants for debugging quality drift"),
-            ("weak",  "3.3 GB on disk — biggest OmniVoice tier"),
-            ("weak",  "No quality gain over bf16 for inference"),
-            ("avoid", "Day-to-day use — pick bf16 / 8-bit / 4-bit instead"),
-        ),
-    ),
-    ModelEntry(
-        repo="k2-fsa/OmniVoice",
-        label="OmniVoice 0.6B official (MPS) — voice cloning",
-        family="omnivoice",
-        size_gb=3.3,
-        gated=False,
-        min_unified_memory_gb=12,
-        recommended_hardware="M1 Pro / M2 16 GB+ recommended for comfortable cloning.",
-        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
-        best_for="The official OmniVoice checkpoint with zero-shot voice cloning from a 3–10 second reference clip. Runs through PyTorch on Apple Silicon MPS and is the OmniVoice choice when the same speaker must carry across multiple passages.",
-        sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "+636 more"),
-        use_cases=(
-            ("good",  "Voice cloning from a short reference clip in the Voices library"),
-            ("good",  "600+ languages with cross-lingual generation"),
-            ("good",  "Use a generated design sample as a reusable reference voice"),
-            ("weak",  "3.3 GB checkpoint plus higher runtime memory than the MLX 4-bit variant"),
-            ("weak",  "PyTorch/MPS path is slower and less memory-efficient than MLX voice design"),
-            ("avoid", "Unauthorized impersonation or cloning without the speaker's permission"),
         ),
     ),
 

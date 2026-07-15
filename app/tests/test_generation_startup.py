@@ -12,7 +12,7 @@ def test_generation_module_does_not_import_model_stacks_at_startup() -> None:
 import builtins
 
 blocked = {
-    "diffusers", "f5_tts", "kokoro", "mlx_audio", "omnivoice",
+    "diffusers", "f5_tts", "kokoro", "mlx_audio",
     "torch", "transformers", "voxcpm",
 }
 attempted = []
