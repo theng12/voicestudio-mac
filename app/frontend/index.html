@@ -667,9 +667,23 @@
           </p>
         </section>
         <section class="control-block" x-show="isF5TTS(gen.repo) && gen.voice_library_id" x-cloak>
-          <label>Reference transcript <span class="muted small">(override — falls back to library transcript if blank)</span></label>
+          <label>Saved reference transcript</label>
+          <textarea :value="selectedStoredTranscript" rows="2" readonly
+                    placeholder="No transcript is saved for this voice."></textarea>
+          <p class="muted hint" x-show="selectedStoredTranscript">
+            Loaded automatically from the selected voice and sent to F5-TTS with its reference clip.
+          </p>
+          <p class="muted hint warning-text" x-show="!selectedStoredTranscript">
+            This voice has no saved transcript. Add one under <a class="link-accent" @click="tab='voices'">Voices</a>, or enter a one-time override below.
+          </p>
+        </section>
+        <section class="control-block" x-show="isF5TTS(gen.repo) && gen.voice_library_id" x-cloak>
+          <label>Reference transcript override <span class="muted small">optional</span></label>
           <textarea x-model="gen.ref_transcript" rows="2"
-                    placeholder="What's said in the reference clip. Required if the library entry has no stored transcript."></textarea>
+                    placeholder="Leave blank to use the saved transcript shown above."></textarea>
+          <p class="muted hint">
+            This only affects the current generation. It does not replace the transcript saved in the Voices library.
+          </p>
         </section>
 
         <!-- Spark-TTS-MLX: optional natural-language style hint. -->

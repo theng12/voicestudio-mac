@@ -80,6 +80,56 @@ def test_kokoro_language_dependencies_are_explicit() -> None:
     assert "kokoro>=" not in requirements
 
 
+def test_f5_tts_uses_saved_voice_transcript_and_honors_override(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from backend import voices
+
+    reference = tmp_path / "reference.wav"
+    reference.touch()
+    library = _VoiceLibrary(reference, transcript="Saved F5 reference transcript")
+    monkeypatch.setattr(voices, "library", library)
+    monkeypatch.setattr(generation, "_detect_device", lambda: "cpu")
+
+    captured: dict = {}
+
+    class _F5Model:
+        def infer(self, **kwargs):
+            captured.update(kwargs)
+            return [0.0, 0.0], 24000, None
+
+    manager = object.__new__(generation.GenerationManager)
+    manager._f5_tts_get_model = lambda repo, device: _F5Model()
+    job = generation.GenerationJob(
+        job_id="f5-saved-transcript",
+        mode="txt2speech",
+        params={
+            "text": "Generated speech",
+            "voice_library_id": "voice-1",
+            "ref_transcript": "",
+            "seed": 123,
+        },
+    )
+
+    manager._generate_f5_tts(
+        job,
+        SimpleNamespace(repo="SWivid/F5-TTS"),
+        tmp_path / "output.wav",
+    )
+
+    assert captured["ref_file"] == str(reference)
+    assert captured["ref_text"] == "Saved F5 reference transcript"
+    assert captured["gen_text"] == "Generated speech"
+
+    job.params["ref_transcript"] = "One-time corrected transcript"
+    manager._generate_f5_tts(
+        job,
+        SimpleNamespace(repo="SWivid/F5-TTS"),
+        tmp_path / "override-output.wav",
+    )
+    assert captured["ref_text"] == "One-time corrected transcript"
+
+
 def test_bark_catalog_keeps_current_mlx_release_and_complete_presets() -> None:
     bark = [entry for entry in catalog.CATALOG if entry.family == "bark"]
     assert [entry.repo for entry in bark] == ["mlx-community/bark"]

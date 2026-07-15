@@ -10,6 +10,18 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.17.1] — 2026-07-15
+
+### Fixed
+
+- F5-TTS now visibly shows the transcript saved with the selected library voice,
+  matching the Qwen3-TTS cloning flow. The saved transcript is automatically sent
+  with the reference clip when the one-time override is blank.
+- Added a worker-level regression test that verifies the saved library transcript
+  reaches F5-TTS inference, while preserving the existing override behavior.
+
+---
+
 ## [1.17.0] — 2026-07-15
 
 ### Refined — current Suno Bark, native MLX
