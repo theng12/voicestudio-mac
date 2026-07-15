@@ -6,7 +6,6 @@ the authoritative list — the audit_truth.py script cross-checks that list
 against the actual dispatch branches on every release.
 
 Currently wired (workers exist):
-- kokoro          → KPipeline (English-only via misaki[en], no espeak-ng)
 - voxcpm          → transformers + custom audiovae
 - bark            → transformers BarkModel
 - voxcpm-mlx      → mlx-audio worker
@@ -67,10 +66,6 @@ already cached. This actually happened with F5-TTS in v1.3.0 → v1.3.4
 (1.35 GB re-downloaded into a duplicate location). Passing an absolute
 path bypasses the library's cache lookup entirely.
 
-EXCEPTIONS — loaders that don't accept a path argument:
-- KPipeline(lang_code=…) for Kokoro: no path API. Must trust HF_HOME env.
-  Document the limitation in the worker comment.
-
 COMPLIANCE TABLE (keep current when adding workers):
 
 | Worker                | Pattern                                                       | Status |
@@ -79,7 +74,6 @@ COMPLIANCE TABLE (keep current when adding workers):
 | _generate_f5_tts      | F5TTS(ckpt_file=…, vocab_file=…)  (v1.3.4)                    | OK     |
 | _generate_voxcpm      | voxcpm.VoxCPM.from_pretrained(str(snapshot_path), local_files_only=True) | OK |
 | _generate_bark        | BarkModel.from_pretrained(str(snapshot_path), local_files_only=True)     | OK |
-| _generate_kokoro      | KPipeline(lang_code=…)  — no path API, trusts HF_HOME         | LIMIT  |
 
 ═════════════════════════════════════════════════════════════════════════
 
@@ -136,20 +130,13 @@ TTS_AVAILABLE = not _TTS_MISSING
 TTS_IMPORT_ERROR: Optional[str] = (
     f"Missing packages: {', '.join(_TTS_MISSING)}" if _TTS_MISSING else None
 )
-KOKORO_AVAILABLE = _package_installed("kokoro")
-
-
 # ───────────── Kokoro voice catalog ─────────────
 
 # Kokoro v1.0 ships with named preset voices. Voice naming convention:
-# - First letter: language code ('a' = American English, 'b' = British English,
-#   and others for non-English languages we don't enable yet)
+# - First letter: language code
 # - Second letter: gender ('f' = female, 'm' = male)
 # - Rest: voice nickname
-#
-# This list is the published set as of Kokoro v1.0. The actual available voices
-# depend on what's bundled with the installed `kokoro` package — we expose the
-# full set in the UI and the user can try them.
+# This roster is verified against the bf16 MLX snapshot's safetensors files.
 KOKORO_VOICES = [
     # American English — Female
     {"id": "af_heart",   "label": "Heart (warm)",      "lang": "a", "gender": "f"},
@@ -183,12 +170,52 @@ KOKORO_VOICES = [
     {"id": "bm_fable",   "label": "Fable (story)",     "lang": "b", "gender": "m"},
     {"id": "bm_george",  "label": "George (warm)",     "lang": "b", "gender": "m"},
     {"id": "bm_lewis",   "label": "Lewis (calm)",      "lang": "b", "gender": "m"},
+    # Spanish
+    {"id": "ef_dora",    "label": "Dora",              "lang": "e", "gender": "f"},
+    {"id": "em_alex",    "label": "Alex",              "lang": "e", "gender": "m"},
+    {"id": "em_santa",   "label": "Santa",             "lang": "e", "gender": "m"},
+    # French
+    {"id": "ff_siwis",   "label": "Siwis",             "lang": "f", "gender": "f"},
+    # Hindi
+    {"id": "hf_alpha",   "label": "Alpha",             "lang": "h", "gender": "f"},
+    {"id": "hf_beta",    "label": "Beta",              "lang": "h", "gender": "f"},
+    {"id": "hm_omega",   "label": "Omega",             "lang": "h", "gender": "m"},
+    {"id": "hm_psi",     "label": "Psi",               "lang": "h", "gender": "m"},
+    # Italian
+    {"id": "if_sara",    "label": "Sara",              "lang": "i", "gender": "f"},
+    {"id": "im_nicola",  "label": "Nicola",            "lang": "i", "gender": "m"},
+    # Japanese
+    {"id": "jf_alpha",   "label": "Alpha",             "lang": "j", "gender": "f"},
+    {"id": "jf_gongitsune", "label": "Gongitsune",     "lang": "j", "gender": "f"},
+    {"id": "jf_nezumi",  "label": "Nezumi",            "lang": "j", "gender": "f"},
+    {"id": "jf_tebukuro", "label": "Tebukuro",         "lang": "j", "gender": "f"},
+    {"id": "jm_kumo",    "label": "Kumo",              "lang": "j", "gender": "m"},
+    # Brazilian Portuguese
+    {"id": "pf_dora",    "label": "Dora",              "lang": "p", "gender": "f"},
+    {"id": "pm_alex",    "label": "Alex",              "lang": "p", "gender": "m"},
+    {"id": "pm_santa",   "label": "Santa",             "lang": "p", "gender": "m"},
+    # Mandarin Chinese
+    {"id": "zf_xiaobei", "label": "Xiaobei",           "lang": "z", "gender": "f"},
+    {"id": "zf_xiaoni",  "label": "Xiaoni",            "lang": "z", "gender": "f"},
+    {"id": "zf_xiaoxiao", "label": "Xiaoxiao",         "lang": "z", "gender": "f"},
+    {"id": "zf_xiaoyi",  "label": "Xiaoyi",            "lang": "z", "gender": "f"},
+    {"id": "zm_yunjian", "label": "Yunjian",           "lang": "z", "gender": "m"},
+    {"id": "zm_yunxi",   "label": "Yunxi",             "lang": "z", "gender": "m"},
+    {"id": "zm_yunxia",  "label": "Yunxia",            "lang": "z", "gender": "m"},
+    {"id": "zm_yunyang", "label": "Yunyang",           "lang": "z", "gender": "m"},
 ]
 
 # Lang code → display name
 LANG_NAMES = {
     "a": "American English",
     "b": "British English",
+    "e": "Spanish",
+    "f": "French",
+    "h": "Hindi",
+    "i": "Italian",
+    "j": "Japanese",
+    "p": "Brazilian Portuguese",
+    "z": "Mandarin Chinese",
 }
 
 
@@ -200,8 +227,6 @@ def availability() -> dict:
     omnivoice_ok = qwen3_ok
     f5_tts_ok = _have_f5_tts()
     wired = []
-    if KOKORO_AVAILABLE:
-        wired.append("kokoro")
     if qwen3_ok:
         # All mlx-audio-backed families share one loader + one worker.
         # If mlx-audio imports, every entry in MLX_AUDIO_FAMILIES is wired.
@@ -215,7 +240,7 @@ def availability() -> dict:
         wired.append("f5-tts")
     return {
         "available": TTS_AVAILABLE,
-        "kokoro_available": KOKORO_AVAILABLE,
+        "kokoro_available": qwen3_ok,
         "qwen3_available": qwen3_ok,
         "voxcpm_available": voxcpm_ok,
         "bark_available": bark_ok,
@@ -287,8 +312,9 @@ def _have_diffusers() -> bool:
 _PACKAGE_CHECKLIST = [
     ("torch",         "Core ML framework + MPS device support"),
     ("transformers",  "VoxCPM / Bark / Spark-TTS architectures"),
-    ("kokoro",        "Kokoro TTS pipeline"),
-    ("misaki",        "Grapheme→phoneme for Kokoro (auto-pulled by kokoro)"),
+    ("misaki",        "Multilingual grapheme-to-phoneme for Kokoro MLX"),
+    ("fugashi",       "Japanese tokenizer for Kokoro MLX"),
+    ("jieba",         "Mandarin tokenizer for Kokoro MLX"),
     ("diffusers",     "Future engines (F5-TTS etc.)"),
     ("accelerate",    "Multi-device model loading"),
     ("soundfile",     "WAV file writing (libsndfile)"),
@@ -305,14 +331,13 @@ _PACKAGE_CHECKLIST = [
 ]
 
 _ENGINE_REQUIREMENTS = {
-    "kokoro":         ["torch", "kokoro", "soundfile", "numpy"],
     "voxcpm":         ["torch", "voxcpm", "soundfile", "numpy"],
     "voxcpm-mlx":     ["mlx", "mlx_audio", "soundfile", "numpy"],
     "bark":           ["torch", "transformers", "soundfile", "accelerate"],
     # Other mlx-audio-backed families. All share the same package set, since
     # mlx-audio is the only inference dep.
     "qwen3-tts":      ["mlx", "mlx_audio", "soundfile", "numpy"],
-    "kokoro-mlx":     ["mlx", "mlx_audio", "soundfile", "numpy"],
+    "kokoro-mlx":     ["mlx", "mlx_audio", "misaki", "fugashi", "jieba", "soundfile", "numpy"],
     "chatterbox-mlx": ["mlx", "mlx_audio", "soundfile", "numpy"],
     "spark-tts-mlx":  ["mlx", "mlx_audio", "soundfile", "numpy"],
     "orpheus":        ["mlx", "mlx_audio", "soundfile", "numpy"],
@@ -327,7 +352,7 @@ _ENGINE_REQUIREMENTS = {
 # one of these models won't trip a NotImplementedError. Keep in sync with the
 # branches in `_dispatch_txt2speech` below + the MLX_AUDIO_FAMILIES table.
 _WIRED_FAMILIES = {
-    "kokoro", "voxcpm", "bark",
+    "voxcpm", "bark",
     # All mlx-audio-backed families share one worker.
     "qwen3-tts", "voxcpm-mlx", "kokoro-mlx",
     "chatterbox-mlx", "spark-tts-mlx", "orpheus",
@@ -725,9 +750,6 @@ class GenerationManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._jobs: dict[str, GenerationJob] = {}
-        # Cache the loaded Kokoro pipeline per-language so we don't pay the
-        # ~1 second model-load cost on every generation.
-        self._kokoro_pipelines: dict[str, object] = {}
         # Cache one mlx-audio model at a time (loading is slow — 5-10s for
         # MLX 8-bit dequantization, longer for larger models). When the user
         # switches repos OR switches mlx-audio families (qwen3-tts → kokoro-mlx
@@ -1038,14 +1060,7 @@ class GenerationManager:
             raise ValueError(f"Model {repo} is not fully cached locally — download it first")
 
         family = model.family
-        if family == "kokoro":
-            if not KOKORO_AVAILABLE:
-                raise RuntimeError(
-                    "The `kokoro` package isn't installed. Run 'Install Generation' "
-                    "from the Pinokio sidebar (this installs the TTS deps including kokoro)."
-                )
-            self._generate_kokoro(job, model, output_path)
-        elif family == "voxcpm":
+        if family == "voxcpm":
             if not _have_voxcpm():
                 raise RuntimeError(
                     "The `voxcpm` package isn't installed. Run 'Install Generation' "
@@ -1075,110 +1090,6 @@ class GenerationManager:
             self._generate_mlx_audio(job, model, output_path)
         else:
             raise NotImplementedError(f"No worker implemented for family '{family}'.")
-
-    # ----- Kokoro -----
-
-    def _generate_kokoro(self, job: GenerationJob, model_entry, output_path: Path) -> None:
-        """
-        Run Kokoro via the `kokoro` KPipeline. Streams sentence-chunks of audio
-        and concatenates them into a single 24 kHz WAV.
-
-        Kokoro auto-loads weights from hexgrad/Kokoro-82M via huggingface_hub.
-        Because we've already cached the repo through our own download manager,
-        HF will find it in HF_HOME locally — no re-download.
-        """
-        import torch
-        import numpy as np
-        import soundfile as sf
-        from kokoro import KPipeline
-
-        params = job.params
-        device = _detect_device()
-
-        # Pick voice + language code from params
-        voice = (params.get("voice") or "af_bella").strip()
-        # Derive lang_code from the voice prefix if not explicitly given.
-        # ('a' = American English, 'b' = British English)
-        lang_code = (params.get("language") or "").strip().lower()
-        if not lang_code:
-            lang_code = voice[0] if voice and voice[0] in ("a", "b") else "a"
-        if lang_code not in ("a", "b"):
-            # Other languages (e/f/h/i/j/p/z) need misaki[<lang>] which often
-            # depends on espeak-ng. Kokoro currently ships English-only here —
-            # surface a clear error if the user picked an unsupported language.
-            raise ValueError(
-                f"Language '{lang_code}' isn't enabled for Kokoro yet. "
-                "American (a) and British (b) English work today. "
-                "Other languages need espeak-ng installed — not wired yet."
-            )
-
-        speed = float(params.get("speed", 1.0))
-        speed = max(0.5, min(speed, 2.0))   # clamp to a sane range
-
-        seed = params.get("seed")
-        if seed is None or seed < 0:
-            import random
-            seed = random.randint(0, 2**32 - 1)
-        job.resolved_seed = int(seed)
-        torch.manual_seed(int(seed))
-        if device == "mps":
-            try:
-                torch.mps.manual_seed(int(seed))
-            except Exception:
-                pass
-
-        text = (params.get("text") or "").strip()
-        if not text:
-            raise ValueError("text is required")
-
-        # Reuse a cached KPipeline per language so back-to-back generations
-        # skip the ~1s model-load cost. KPipeline is thread-safe enough for
-        # serial use behind _GEN_LOCK.
-        pipeline = self._kokoro_pipelines.get(lang_code)
-        if pipeline is None:
-            print(f"[gen] loading Kokoro pipeline ({lang_code}) on {device}", flush=True)
-            pipeline = KPipeline(lang_code=lang_code, device=device)
-            self._kokoro_pipelines[lang_code] = pipeline
-
-        if job.cancel_event.is_set():
-            return
-
-        print(f"[gen] generating {len(text)} chars with voice={voice} speed={speed}", flush=True)
-        # KPipeline returns a generator yielding (graphemes, phonemes, audio)
-        # for each sentence chunk. We concatenate the audio tensors.
-        chunks: list[np.ndarray] = []
-        # Rough chunk estimate for the progress bar — Kokoro's pipeline yields one
-        # audio chunk per sentence, but we don't know the count up front. Capped at
-        # 0.92 so it never overshoots; the worker snaps progress to 1.0 when the
-        # WAV is written. (regex-free to avoid an extra import.)
-        _est_chunks = max(1, len([p for p in text.replace("!", ".").replace("?", ".").replace("\n", ".").split(".") if p.strip()]))
-        try:
-            generator = pipeline(text, voice=voice, speed=speed, split_pattern=r"\n+")
-            for i, (gs, ps, audio) in enumerate(generator):
-                if job.cancel_event.is_set():
-                    print(f"[gen] cancel observed after chunk {i}", flush=True)
-                    return
-                # audio may be a torch tensor or numpy array; normalize to np
-                if hasattr(audio, "detach"):
-                    audio = audio.detach().cpu().numpy()
-                if audio.ndim > 1:
-                    audio = audio.squeeze()
-                chunks.append(audio.astype("float32"))
-                job.progress = min(0.92, 0.05 + 0.9 * (i + 1) / _est_chunks)
-        except Exception:
-            # Drop the cached pipeline if generation blew up — it might be in
-            # a bad state. Next call will reload.
-            self._kokoro_pipelines.pop(lang_code, None)
-            _release_device_memory(device)
-            raise
-
-        if not chunks:
-            raise RuntimeError("Kokoro produced no audio. Try shorter text or a different voice.")
-
-        full = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
-        sr = 24000   # Kokoro v1.0 always outputs 24 kHz
-        sf.write(str(output_path), full, sr, format="WAV", subtype="PCM_16")
-        print(f"[gen] saved WAV at {sr} Hz, {len(full) / sr:.2f}s: {output_path}", flush=True)
 
     # ──────────────────────────────────────────────────────────────────────
     # mlx-audio worker — shared across qwen3-tts, voxcpm-mlx, kokoro-mlx,
@@ -1292,8 +1203,8 @@ class GenerationManager:
         save output). The mode resolvers below decide which kwargs to pass.
 
         mlx-audio's `generate_audio()` writes wav files to an output directory
-        rather than returning bytes — we hand it a temp dir, then move the
-        resulting `audio_000.wav` to our canonical path.
+        rather than returning bytes. We request one joined file so newline and
+        sentence segmentation never drops everything after the first segment.
         """
         import shutil
         import tempfile
@@ -1351,9 +1262,14 @@ class GenerationManager:
                 f"[gen] {family} {mode_label} ({len(text)} chars){extras}",
                 flush=True,
             )
-            generate_audio(model=model, output_path=str(temp_dir), **gen_kwargs)
+            generate_audio(
+                model=model,
+                output_path=str(temp_dir),
+                join_audio=True,
+                **gen_kwargs,
+            )
 
-            produced = temp_dir / "audio_000.wav"
+            produced = temp_dir / "audio.wav"
             if not produced.exists():
                 # mlx-audio sometimes uses a different naming scheme — find any wav.
                 candidates = sorted(temp_dir.glob("*.wav"))
@@ -1488,13 +1404,42 @@ class GenerationManager:
                 f"{family} needs a preset voice. Pick one from the voice dropdown — "
                 "the Voices library doesn't apply here (this family doesn't clone)."
             )
+
+        if family == "kokoro-mlx":
+            voices = [item.strip() for item in voice.split(",") if item.strip()]
+            known_voices = {item["id"] for item in KOKORO_VOICES}
+            unknown = [item for item in voices if item not in known_voices]
+            if unknown:
+                raise ValueError(
+                    "Unknown Kokoro voice: " + ", ".join(unknown) +
+                    ". Pick a voice from the verified preset list."
+                )
+            languages = {item[0] for item in voices}
+            if len(languages) != 1:
+                raise ValueError(
+                    "Kokoro can only blend voices from the same language. "
+                    "Choose a second voice in the same language as the first."
+                )
+            voice_language = next(iter(languages))
+            requested_language = (params.get("language") or "").strip().lower()
+            lang_code = requested_language or voice_language
+            if lang_code not in LANG_NAMES:
+                raise ValueError(f"Unsupported Kokoro language code: {lang_code}")
+            if lang_code != voice_language:
+                raise ValueError(
+                    f"The selected Kokoro voice is {LANG_NAMES[voice_language]}, "
+                    f"but the language control is {LANG_NAMES[lang_code]}."
+                )
+            gen_kwargs["lang_code"] = lang_code
+
         gen_kwargs["voice"] = voice
         # Some voice-picker families (Orpheus) accept an optional instruct
         # for style nudges — forward it if present.
-        instruct = (params.get("instruct") or "").strip()
+        instruct = "" if family == "kokoro-mlx" else (params.get("instruct") or "").strip()
         if instruct:
             gen_kwargs["instruct"] = instruct
-        return f"voice={voice}" + (f" instruct={len(instruct)}c" if instruct else "")
+        language_label = f" lang={gen_kwargs['lang_code']}" if family == "kokoro-mlx" else ""
+        return f"voice={voice}{language_label}" + (f" instruct={len(instruct)}c" if instruct else "")
 
     def _mlx_kwargs_clone_with_intensity(self, model_entry, params, gen_kwargs, voices_module) -> str:
         """Chatterbox (MLX): requires a reference audio for voice cloning,

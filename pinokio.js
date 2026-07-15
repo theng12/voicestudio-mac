@@ -1,12 +1,15 @@
 module.exports = {
   version: "3.6",
   title: "Voice Studio KH",
-  description: "Apple Silicon text-to-speech — VoxCPM, Kokoro, F5-TTS, Chatterbox, Bark, Spark-TTS, XTTS-v2.",
+  description: "Apple Silicon text-to-speech — Qwen3-TTS, Kokoro, Chatterbox, OmniVoice, VoxCPM, F5-TTS, and more.",
   icon: "icon.png",
   menu: async (kernel, info) => {
     const installed = info.exists("conda_env")
     const generationInstalled = info.exists("conda_env/lib/python3.12/site-packages/transformers") &&
-                                info.exists("conda_env/lib/python3.12/site-packages/diffusers")
+                                info.exists("conda_env/lib/python3.12/site-packages/diffusers") &&
+                                info.exists("conda_env/lib/python3.12/site-packages/mlx_audio") &&
+                                info.exists("conda_env/lib/python3.12/site-packages/fugashi") &&
+                                info.exists("conda_env/lib/python3.12/site-packages/jieba")
     // Always-on launchd service installed? (marker dropped by install_service.sh)
     const serviceInstalled = info.exists("service/.installed")
     const servicePort = 47870

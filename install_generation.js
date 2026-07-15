@@ -42,7 +42,7 @@ module.exports = {
         path: "app",
         conda: { "path": "{{path.resolve(cwd, 'conda_env')}}" },
         message: [
-          "python -c \"import torch, transformers, diffusers; print('GEN_VERIFY_OK')\" 2>&1"
+          "python -c \"import torch, transformers, diffusers, mlx_audio, fugashi, jieba; from misaki.ja import JAG2P; from misaki.zh import ZHG2P; JAG2P(); ZHG2P(); print('GEN_VERIFY_OK')\" 2>&1"
         ],
         on: [{ event: "/(ModuleNotFoundError|ImportError|Traceback)/", break: true }]
       }

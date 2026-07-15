@@ -72,27 +72,6 @@ FAMILIES: dict[str, Family] = {
             note="Best at ~800 chars (~60 sec audio) per call. Past ~30 sec, voice tends to drift / become jibberish — split into multiple shorter requests.",
         ),
     ),
-    "kokoro": Family(
-        id="kokoro",
-        label="Kokoro",
-        summary=(
-            "Tiny (82M parameters), MIT-licensed, insanely fast TTS. Runs in real "
-            "time even on M1 base models. English-focused with a handful of "
-            "high-quality preset voices. No voice cloning — pick from the bundled "
-            "voicepacks."
-        ),
-        how_to_use=(
-            "Pick a voicepack (af_bella, am_michael, etc.) and provide text. "
-            "Generation finishes in under a second per sentence. Best for "
-            "scripted narration where you don't need to clone a specific voice."
-        ),
-        # Audit (v1.2.4): KPipeline auto-chunks on `split_pattern=r"\n+"` — no per-call ceiling.
-        text_guidance=TextGuidance(
-            soft_max_chars=None,
-            chunking="unlimited",
-            note="No practical length limit — long text auto-splits into sentences and stitches transparently.",
-        ),
-    ),
     "f5-tts": Family(
         id="f5-tts",
         label="F5-TTS",
@@ -193,24 +172,23 @@ FAMILIES: dict[str, Family] = {
     ),
     "kokoro-mlx": Family(
         id="kokoro-mlx",
-        label="Kokoro (MLX)",
+        label="Kokoro v1.0 (MLX)",
         summary=(
-            "Kokoro 82M ported to MLX for native Apple Silicon inference (via "
-            "Prince Canuma's mlx-audio). Same tiny + fast TTS as PyTorch Kokoro, "
-            "but with the lower memory footprint and faster cold-start of MLX. "
-            "English-focused with 28 preset voicepacks. MIT licensed."
+            "The latest Kokoro v1.0 82M release, ported to MLX for native Apple "
+            "Silicon inference via mlx-audio. Tiny, fast, MIT licensed, and bundled "
+            "with 54 preset voices across nine language variants."
         ),
         how_to_use=(
-            "Pick a voicepack (af_bella, am_michael, etc.) and provide text. "
-            "Generation is sub-second per sentence on any Apple Silicon. Pick "
-            "this over PyTorch Kokoro if you'd rather keep the PyTorch stack "
-            "uninstalled — mlx-audio is your only dep."
+            "Choose a language, pick a voice, and adjust speaking speed. You can "
+            "optionally blend two voices in equal proportions. The selected voice "
+            "sets the pronunciation pipeline automatically."
         ),
-        # Audit (v1.2.4): mlx-audio's kokoro auto-chunks at sentence boundaries — no per-call ceiling.
+        # English auto-chunks at phoneme boundaries. The current MLX pipeline asks
+        # non-English text to be split with newlines to avoid its 510-phoneme limit.
         text_guidance=TextGuidance(
-            soft_max_chars=None,
-            chunking="unlimited",
-            note="No practical length limit — long text auto-splits into sentences and stitches transparently.",
+            soft_max_chars=1200,
+            chunking="auto-split",
+            note="English auto-chunks. For longer non-English scripts, add line breaks between sentences or paragraphs for clean splitting.",
         ),
     ),
     "chatterbox-mlx": Family(
@@ -466,31 +444,6 @@ CATALOG: tuple[ModelEntry, ...] = (
         ),
     ),
 
-    # ──────────── Kokoro ────────────
-    ModelEntry(
-        repo="hexgrad/Kokoro-82M",
-        label="Kokoro v1.0 (82M)",
-        family="kokoro",
-        # Only kokoro-v1_0.pth (312 MB) + tiny config files.
-        size_gb=0.34,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac. Real-time on M1 base.",
-        capabilities=("tts", "streaming"),
-        best_for="The recommended starter — tiny, MIT, real-time. Use for narration, audiobook drafts, voiceover scratch tracks. No voice cloning, but the bundled preset voices are surprisingly good.",
-        sample_rate_hz=24000,
-        languages=("en",),
-        use_cases=(
-            ("good",  "Audiobook + podcast narration — 28 preset voices to pick from"),
-            ("good",  "YouTube voiceover scratch tracks (real-time on any Apple Silicon)"),
-            ("good",  "Quick text-to-speech for blog posts, articles, scripts"),
-            ("good",  "MIT licensed — commercial use OK"),
-            ("avoid", "Voice cloning — Kokoro uses fixed voicepacks, can't clone your reference"),
-            ("avoid", "Non-English content — only American + British English are wired today"),
-            ("avoid", "Expressive / emotional delivery — Kokoro is steady-narrator, not character-acting"),
-        ),
-    ),
-
     # ──────────── F5-TTS ────────────
     ModelEntry(
         repo="SWivid/F5-TTS",
@@ -725,47 +678,29 @@ CATALOG: tuple[ModelEntry, ...] = (
     ),
 
     # ──────────── Kokoro (MLX) ────────────
-    # Kokoro 82M ported to MLX. All variants run on any Apple Silicon Mac
-    # comfortably — pick by precision preference. bf16 is the safe default;
-    # 4-bit shaves another ~50% off the memory footprint at marginal quality cost.
+    # One curated MLX build only. The 4-bit repository currently occupies about
+    # 670 MB because it bundles duplicate PyTorch + safetensors weights, so it is
+    # larger on disk than this 340 MB bf16 build without a useful quality tradeoff.
     ModelEntry(
         repo="mlx-community/Kokoro-82M-bf16",
-        label="Kokoro 82M bf16 (MLX) — recommended",
+        label="Kokoro v1.0 82M (MLX bf16) — recommended",
         family="kokoro-mlx",
         size_gb=0.34,
         gated=False,
         min_unified_memory_gb=8,
         recommended_hardware="Any Apple Silicon Mac. Real-time on M1 base.",
-        capabilities=("tts", "streaming"),
-        best_for="The Kokoro starter on MLX. Tiny (~340 MB), real-time on any Apple Silicon, 28 preset voicepacks, MIT licensed. Pick this over PyTorch Kokoro if you'd rather not install PyTorch — mlx-audio is the only dep.",
+        capabilities=("tts", "streaming", "multilingual", "voice-mixing"),
+        best_for="Fast local narration on any Apple Silicon Mac. This full-quality MLX build is only ~340 MB and includes all 54 Kokoro v1.0 voices across nine language variants.",
         sample_rate_hz=24000,
-        languages=("en",),
+        languages=("en", "es", "fr", "hi", "it", "pt", "ja", "zh"),
+        ignore_patterns=("*.pt",),  # MLX loads safetensors; skip duplicate PyTorch voicepacks.
         use_cases=(
-            ("good",  "Same as PyTorch Kokoro (audiobook + podcast narration) without the PyTorch install"),
-            ("good",  "Tiny — 340 MB on disk, sub-second per sentence"),
+            ("good",  "Audiobook, podcast, and video narration with 54 preset voices"),
+            ("good",  "Tiny — 340 MB on disk with native MLX inference"),
             ("good",  "MIT licensed, commercial use OK"),
-            ("good",  "MLX-native — only mlx-audio as a dep"),
-            ("avoid", "Voice cloning — use the same voicepacks as PyTorch Kokoro, can't clone"),
-            ("avoid", "Non-English content — English-only voicepacks"),
-        ),
-    ),
-    ModelEntry(
-        repo="mlx-community/Kokoro-82M-4bit",
-        label="Kokoro 82M 4-bit (MLX)",
-        family="kokoro-mlx",
-        size_gb=0.67,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac. Half the size of bf16 with no perceptible quality loss.",
-        capabilities=("tts", "streaming"),
-        best_for="Smallest Kokoro. Same quality as bf16 for narration use, half the disk + memory. Pick when you're packaging Kokoro into a larger pipeline and want every MB to count.",
-        sample_rate_hz=24000,
-        languages=("en",),
-        use_cases=(
-            ("good",  "Smallest TTS in the catalog — only 180 MB on disk"),
-            ("good",  "No perceptible quality drop from bf16 for narration use"),
-            ("good",  "Ideal for embedding in larger pipelines / scripts"),
-            ("avoid", "Same caveats as bf16 Kokoro — no voice cloning, English-only"),
+            ("good",  "Optional equal blending of two voices for a custom timbre"),
+            ("weak",  "Non-English voices have less training data than the strongest English voices"),
+            ("avoid", "Voice cloning — Kokoro uses fixed voicepacks; use Qwen3 Base or Chatterbox"),
         ),
     ),
 

@@ -516,7 +516,8 @@ input.num-input-wide { width: 130px; }
   .gen-grid { grid-template-columns: 1fr; }
 }
 
-.gen-controls { display: flex; flex-direction: column; gap: 10px; }
+.gen-controls { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.gen-output-pane { min-width: 0; }
 
 .control-block {
   background: var(--panel);
@@ -544,6 +545,7 @@ input.num-input-wide { width: 130px; }
   color: var(--text);
   border-radius: 6px;
   padding: 8px 10px;
+  max-width: 100%;
 }
 .control-block textarea { resize: vertical; min-height: 70px; }
 .control-block input[type="range"] {
@@ -1241,6 +1243,44 @@ input.num-input-wide { width: 130px; }
   font-weight: 600;
 }
 .voice-btn.active:hover { filter: brightness(1.08); }
+.kokoro-voice-grid {
+  max-height: 190px;
+  overflow-y: auto;
+  align-content: flex-start;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+.kokoro-language-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.35fr) minmax(180px, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.kokoro-language-row label,
+.kokoro-blend label,
+.voice-picker-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.kokoro-language-row select { width: 100%; }
+.voice-picker-label { display: block; margin-bottom: 8px; }
+.kokoro-blend {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.35fr) minmax(180px, 1fr);
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.kokoro-blend select { width: 100%; }
+
+@media (max-width: 620px) {
+  .kokoro-language-row,
+  .kokoro-blend { grid-template-columns: 1fr; gap: 6px; }
+}
 
 /* Qwen3 VoiceDesign quick-preset chips */
 .design-presets {
@@ -1693,6 +1733,13 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
   font-weight: 500;
   color: var(--text, #e6e9ef);
   white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+}
+.history-tag > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .history-tag-ico {
   font-size: 0.95em;

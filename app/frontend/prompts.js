@@ -87,11 +87,12 @@ window.SAMPLE_PROMPTS = [
 // languages. Read via `getRandomPromptFor(model)` in app.js if you want to
 // gate by language capability per engine. For now `SAMPLE_PROMPTS` above is
 // English-only so the Random button is safe to click on ANY model in the
-// catalog, including English-only Kokoro.
+// catalog, including engines that only expose English voices.
 //
 // Engines that handle these well:
 //   - VoxCPM2-MLX (30 languages)  ← all of these
 //   - Qwen3-TTS (en/zh/ja/ko/+more) ← all of these
+//   - Kokoro-MLX (9 voice languages) ← supported entries only
 //   - VoxCPM v1 (en/zh)             ← only fr/es/de/it/pt are iffy
 //   - Bark (13 languages)           ← all except hi/ar/pl
 //   - XTTS-v2 (17 languages)        ← all of these

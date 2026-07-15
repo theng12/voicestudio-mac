@@ -10,6 +10,31 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.15.0] — 2026-07-15
+
+### Refined — one complete, MLX-first Kokoro workflow
+
+- Consolidated Kokoro onto the latest v1.0 82M MLX bf16 model and removed the
+  duplicate PyTorch and 4-bit catalog rows. Fresh downloads also skip duplicate
+  PyTorch voicepack files.
+- Added all 54 bundled voices across American and British English, Spanish,
+  French, Hindi, Italian, Brazilian Portuguese, Japanese, and Mandarin.
+- Replaced the long voice list with a compact language-first picker and added
+  optional equal voice blending. Voice, language, blend, and speed persist per
+  model and are restored from generation history.
+
+### Fixed
+
+- Added and verified the multilingual text-processing dependencies, including
+  self-contained Japanese dictionaries and Mandarin phonemization. Installation
+  now checks both pipelines before reporting success.
+- MLX long-form generation now joins every newline-delimited segment into the
+  returned WAV instead of keeping only the first segment.
+- Fixed narrow-screen overflow in generation controls and long history tags.
+
+Run **Update**, then **Reinstall Generation** once to install the new language
+dependencies. Existing downloaded models are not deleted automatically.
+
 ## [1.14.1] — 2026-07-15
 
 ### Fixed — saved cloning transcripts are visible and correctly paired

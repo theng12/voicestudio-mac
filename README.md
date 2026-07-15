@@ -6,13 +6,15 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 
 ## What it does
 
-- **Catalog of 37 focused local models** across 15 families, including Qwen3-TTS,
+- **Catalog of 35 focused local models** across 14 families, including Qwen3-TTS,
   Chatterbox, OmniVoice, VoxCPM / VoxCPM2, Kokoro, F5-TTS, Spark-TTS, Bark,
   Orpheus, KittenTTS, VibeVoice, Voxtral, and Marvis.
 - **Apple Silicon first** — the priority families use curated MLX tiers instead
   of presenting every redundant precision. Qwen3 includes 0.6B and 1.7B Base
   voice cloning, 1.7B preset voices, and 1.7B VoiceDesign. Chatterbox and
-  OmniVoice expose their native cloning and quality controls.
+  OmniVoice expose their native cloning and quality controls. Kokoro keeps one
+  full-quality MLX model with all 54 voices, nine language variants, speed, and
+  equal voice blending.
 - **Smart downloads** — filters out redundant duplicate weight formats automatically. F5-TTS goes from 6.3 GB → 1.3 GB, Bark from 20 GB → 4 GB, Chatterbox from 11 GB → 3 GB.
 - **Resume on retry** — partial downloads pick up where they left off.
 - **Imports** — link or move TTS weights from other launchers (e.g. a standalone VoxCPM webui).
@@ -77,7 +79,7 @@ const providers = await fetch("http://localhost:47870/api/providers").then(r => 
 await fetch("http://localhost:47870/api/downloads", {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ repo: "hexgrad/Kokoro-82M" }),
+  body: JSON.stringify({ repo: "mlx-community/Kokoro-82M-bf16" }),
 });
 
 // Watch download progress (SSE)
@@ -102,7 +104,7 @@ print(providers)
 # Start a download
 requests.post(
     "http://localhost:47870/api/downloads",
-    json={"repo": "hexgrad/Kokoro-82M"},
+    json={"repo": "mlx-community/Kokoro-82M-bf16"},
 )
 ```
 
@@ -118,7 +120,7 @@ curl http://localhost:47870/api/providers | jq .
 # Start a download
 curl -X POST http://localhost:47870/api/downloads \
   -H "content-type: application/json" \
-  -d '{"repo":"hexgrad/Kokoro-82M"}'
+  -d '{"repo":"mlx-community/Kokoro-82M-bf16"}'
 
 # Watch downloads via SSE
 curl -N http://localhost:47870/api/downloads/stream

@@ -1,7 +1,7 @@
 {
   "version": "3.6",
   "title": "Voice Studio KH",
-  "description": "Apple Silicon TTS — Kokoro, VoxCPM, Bark, Qwen3-TTS, Orpheus, Chatterbox, Spark-TTS. PyTorch + MLX variants.",
+  "description": "Apple Silicon TTS — curated MLX-first models for cloning, multilingual speech, narration, and expressive voices.",
   "icon": "icon.png",
   "platform": ["darwin"],
   "arch": ["arm64"],

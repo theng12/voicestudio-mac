@@ -84,7 +84,7 @@
           Click <strong>Install Generation</strong> (or <strong>Reinstall Generation</strong>
           if it's already been run once) in the Pinokio sidebar — same button, label
           flips automatically. Look for the ✨ wand icon next to <em>Settings</em>.
-          Installs <em>torch</em>, <em>kokoro</em>, <em>transformers</em>, and supporting
+          Installs <em>torch</em>, <em>mlx-audio</em>, <em>transformers</em>, and supporting
           libraries (~3–4 GB). After install completes, Stop → Start the server.
         </p>
         <p class="error-text" x-show="gen.error" x-text="gen.error"></p>
@@ -97,14 +97,14 @@
         <strong>No TTS models cached yet.</strong>
         <p class="muted">
           Open <a class="link-accent" @click="tab='models'">Models</a> and pick one to download.
-          <strong>hexgrad/Kokoro-82M</strong> (~340 MB, MIT, real-time) is the recommended starter — by far the smallest.
+          <strong>mlx-community/Kokoro-82M-bf16</strong> (~340 MB, MIT, real-time) is the recommended starter.
         </p>
       </div>
     </div>
 
     <p class="muted soft-hint" x-show="gen.available && cachedModels.length > 0 && !genWiredFamilies.length && !isCloudModel(gen.repo)" x-cloak>
       💡 You have models cached but no generation pipelines wired up. Make sure
-      <code>kokoro</code> is installed (Install Generation → check the install log).
+      <code>mlx-audio</code> is installed (Install Generation → check the install log).
     </p>
 
     <!-- ─── Dependency diagnostics (collapsible) ─── -->
@@ -317,37 +317,6 @@
             <span>No library voice is tagged for this provider.</span>
             <button type="button" class="link small" @click="tab='voices'">Tag a voice</button>
           </div>
-        </section>
-
-        <!-- Voice picker (Kokoro only for now) -->
-        <section class="control-block" x-show="isKokoro(gen.repo)" x-cloak>
-          <label>Voice</label>
-          <select x-model="gen.voice">
-            <optgroup label="American English — Female">
-              <template x-for="v in kokoroVoicesFor('a', 'f')" :key="v.id">
-                <option :value="v.id" x-text="v.label + ' — ' + v.id"></option>
-              </template>
-            </optgroup>
-            <optgroup label="American English — Male">
-              <template x-for="v in kokoroVoicesFor('a', 'm')" :key="v.id">
-                <option :value="v.id" x-text="v.label + ' — ' + v.id"></option>
-              </template>
-            </optgroup>
-            <optgroup label="British English — Female">
-              <template x-for="v in kokoroVoicesFor('b', 'f')" :key="v.id">
-                <option :value="v.id" x-text="v.label + ' — ' + v.id"></option>
-              </template>
-            </optgroup>
-            <optgroup label="British English — Male">
-              <template x-for="v in kokoroVoicesFor('b', 'm')" :key="v.id">
-                <option :value="v.id" x-text="v.label + ' — ' + v.id"></option>
-              </template>
-            </optgroup>
-          </select>
-          <p class="muted hint">
-            Kokoro ships ~28 preset voices. Voice ID prefix encodes language + gender
-            (af = American Female, bm = British Male, etc.).
-          </p>
         </section>
 
         <!-- ─── Qwen3-TTS CustomVoice: preset speaker picker ─── -->
@@ -591,14 +560,22 @@
         </section>
 
         <!-- ─── New mlx-audio family controls (Phase D) ─── -->
-        <!-- Kokoro-MLX / Orpheus / KittenTTS / VibeVoice: free-form voice picker. -->
+        <!-- Kokoro-MLX / Orpheus / KittenTTS / VibeVoice: preset voice picker. -->
         <section class="control-block" x-show="isMlxVoicePicker(gen.repo)" x-cloak>
-          <label>Voice</label>
+          <div class="kokoro-language-row" x-show="isKokoroMlx(gen.repo)">
+            <label for="kokoro-language">Language</label>
+            <select id="kokoro-language" x-model="gen.kokoro_language" @change="onKokoroLanguageChange()">
+              <template x-for="item in kokoroLanguageOptions()" :key="item.code">
+                <option :value="item.code" x-text="item.label + ' · ' + item.count + (item.count === 1 ? ' voice' : ' voices')"></option>
+              </template>
+            </select>
+          </div>
+          <label class="voice-picker-label">Voice</label>
 
           <!-- Clickable voice buttons for families with a verified roster
                (Voxtral / Marvis / Orpheus / Kokoro-MLX). Each button sets
                gen.voice; the active one is highlighted. -->
-          <div class="voice-btn-grid" x-show="hasVoiceButtons(gen.repo)">
+          <div class="voice-btn-grid" :class="{ 'kokoro-voice-grid': isKokoroMlx(gen.repo) }" x-show="hasVoiceButtons(gen.repo)">
             <template x-for="v in presetVoiceOptions(gen.repo)" :key="v.id">
               <button type="button"
                       class="btn ghost small voice-btn"
@@ -608,15 +585,23 @@
             </template>
           </div>
 
-          <!-- Free-text override / fallback. Always available so power users can
-               type a custom name, and the only input for families without a
-               verified roster (KittenTTS / VibeVoice). -->
+          <!-- Free-text fallback for families without a verified roster. -->
           <input type="text" class="prompt-input" x-model="gen.voice"
+                 x-show="!isKokoroMlx(gen.repo)"
                  :placeholder="hasVoiceButtons(gen.repo) ? 'Selected above — or type a custom voice name' : 'e.g. Jasper · en-Emma_woman'">
+          <div class="kokoro-blend" x-show="isKokoroMlx(gen.repo)">
+            <label for="kokoro-blend">Blend with <span class="muted small">optional, equal mix</span></label>
+            <select id="kokoro-blend" x-model="gen.kokoro_blend_voice">
+              <option value="">No blend</option>
+              <template x-for="v in kokoroVoicesForLanguage().filter(item => item.id !== gen.voice)" :key="v.id">
+                <option :value="v.id" x-text="(v.gender === 'm' ? 'Male · ' : 'Female · ') + v.label"></option>
+              </template>
+            </select>
+          </div>
           <p class="muted hint">
             <span x-show="isKokoroMlx(gen.repo)">
-              Kokoro-MLX uses the same voicepack names as PyTorch Kokoro
-              (<code>af_bella</code>, <code>am_michael</code>, <code>bf_emma</code>, etc.).
+              The voice sets Kokoro's pronunciation pipeline automatically. English auto-chunks long text;
+              for longer non-English scripts, add line breaks between sentences or paragraphs.
             </span>
             <span x-show="isOrpheus(gen.repo)">
               Orpheus voices include <code>tara</code>, <code>dan</code>, <code>leah</code>,
@@ -832,7 +817,7 @@
         </details>
 
         <!-- Speed slider — all mlx-audio families that accept it (everything except Bark + VoxCPM v1). -->
-        <section class="control-block" x-show="isKokoro(gen.repo) || (isMlxAudio(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo)) || isF5TTS(gen.repo)" x-cloak>
+        <section class="control-block" x-show="(isMlxAudio(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo)) || isF5TTS(gen.repo)" x-cloak>
           <label>Speed</label>
           <div class="slider-row">
             <input type="range" min="0.5" max="2.0" step="0.01" x-model.number="gen.speed">
@@ -846,7 +831,7 @@
         </section>
 
         <!-- Seed — applies to all wired engines -->
-        <section class="control-block" x-show="isKokoro(gen.repo) || isMlxAudio(gen.repo) || isVoxCPM(gen.repo) || isBark(gen.repo)" x-cloak>
+        <section class="control-block" x-show="isMlxAudio(gen.repo) || isVoxCPM(gen.repo) || isBark(gen.repo)" x-cloak>
           <label>Seed</label>
           <div class="seed-row">
             <input type="number" class="num-input" x-model.number="gen.seed" placeholder="-1 = random">

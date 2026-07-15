@@ -10,7 +10,7 @@
 # - Bark        → transformers
 # - F5-TTS      → diffusers + transformers + a small vendor module
 # - Chatterbox  → transformers
-# - Kokoro      → kokoro (ONNX-based, lightweight)
+# - Kokoro      → mlx-audio + multilingual misaki extras
 # - Spark-TTS   → transformers
 # Engines needing extra installs (added when their family is enabled):
 # - Piper       → uses piper-tts wheel (added in Phase 2.1)
@@ -49,11 +49,17 @@ soundfile>=0.12
 numba>=0.59
 numpy>=1.26,<2.3
 
-# ─── Phase 2.0: Kokoro ───
-# Pulls misaki[en] for English G2P (no espeak-ng needed for American/British).
-# Adding other languages (Japanese, Mandarin, etc.) means `pip install misaki[ja]`
-# plus `brew install espeak-ng` — we'll wire that up in a later phase.
-kokoro>=0.9
+# ─── Kokoro v1.0 (MLX) ───
+# Explicit extras keep every bundled voice language usable on a fresh install:
+# en includes the portable espeak-ng loader used by en/es/fr/hi/it/pt, while
+# zh adds Mandarin tokenization. Misaki's `ja` extra installs the empty UniDic
+# downloader package and then fails until a separate ~500 MB dictionary fetch;
+# use fugashi's bundled compact dictionary instead so Japanese works immediately.
+misaki[en,zh]==0.9.4
+fugashi[unidic-lite]>=1.5,<2
+jaconv>=0.4,<1
+mojimoji>=0.0.13,<1
+pyopenjtalk>=0.4,<1
 
 # ─── MLX stack (mlx-audio + friends) — PINNED (v1.6.3) ───
 # mlx-audio is a git install (not on PyPI) and tracks master, so an unpinned

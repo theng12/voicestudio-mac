@@ -68,6 +68,8 @@ function studio() {
       text: "",
       // Kokoro
       voice: "af_bella",
+      kokoro_blend_voice: "",
+      kokoro_language: "a",
       language: "",
       speed: 1.0,
       temperature: 0.8,
@@ -763,7 +765,7 @@ function studio() {
     // tone / shape setting on every engine without dragging along transient
     // session state (jobs, submitting, text content, etc).
     _GEN_PRESET_FIELDS: [
-      "voice", "preset_speaker", "bark_voice_preset", "voice_library_id",
+      "voice", "kokoro_blend_voice", "kokoro_language", "preset_speaker", "bark_voice_preset", "voice_library_id",
       "language", "speed", "temperature", "seed", "batchCount",
       "cfg_value", "inference_timesteps", "normalize_text",
       "instruct", "voice_design_prompt",
@@ -943,8 +945,10 @@ function studio() {
             || "Reference voice";
       }
       if (qwenMode === "design" || this.isOmniVoice(this.gen.repo)) return "Designed voice";
-      if (this.isKokoro(this.gen.repo) || this.isMlxVoicePicker(this.gen.repo)
-          || this.isSparkTtsMlx(this.gen.repo)) {
+      if (this.isMlxVoicePicker(this.gen.repo) || this.isSparkTtsMlx(this.gen.repo)) {
+        if (this.isKokoroMlx(this.gen.repo) && this.gen.kokoro_blend_voice) {
+          return `${this.gen.voice} + ${this.gen.kokoro_blend_voice}`;
+        }
         return this.gen.voice || "Model default";
       }
       return "Model default";
@@ -1202,7 +1206,7 @@ function studio() {
 
     get curlExample() {
       const base = this.apiBase;
-      const repo = this.gen.repo || "hexgrad/Kokoro-82M";
+      const repo = this.gen.repo || "mlx-community/Kokoro-82M-bf16";
       const body = JSON.stringify({
         repo,
         text: "Welcome to Voice Studio.",
@@ -1226,7 +1230,7 @@ function studio() {
 
     get jsExample() {
       const base = this.apiBase;
-      const repo = this.gen.repo || "hexgrad/Kokoro-82M";
+      const repo = this.gen.repo || "mlx-community/Kokoro-82M-bf16";
       const lines = [
         "const SERVER = " + JSON.stringify(base) + ";",
         "",
@@ -1295,7 +1299,7 @@ function studio() {
 
     get pythonExample() {
       const base = this.apiBase;
-      const repo = this.gen.repo || "hexgrad/Kokoro-82M";
+      const repo = this.gen.repo || "mlx-community/Kokoro-82M-bf16";
       const lines = [
         "import time, requests",
         "",
@@ -2530,10 +2534,6 @@ function studio() {
     },
 
     // ──────── TTS helpers ────────
-    isKokoro(repo) {
-      const m = (this.models || []).find(x => x.repo === repo);
-      return m?.family === "kokoro";
-    },
     isQwen3(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "qwen3-tts";
@@ -2607,7 +2607,7 @@ function studio() {
       if (this.isVoxtral(repo))   return this.gen.voxtral_voices || [];
       if (this.isMarvis(repo))    return this.gen.marvis_voices || [];
       if (this.isOrpheus(repo))   return this.gen.orpheus_voices || [];
-      if (this.isKokoroMlx(repo)) return this.gen.kokoro_voices || [];
+      if (this.isKokoroMlx(repo)) return this.kokoroVoicesForLanguage();
       return [];
     },
     /** True when the current family has clickable voice buttons available. */
@@ -2617,6 +2617,12 @@ function studio() {
     /** Set the active preset voice from a button click. */
     selectVoice(id) {
       this.gen.voice = id;
+      if (this.isKokoroMlx(this.gen.repo)) {
+        this.gen.kokoro_language = id.slice(0, 1);
+        if (this.gen.kokoro_blend_voice.slice(0, 1) !== this.gen.kokoro_language) {
+          this.gen.kokoro_blend_voice = "";
+        }
+      }
     },
     /** True for any mlx-audio-backed family that supports voice cloning from
      *  the Voices library. Used to show the voice-library picker. */
@@ -2704,6 +2710,13 @@ function studio() {
           this.gen.cfg_value = 2.0;
         }
       }
+      if (this.isKokoroMlx(this.gen.repo)) {
+        const languages = this.kokoroLanguageOptions().map(item => item.code);
+        if (!languages.includes(this.gen.kokoro_language)) this.gen.kokoro_language = "a";
+        if (!this.kokoroVoicesForLanguage().some(item => item.id === this.gen.voice)) {
+          this.gen.voice = this.kokoroVoicesForLanguage()[0]?.id || "af_heart";
+        }
+      }
     },
     /** Returns "custom" | "design" | "clone" | null based on the repo name. */
     qwen3Mode(repo) {
@@ -2763,8 +2776,22 @@ function studio() {
       }
       return `⚠ ${m.label} — needs ${(e.missing || []).join(", ")}`;
     },
-    kokoroVoicesFor(langCode, gender) {
-      return (this.gen.kokoro_voices || []).filter(v => v.lang === langCode && v.gender === gender);
+    kokoroLanguageOptions() {
+      const counts = {};
+      for (const voice of (this.gen.kokoro_voices || [])) counts[voice.lang] = (counts[voice.lang] || 0) + 1;
+      return Object.keys(counts).map(code => ({
+        code,
+        label: this.gen.lang_names[code] || code.toUpperCase(),
+        count: counts[code],
+      }));
+    },
+    kokoroVoicesForLanguage() {
+      return (this.gen.kokoro_voices || []).filter(voice => voice.lang === this.gen.kokoro_language);
+    },
+    onKokoroLanguageChange() {
+      const choices = this.kokoroVoicesForLanguage();
+      if (!choices.some(item => item.id === this.gen.voice)) this.gen.voice = choices[0]?.id || "";
+      if (!choices.some(item => item.id === this.gen.kokoro_blend_voice)) this.gen.kokoro_blend_voice = "";
     },
 
     isCloudModel(repo) {
@@ -3014,10 +3041,9 @@ function studio() {
         const repo = this.gen.repo;
         const mode = this.qwen3Mode(repo);
 
-        // Voice field: passed for Kokoro (PyTorch picker), the new MLX voice-
-        // picker families (Kokoro-MLX, Orpheus), AND Spark-TTS-MLX (which
-        // accepts an optional preset voice name).
-        const passesVoice = this.isCloudModel(repo) || this.isKokoro(repo) || this.isMlxVoicePicker(repo)
+        // Voice field: passed for the MLX voice-picker families (Kokoro and
+        // Orpheus) and Spark-TTS-MLX, which accepts an optional preset voice.
+        const passesVoice = this.isCloudModel(repo) || this.isMlxVoicePicker(repo)
                           || this.isSparkTtsMlx(repo);
 
         // Instruct / voice description: Qwen3 custom (tone), Qwen3 design (full
@@ -3040,8 +3066,11 @@ function studio() {
           text: this.gen.text.trim(),
           voice: this.isCloudModel(repo)
                  ? (this.selectedCloudVoiceId() || null)
-                 : (passesVoice ? ((this.gen.voice || "").trim() || null) : null),
-          language: (this.gen.language || "").trim() || null,
+                 : (passesVoice
+                    ? ([this.gen.voice, this.isKokoroMlx(repo) ? this.gen.kokoro_blend_voice : ""]
+                       .map(value => (value || "").trim()).filter(Boolean).join(",") || null)
+                    : null),
+          language: (this.isKokoroMlx(repo) ? this.gen.kokoro_language : this.gen.language || "").trim() || null,
           speed: Number(this.gen.speed),
           temperature: Number(this.gen.temperature),
           seed: seedForThis,
@@ -3432,9 +3461,14 @@ function studio() {
           this.voiceProviderTag(voice, providerKey)?.voice_id === p.voice
         )?.id || "";
       } else if (p.voice) {
-        this.gen.voice = p.voice;
+        const [voice, blend = ""] = p.voice.split(",");
+        this.gen.voice = voice;
+        this.gen.kokoro_blend_voice = this.isKokoroMlx(p.repo) ? blend : "";
       }
-      if (p.language) this.gen.language = p.language;
+      if (p.language) {
+        if (this.isKokoroMlx(p.repo)) this.gen.kokoro_language = p.language;
+        else this.gen.language = p.language;
+      }
       if (typeof p.speed === "number") this.gen.speed = p.speed;
       if (typeof p.temperature === "number") this.gen.temperature = p.temperature;
       const reuseSeed = job.resolved_seed ?? p.seed;

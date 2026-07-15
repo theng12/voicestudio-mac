@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import inspect
 from types import SimpleNamespace
 
 from backend import catalog, generation
@@ -40,6 +41,48 @@ def test_priority_catalog_is_focused_and_clone_capable() -> None:
     assert all(entry.repo.startswith("mlx-community/") for entry in omni)
     assert all("voice-cloning" in entry.capabilities for entry in omni)
     assert "k2-fsa/OmniVoice" not in {entry.repo for entry in omni}
+
+
+def test_kokoro_catalog_is_single_mlx_multilingual_release() -> None:
+    kokoro = [entry for entry in catalog.CATALOG if "kokoro" in entry.family]
+    assert [entry.repo for entry in kokoro] == ["mlx-community/Kokoro-82M-bf16"]
+    assert "kokoro" not in catalog.FAMILIES
+    assert len(generation.KOKORO_VOICES) == 54
+    assert {voice["lang"] for voice in generation.KOKORO_VOICES} == set("abefhijpz")
+
+
+def test_kokoro_voice_picker_sets_language_and_validates_blends() -> None:
+    manager = object.__new__(generation.GenerationManager)
+    kwargs: dict = {}
+    label = manager._mlx_kwargs_voice_picker(
+        "kokoro-mlx",
+        {"voice": "jf_alpha,jm_kumo", "language": "j"},
+        kwargs,
+    )
+    assert kwargs == {"voice": "jf_alpha,jm_kumo", "lang_code": "j"}
+    assert "lang=j" in label
+
+    try:
+        manager._mlx_kwargs_voice_picker(
+            "kokoro-mlx", {"voice": "af_heart,jf_alpha"}, {}
+        )
+    except ValueError as exc:
+        assert "same language" in str(exc)
+    else:
+        raise AssertionError("cross-language Kokoro blend should fail")
+
+
+def test_kokoro_language_dependencies_are_explicit() -> None:
+    requirements = (Path(__file__).resolve().parents[1] / "requirements-generation.txt").read_text()
+    assert "misaki[en,zh]==0.9.4" in requirements
+    assert "fugashi[unidic-lite]" in requirements
+    assert "kokoro>=" not in requirements
+
+
+def test_mlx_worker_joins_all_generated_segments() -> None:
+    source = inspect.getsource(generation.GenerationManager._generate_mlx_audio)
+    assert "join_audio=True" in source
+    assert 'temp_dir / "audio.wav"' in source
 
 
 def test_qwen_17b_base_uses_clone_mode() -> None:
