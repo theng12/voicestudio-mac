@@ -19,6 +19,9 @@ Storage layout:
 from __future__ import annotations
 
 import json
+import hashlib
+import os
+import re
 import shutil
 import threading
 import time
@@ -103,6 +106,8 @@ class Voice:
     sample_rate: Optional[int] = None
     channels: Optional[int] = None
     providers: list[dict] = field(default_factory=list)
+    fleet_managed: bool = False
+    audio_sha256: Optional[str] = None
     created_at: float = field(default_factory=time.time)
 
     def serialize(self) -> dict:
@@ -232,6 +237,161 @@ class VoiceLibrary:
                 json.dumps(asdict(voice), indent=2, default=str)
             )
             return voice
+
+    def sync_from_hub(
+        self,
+        voice_id: str,
+        *,
+        audio_bytes: bytes,
+        original_filename: str,
+        audio_sha256: str,
+        name: str,
+        language: str,
+        gender: str,
+        license: str,
+        notes: str = "",
+        source_url: Optional[str] = None,
+        transcript: Optional[str] = None,
+        permission_acknowledged: bool = False,
+    ) -> tuple[Voice, str]:
+        """Install or refresh one Hub-owned voice under a stable fleet ID.
+
+        Audio is immutable once an ID exists. Repeating the same request is
+        idempotent and may refresh metadata/transcript, while an ID or hash
+        collision is refused so a local voice can never be overwritten.
+        """
+        if not re.fullmatch(r"[0-9a-f]{12}", voice_id or ""):
+            raise ValueError("voice_id must be exactly 12 lowercase hex characters")
+        if not re.fullmatch(r"[0-9a-f]{64}", audio_sha256 or ""):
+            raise ValueError("audio_sha256 must be a lowercase SHA-256 digest")
+        actual_sha256 = hashlib.sha256(audio_bytes).hexdigest()
+        if actual_sha256 != audio_sha256:
+            raise ValueError("audio SHA-256 does not match the uploaded file")
+        self._validate_voice_input(
+            audio_bytes=audio_bytes,
+            original_filename=original_filename,
+            name=name,
+            language=language,
+            gender=gender,
+            license=license,
+            permission_acknowledged=permission_acknowledged,
+        )
+        ext = Path(original_filename).suffix.lower()
+        cleaned_transcript = (transcript or "").strip()
+
+        with self._lock:
+            VOICES_DIR.mkdir(parents=True, exist_ok=True)
+            if VOICES_DIR.is_symlink():
+                raise ValueError("voice library root may not be a symbolic link")
+            target = VOICES_DIR / voice_id
+            if target.is_symlink():
+                raise FleetVoiceConflict("voice ID points to an unsafe symbolic link")
+            current = self._load_voice(target) if target.is_dir() else None
+            if target.exists() and current is None:
+                raise FleetVoiceConflict("voice ID already exists but is not a valid voice")
+            if current is not None:
+                if not current.fleet_managed:
+                    raise FleetVoiceConflict("voice ID belongs to a local voice")
+                existing_path = target / f"{REFERENCE_BASENAME}{current.audio_extension}"
+                if existing_path.is_symlink() or not existing_path.is_file():
+                    raise FleetVoiceConflict("managed reference audio is missing or unsafe")
+                existing_sha256 = current.audio_sha256 or hashlib.sha256(
+                    existing_path.read_bytes()
+                ).hexdigest()
+                if existing_sha256 != audio_sha256 or current.audio_extension != ext:
+                    raise FleetVoiceConflict("voice ID already contains different audio")
+                updated = Voice(
+                    id=voice_id,
+                    name=name.strip(),
+                    language=language.strip(),
+                    gender=gender,
+                    notes=(notes or "").strip(),
+                    license=license,
+                    source_url=(source_url or "").strip() or None,
+                    permission_acknowledged=True,
+                    has_transcript=bool(cleaned_transcript),
+                    audio_extension=current.audio_extension,
+                    duration_seconds=current.duration_seconds,
+                    sample_rate=current.sample_rate,
+                    channels=current.channels,
+                    providers=current.providers,
+                    fleet_managed=True,
+                    audio_sha256=audio_sha256,
+                    created_at=current.created_at,
+                )
+                transcript_path = target / TRANSCRIPT_FILENAME
+                if transcript_path.is_symlink():
+                    raise FleetVoiceConflict("managed transcript path is unsafe")
+                previous_transcript = (
+                    transcript_path.read_text(encoding="utf-8").strip()
+                    if transcript_path.exists() else ""
+                )
+                if cleaned_transcript:
+                    transcript_path.write_text(cleaned_transcript, encoding="utf-8")
+                elif transcript_path.exists():
+                    transcript_path.unlink()
+                changed = (
+                    asdict(updated) != asdict(current)
+                    or previous_transcript != cleaned_transcript
+                )
+                (target / METADATA_FILENAME).write_text(
+                    json.dumps(asdict(updated), indent=2, default=str), encoding="utf-8"
+                )
+                return updated, "updated" if changed else "current"
+
+            temporary = VOICES_DIR / f".{voice_id}.{uuid.uuid4().hex}.tmp"
+            temporary.mkdir(mode=0o700, parents=False, exist_ok=False)
+            try:
+                audio_path = temporary / f"{REFERENCE_BASENAME}{ext}"
+                audio_path.write_bytes(audio_bytes)
+                duration_s, sample_rate, channels = self._probe_audio(audio_path)
+                if cleaned_transcript:
+                    (temporary / TRANSCRIPT_FILENAME).write_text(
+                        cleaned_transcript, encoding="utf-8"
+                    )
+                voice = Voice(
+                    id=voice_id,
+                    name=name.strip(),
+                    language=language.strip(),
+                    gender=gender,
+                    notes=(notes or "").strip(),
+                    license=license,
+                    source_url=(source_url or "").strip() or None,
+                    permission_acknowledged=True,
+                    has_transcript=bool(cleaned_transcript),
+                    audio_extension=ext,
+                    duration_seconds=duration_s,
+                    sample_rate=sample_rate,
+                    channels=channels,
+                    fleet_managed=True,
+                    audio_sha256=audio_sha256,
+                )
+                (temporary / METADATA_FILENAME).write_text(
+                    json.dumps(asdict(voice), indent=2, default=str), encoding="utf-8"
+                )
+                os.replace(temporary, target)
+                return voice, "created"
+            finally:
+                if temporary.exists():
+                    shutil.rmtree(temporary, ignore_errors=True)
+
+    def delete_fleet_managed(self, voice_id: str, audio_sha256: str) -> bool:
+        """Delete only the exact Hub-managed copy; local voices are protected."""
+        if not re.fullmatch(r"[0-9a-f]{12}", voice_id or ""):
+            return False
+        with self._lock:
+            target = VOICES_DIR / voice_id
+            if target.is_symlink():
+                raise FleetVoiceConflict("voice ID points to an unsafe symbolic link")
+            current = self._load_voice(target) if target.is_dir() else None
+            if current is None:
+                return False
+            if not current.fleet_managed:
+                raise FleetVoiceConflict("voice ID belongs to a local voice")
+            if current.audio_sha256 != audio_sha256:
+                raise FleetVoiceConflict("audio SHA-256 does not match the managed voice")
+            shutil.rmtree(target, ignore_errors=False)
+            return True
 
     def add_from_url(
         self,
@@ -372,6 +532,8 @@ class VoiceLibrary:
                 sample_rate=current.sample_rate,
                 channels=current.channels,
                 providers=normalized_providers,
+                fleet_managed=current.fleet_managed,
+                audio_sha256=current.audio_sha256,
                 created_at=current.created_at,
             )
             (d / METADATA_FILENAME).write_text(
@@ -407,6 +569,36 @@ class VoiceLibrary:
             return None
 
     # ── internals ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _validate_voice_input(
+        *, audio_bytes: bytes, original_filename: str, name: str,
+        language: str, gender: str, license: str,
+        permission_acknowledged: bool,
+    ) -> None:
+        if not name or not name.strip():
+            raise ValueError("name is required")
+        if len(name) > 200:
+            raise ValueError("name must be at most 200 characters")
+        if not language or not language.strip():
+            raise ValueError("language is required")
+        if license not in ALLOWED_LICENSES:
+            raise ValueError(f"license must be one of {sorted(ALLOWED_LICENSES)}")
+        if gender not in ALLOWED_GENDERS:
+            raise ValueError(f"gender must be one of {sorted(ALLOWED_GENDERS)}")
+        if not permission_acknowledged:
+            raise ValueError(
+                "permission_acknowledged is required — confirm you have rights to clone this voice"
+            )
+        if not audio_bytes:
+            raise ValueError("audio file is empty")
+        if len(audio_bytes) > MAX_BYTES:
+            raise ValueError(f"audio file is too large ({len(audio_bytes)} bytes)")
+        ext = Path(original_filename).suffix.lower()
+        if ext not in ALLOWED_AUDIO_EXTS:
+            raise ValueError(
+                f"audio extension {ext!r} not allowed (allowed: {sorted(ALLOWED_AUDIO_EXTS)})"
+            )
 
     @staticmethod
     def _normalize_provider_tags(tags: list[dict]) -> list[dict]:
@@ -457,3 +649,7 @@ class VoiceLibrary:
 
 
 library = VoiceLibrary()
+
+
+class FleetVoiceConflict(ValueError):
+    """A stable fleet ID would overwrite unrelated or changed local data."""

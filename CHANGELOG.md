@@ -10,6 +10,31 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.19.0] — 2026-07-16
+
+### Added — authenticated shared voice synchronization
+
+- Added a stable-ID fleet import endpoint for Studio Hub. A shared reference
+  now arrives with the same ID, audio SHA-256, metadata, and reviewed transcript
+  on every Voice Studio, so Hub-dispatched cloning jobs resolve consistently.
+- Repeating a synchronization is idempotent. Hub may refresh metadata and the
+  transcript without recopying audio, while machine-local provider mappings and
+  generated embedding caches remain local to each Voice Studio.
+- Added a matching managed-delete endpoint that can remove only the exact
+  Hub-owned audio hash. Existing local voices can never be overwritten or
+  deleted by fleet synchronization.
+
+### Safety and recovery
+
+- Fleet writes remain protected by the existing Studio token middleware and
+  reject malformed IDs, unsupported audio, oversized files, hash mismatches,
+  symbolic-link targets, and stable-ID collisions.
+- New focused tests cover first install, repeat sync, transcript correction,
+  local voice collision protection, changed-audio refusal, safe deletion, and
+  input validation. No new dependency or generation-engine install is needed.
+
+---
+
 ## [1.18.1] — 2026-07-15
 
 ### Fixed

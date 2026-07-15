@@ -22,6 +22,9 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 - **Imports** — link or move TTS weights from other launchers (e.g. a standalone VoxCPM webui).
 - **Cloud audio gateway** — connect ElevenLabs, GenAIPro, Fish Audio, fal.ai, or Kie.ai in Settings, explicitly allow paid use, map provider-native IDs onto voices in the library, then use cloud and local models from the same Generate workspace.
 - **Restart-safe cloud jobs** — asynchronous provider tasks are saved immediately and recalled after an Update or restart, so Voice Studio polls the existing paid task instead of submitting it twice.
+- **Hub-managed shared voices** — Studio Hub can securely install one reference
+  voice under the same stable ID, audio hash, and transcript on every Voice
+  Studio Mac. Existing machine-local voices are protected from collisions.
 - **Direct API** — bound on `0.0.0.0:47870`, hit it from your main Mac over LAN, Tailscale, or anywhere on the network.
 
 ## How to use
@@ -161,6 +164,21 @@ curl -X POST http://localhost:47870/api/downloads \
 # Watch downloads via SSE
 curl -N http://localhost:47870/api/downloads/stream
 ```
+
+### Studio Hub fleet voice contract
+
+Studio Hub uses two authenticated maintenance endpoints; normal users add and
+transcribe shared voices in Hub rather than calling these directly:
+
+- `PUT /api/voices/{stable_12_hex_id}/fleet-sync` — multipart audio, SHA-256,
+  metadata, permission acknowledgement, and optional transcript. Repeating the
+  same ID and hash is safe.
+- `DELETE /api/voices/{stable_12_hex_id}/fleet-sync?audio_sha256=...` — removes
+  only an exact Hub-managed copy. It refuses machine-local voices and hash
+  mismatches.
+
+Remote calls require the fleet's `X-Studio-Token`. Provider-specific voice IDs
+and generated embeddings are intentionally not distributed.
 
 ## Folder layout
 

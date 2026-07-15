@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -40,7 +40,7 @@ from .generation import (
 )
 from .downloads import manager
 from .imports import import_path, scan_for_candidates
-from .voices import library as voice_library
+from .voices import FleetVoiceConflict, library as voice_library
 from .fleet_auth import load_token as load_fleet_token, make_middleware as fleet_middleware, manifest
 from .transcription import (
     manager as stt_manager,
@@ -789,6 +789,59 @@ async def add_voice(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"voice": _serialize_voice(v)}
+
+
+@app.put("/api/voices/{voice_id}/fleet-sync")
+async def sync_fleet_voice(
+    voice_id: str,
+    audio: UploadFile = File(...),
+    audio_sha256: str = Form(...),
+    name: str = Form(...),
+    language: str = Form(...),
+    gender: str = Form(...),
+    license: str = Form(...),
+    notes: str = Form(""),
+    source_url: str = Form(""),
+    transcript: str = Form(""),
+    permission_acknowledged: bool = Form(False),
+) -> dict:
+    """Idempotently install one authenticated, Hub-owned shared voice."""
+    try:
+        data = await audio.read()
+        voice, status = voice_library.sync_from_hub(
+            voice_id,
+            audio_bytes=data,
+            original_filename=audio.filename or "reference.wav",
+            audio_sha256=audio_sha256,
+            name=name,
+            language=language,
+            gender=gender,
+            license=license,
+            notes=notes,
+            source_url=source_url or None,
+            transcript=transcript or None,
+            permission_acknowledged=permission_acknowledged,
+        )
+    except FleetVoiceConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "voice": _serialize_voice(voice),
+        "sync": {"status": status, "sha256": voice.audio_sha256},
+    }
+
+
+@app.delete("/api/voices/{voice_id}/fleet-sync")
+def delete_fleet_voice(voice_id: str, audio_sha256: str = Query(...)) -> dict:
+    """Remove only the exact Hub-managed copy, never an unrelated local voice."""
+    try:
+        deleted = voice_library.delete_fleet_managed(voice_id, audio_sha256)
+    except FleetVoiceConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"managed voice {voice_id} not found")
+    return {"deleted": voice_id, "sha256": audio_sha256}
 
 
 @app.delete("/api/voices/{voice_id}")
