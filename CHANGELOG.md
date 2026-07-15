@@ -10,6 +10,44 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.18.0] — 2026-07-15
+
+### Added — safe optional automatic updates
+
+- Added an **Automatic updates** Settings panel with Off, Notify only, and
+  automatic-install modes. It is disabled by default, supports daily or weekly
+  checks, uses a staggered 02:00 maintenance hour, and verifies its launchd
+  schedule separately from saving preferences.
+- Added live installed/latest versions, last and next check times, updater state,
+  defer reasons, results, retry and check actions, release notes, and collapsible
+  technical details. **Update after current work** retries automatically once
+  generation, transcription, model loading, and downloads are idle.
+- Added a short-lived per-app LaunchAgent and detached update helper. It works
+  without an open browser or a continuously running Python polling process.
+
+### Safety and recovery
+
+- Updates now verify the fixed GitHub origin, `main`, clean worktree,
+  fast-forward history, free disk space, dependencies, imports, health endpoint,
+  and exact running version. Dirty, detached, divergent, rewritten, or unexpected
+  repositories are refused without changing files.
+- The helper detects startup-service versus Pinokio Start mode and restarts only
+  the active owner. A per-app lock prevents concurrent manual and scheduled runs.
+- Failed installs or health checks make one bounded rollback attempt to the clean
+  pre-update commit, reinstall matching requirements, restart the previous mode,
+  and report whether recovery succeeded. Secrets are redacted from bounded logs.
+- Reset now unloads and removes the updater before deleting the environment.
+
+### Verified
+
+- Added 19 focused updater tests covering default-off, notify and automatic
+  modes, scheduler transitions, settings validation, active-work deferral,
+  remote/branch/worktree/history checks, disk failure, dependency and health
+  failures, rollback outcomes, service and Pinokio restarts, locking, scheduling,
+  and secret redaction.
+- A real launchd enable, validation, disable, and removal cycle passed; the
+  released default remains Off.
+
 ## [1.17.2] — 2026-07-15
 
 ### Fixed — final MLX runtime audit

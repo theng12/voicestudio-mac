@@ -32,6 +32,34 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 4. **Install Generation** (the ✨ wand sidebar item) to use local models. Cloud models do not require the local generation engine.
 5. For cloud speech, open **Settings → Cloud audio providers**, choose a provider card, save and test its key, enable paid usage, then map a provider voice under **Voices → Edit**.
 
+## Automatic updates (optional)
+
+Open **Settings → Automatic updates** to choose:
+
+- **Off** — the default. No updater schedule is loaded.
+- **Notify only** — checks on your daily or weekly schedule and sends one useful
+  notification when a new version is available.
+- **Download and install automatically** — installs only after Voice Studio is
+  idle, then restarts and verifies the mode that was actually active.
+
+The default maintenance time is 02:00, staggered from the sibling Studios. Keep
+**Update only while idle** enabled: generation, queued work, model loading,
+transcription, and downloads defer the update without cancelling anything. Use
+**Update after current work** for a one-time automatic retry even while the
+regular mode is Off.
+
+Every install requires the expected GitHub origin, `main`, a clean worktree, a
+fast-forward update, and enough disk space. Local edits are never discarded.
+After dependencies install, Voice Studio must pass its import check, health
+endpoint, and running-version check before success is reported. A failed update
+makes one bounded rollback attempt and clearly reports whether the previous
+version recovered. Technical logs are rotated under `logs/auto_update/`.
+
+Saving preferences validates the LaunchAgent separately; the Settings panel says
+**Installed & verified** only after launchd accepts it. Turning the mode Off
+unloads and removes that schedule immediately. If the updater enters Repair,
+open the technical details, fix the named Git/service issue, then choose Retry.
+
 ## Versioning
 
 Voice Studio KH uses [Semantic Versioning](https://semver.org/) with this project-specific interpretation:
@@ -47,6 +75,12 @@ The WebUI footer shows the running version. The same value is also surfaced at:
 - `GET /api/version` → `{"app_version": "1.0.0", "title": "Voice Studio KH"}`
 - `GET /api/health` → includes `app_version`
 - `GET /api/generate/diagnostics` → includes `app_version`
+- `GET /api/auto-update/status` → public updater settings and state (secrets redacted)
+- `GET /api/auto-update/readiness` → idle state and active-work reasons
+- `POST /api/auto-update/settings` → save and validate the opt-in schedule
+- `POST /api/auto-update/check` → run a safe version check
+- `POST /api/auto-update/update` → update now or pass `{"after_current":true}`
+- `POST /api/auto-update/retry` → retry a failed update
 
 ## Truth audit (for contributors)
 
@@ -141,6 +175,7 @@ voicestudio-mac/
 ├── install_generation.js  # Adds heavy Phase 2 deps (torch, transformers, diffusers)
 ├── start.js            # Launches uvicorn on port 47870
 ├── update.js           # git pull + reinstall Phase 1 deps
+├── auto_update/        # ignored per-machine updater config/status (created on use)
 ├── reset.js            # Nuke the conda env
 ├── pinokio.js          # Sidebar menu
 ├── pinokio.json        # Pinokio metadata

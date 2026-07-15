@@ -36,6 +36,7 @@ from .generation import (
     manager as gen_manager,
     availability as gen_availability,
     diagnostics as gen_diagnostics,
+    _GEN_LOCK,
 )
 from .downloads import manager
 from .imports import import_path, scan_for_candidates
@@ -45,6 +46,8 @@ from .transcription import (
     manager as stt_manager,
     availability as stt_availability,
 )
+from .auto_update import UpdateError
+from .auto_update_config import create_updater
 
 
 # ───────────── App release version ─────────────
@@ -128,6 +131,17 @@ class SettingsBody(BaseModel):
     hf_token: Optional[str] = None
 
 
+class AutoUpdateSettingsBody(BaseModel):
+    mode: str
+    frequency: str
+    maintenance_hour: int
+    idle_only: bool = True
+
+
+class AutoUpdateRequestBody(BaseModel):
+    after_current: bool = False
+
+
 class TokenTestBody(BaseModel):
     hf_token: Optional[str] = None
 
@@ -192,6 +206,25 @@ class Txt2SpeechBody(BaseModel):
     bark_max_coarse_history: int = 60
     bark_sliding_window_len: int = 60
     bark_allow_early_stop: bool = True
+
+
+def _automatic_update_blockers() -> list[str]:
+    """Return truthful, user-facing reasons this Studio is not idle."""
+    reasons: list[str] = []
+    generation_states = {str(job.state) for job in gen_manager.list_jobs()}
+    if generation_states & {"queued", "running", "loading", "cancelling"}:
+        reasons.append("voice generation is queued or running")
+    download_states = {str(job.state) for job in manager.list_jobs()}
+    if download_states & {"queued", "running", "paused", "cancelling"}:
+        reasons.append("a model download is active")
+    # Voice generation and transcription share this Metal lock. It remains
+    # locked while a model is loading, generating, or transcribing.
+    if _GEN_LOCK.locked() and not reasons:
+        reasons.append("a model is loading or transcription is active")
+    return reasons
+
+
+auto_updater = create_updater(readiness=_automatic_update_blockers)
 
 
 # ───────────── API: meta ─────────────
@@ -278,6 +311,48 @@ def app_release_version() -> dict:
         "app_version": APP_VERSION,
         "title": app.title,
     }
+
+
+@app.get("/api/auto-update/status")
+def automatic_update_status() -> dict:
+    return auto_updater.public_status()
+
+
+@app.get("/api/auto-update/readiness")
+def automatic_update_readiness() -> dict:
+    return auto_updater.readiness_status()
+
+
+@app.post("/api/auto-update/settings")
+def automatic_update_settings(body: AutoUpdateSettingsBody) -> dict:
+    try:
+        return auto_updater.save_settings(body.model_dump())
+    except UpdateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/auto-update/check")
+def automatic_update_check() -> dict:
+    try:
+        return auto_updater.trigger_check()
+    except UpdateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/auto-update/update")
+def automatic_update_run(body: AutoUpdateRequestBody) -> dict:
+    try:
+        return auto_updater.trigger_update(after_current=body.after_current)
+    except UpdateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/auto-update/retry")
+def automatic_update_retry() -> dict:
+    try:
+        return auto_updater.retry()
+    except UpdateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/system")
