@@ -406,10 +406,10 @@
         <!-- ─── Qwen3-TTS Base: voice cloning from library ─── -->
         <section class="control-block" x-show="qwen3Mode(gen.repo) === 'clone'" x-cloak>
           <label>Reference voice (from library) <span class="required">*</span></label>
-          <select x-model="gen.voice_library_id">
+          <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
             <option value="">— pick a voice from your library —</option>
             <template x-for="v in voices" :key="v.id">
-              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')'"></option>
+              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' + (v.has_transcript ? ' ✓ transcript' : ' ⚠ no transcript')"></option>
             </template>
           </select>
           <p class="muted hint" x-show="voices.length === 0">
@@ -418,24 +418,33 @@
           </p>
           <p class="muted hint" x-show="voices.length > 0">
             Manage clips in <a class="link-accent" @click="tab='voices'">Voices</a>.
-            Tip: a transcript (set when uploading the voice) sometimes improves prosody — leave the override blank to use the library's transcript.
+            The transcript saved with the selected voice is loaded automatically and sent with the reference clip.
           </p>
         </section>
 
         <section class="control-block" x-show="qwen3Mode(gen.repo) === 'clone' && gen.voice_library_id" x-cloak>
+          <label>Saved reference transcript</label>
+          <textarea :value="selectedStoredTranscript" rows="2" readonly
+                    placeholder="No transcript is saved for this voice."></textarea>
+          <p class="muted hint" x-show="selectedStoredTranscript">
+            Loaded from the Voices library. Qwen3-TTS will use this unless you enter an override below.
+          </p>
+          <p class="muted hint" x-show="!selectedStoredTranscript">
+            This voice has no saved transcript. Add one under <a class="link-accent" @click="tab='voices'">Voices</a>, or enter a one-time override below.
+          </p>
+
           <label>Reference transcript override (optional)</label>
           <textarea x-model="gen.ref_transcript" rows="2"
-                    placeholder="Override what's spoken in the reference clip. Defaults to the library transcript if blank."></textarea>
+                    placeholder="Leave blank to use the saved transcript shown above."></textarea>
           <p class="muted hint">
-            Qwen3-TTS uses this to align timing. Usually the library's saved transcript works — only override if
-            you renamed the voice or used a different clip than the original.
+            This only affects the current generation. It does not replace the transcript saved in the Voices library.
           </p>
         </section>
 
         <!-- ─── VoxCPM: optional reference voice (cloning) ─── -->
         <section class="control-block" x-show="isVoxCPM(gen.repo)" x-cloak>
           <label>Reference voice (optional, enables voice cloning)</label>
-          <select x-model="gen.voice_library_id">
+          <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
             <option value="">— no reference, use voice design via emotion below —</option>
             <template x-for="v in voices" :key="v.id">
               <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' + (v.has_transcript ? ' ✓ transcript' : ' ⚠ no transcript')"></option>
@@ -518,7 +527,7 @@
         <!-- ─── VoxCPM2-MLX: reference voice (optional) ─── -->
         <section class="control-block" x-show="isVoxCPMMlx(gen.repo)" x-cloak>
           <label>Reference voice (optional, enables cloning)</label>
-          <select x-model="gen.voice_library_id">
+          <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
             <option value="">— no reference, use voice design above or zero-shot default —</option>
             <template x-for="v in voices" :key="v.id">
               <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' + (v.has_transcript ? ' ✓ transcript' : '')"></option>
@@ -645,7 +654,7 @@
             <span x-show="isChatterboxMlx(gen.repo)" class="required">*</span>
             <span x-show="isSparkTtsMlx(gen.repo)" class="muted small">(optional — zero-shot if blank)</span>
           </label>
-          <select x-model="gen.voice_library_id">
+          <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
             <option value="">— pick a voice from your library —</option>
             <template x-for="v in voices" :key="v.id">
               <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')'"></option>
@@ -672,7 +681,7 @@
             <span class="required">*</span>
             <span class="muted small">(F5-TTS has no zero-shot mode — pick a voice)</span>
           </label>
-          <select x-model="gen.voice_library_id">
+          <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
             <option value="">— pick a voice from your library —</option>
             <template x-for="v in voices" :key="v.id">
               <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' + (v.has_transcript ? ' ✓ transcript' : ' ⚠ no transcript')"></option>
@@ -723,10 +732,10 @@
 
         <section class="control-block" x-show="isOmniVoice(gen.repo)" x-cloak>
           <label>Reference voice <span class="muted small">(optional — enables MLX cloning)</span></label>
-          <select x-model="gen.voice_library_id">
+          <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
             <option value="">— design a new voice instead —</option>
             <template x-for="v in voices" :key="v.id">
-              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' "></option>
+              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' + (v.has_transcript ? ' ✓ transcript' : ' ⚠ no transcript')"></option>
             </template>
           </select>
           <p class="muted hint" x-show="voices.length === 0">

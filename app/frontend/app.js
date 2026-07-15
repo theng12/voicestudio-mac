@@ -766,7 +766,7 @@ function studio() {
       "voice", "preset_speaker", "bark_voice_preset", "voice_library_id",
       "language", "speed", "temperature", "seed", "batchCount",
       "cfg_value", "inference_timesteps", "normalize_text",
-      "instruct", "voice_design_prompt", "ref_transcript",
+      "instruct", "voice_design_prompt",
       "chatterbox_cfg_weight", "chatterbox_repetition_penalty",
       "chatterbox_min_p", "chatterbox_top_p",
       "omnivoice_num_steps", "omnivoice_guidance_scale", "omnivoice_duration_s",
@@ -953,6 +953,26 @@ function studio() {
     get selectedCloudProvider() {
       const key = this.cloudProviderKey(this.gen.repo);
       return key ? this.providers.find(p => p.key === key) || null : null;
+    },
+
+    get selectedLibraryVoice() {
+      return this.voices.find(v => v.id === this.gen.voice_library_id) || null;
+    },
+
+    get selectedStoredTranscript() {
+      return (this.selectedLibraryVoice?.transcript || "").trim();
+    },
+
+    onReferenceVoiceChange() {
+      // An override belongs to one specific clip. Never carry it to another
+      // voice, where it would misalign the new audio with the old transcript.
+      this.gen.ref_transcript = "";
+    },
+
+    referenceTranscriptForRequest() {
+      return (this.gen.ref_transcript || "").trim()
+          || this.selectedStoredTranscript
+          || null;
     },
 
     get selectedCloudVoices() {
@@ -3032,7 +3052,7 @@ function studio() {
                                : null,
           voice_library_id: passesLibraryVoice ? (this.gen.voice_library_id || null) : null,
           ref_transcript: passesLibraryVoice
-                          ? (this.gen.ref_transcript || "").trim() || null
+                          ? this.referenceTranscriptForRequest()
                           : null,
           // cfg_value doubles as Chatterbox's exaggeration knob — the backend
           // resolver re-interprets per family. inference_timesteps only matters

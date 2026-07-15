@@ -10,6 +10,26 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.14.1] — 2026-07-15
+
+### Fixed — saved cloning transcripts are visible and correctly paired
+
+- The Voices listing now includes the saved transcript text, not only a
+  has-transcript flag.
+- Voice creation, editing, provider-tag updates, and seed imports now return the
+  same complete transcript-bearing record, so the Generate tab updates
+  immediately without a reload.
+- Qwen3 Base cloning shows the selected voice's saved transcript and sends it
+  explicitly with the reference clip. A separate optional override remains
+  available for one generation without changing the library entry.
+- Switching reference voices clears any one-time transcript override, preventing
+  a transcript from the previous voice being paired with the newly selected
+  audio. This protection applies to every local cloning engine.
+- Transcript overrides are no longer persisted per model because they belong to
+  a specific reference clip.
+
+No dependency or launcher change is required. **Just run Update.**
+
 ## [1.14.0] — 2026-07-15
 
 ### Added — priority MLX voice-cloning workflow

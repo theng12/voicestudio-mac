@@ -632,9 +632,15 @@ def generation_diagnostics() -> dict:
 
 # ───────────── API: voice library ─────────────
 
+def _serialize_voice(voice) -> dict:
+    item = voice.serialize()
+    item["transcript"] = voice_library.transcript(voice.id) or ""
+    return item
+
+
 @app.get("/api/voices")
 def list_voices() -> dict:
-    return {"voices": [v.serialize() for v in voice_library.list()]}
+    return {"voices": [_serialize_voice(voice) for voice in voice_library.list()]}
 
 
 @app.get("/api/voices/{voice_id}")
@@ -642,10 +648,7 @@ def get_voice(voice_id: str) -> dict:
     v = voice_library.get(voice_id)
     if v is None:
         raise HTTPException(status_code=404, detail=f"voice {voice_id} not found")
-    transcript = voice_library.transcript(voice_id)
-    out = v.serialize()
-    out["transcript"] = transcript
-    return out
+    return _serialize_voice(v)
 
 
 @app.get("/api/voices/{voice_id}/audio")
@@ -704,7 +707,7 @@ async def add_voice(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"voice": v.serialize()}
+    return {"voice": _serialize_voice(v)}
 
 
 @app.delete("/api/voices/{voice_id}")
@@ -760,7 +763,7 @@ def update_voice(voice_id: str, body: UpdateVoiceBody) -> dict:
         raise HTTPException(status_code=400, detail=str(e))
     if updated is None:
         raise HTTPException(status_code=404, detail=f"voice {voice_id} not found")
-    return {"voice": updated.serialize()}
+    return {"voice": _serialize_voice(updated)}
 
 
 @app.put("/api/voices/{voice_id}/providers")
@@ -780,7 +783,7 @@ def update_voice_providers(voice_id: str, body: UpdateVoiceProvidersBody) -> dic
         raise HTTPException(status_code=400, detail=str(e))
     if updated is None:
         raise HTTPException(status_code=404, detail=f"voice {voice_id} not found")
-    return {"voice": updated.serialize()}
+    return {"voice": _serialize_voice(updated)}
 
 
 # ──── public-domain seed catalog ────
@@ -818,7 +821,7 @@ def add_seed_voice(body: AddSeedBody) -> dict:
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"voice": v.serialize()}
+    return {"voice": _serialize_voice(v)}
 
 
 # The frontend was copied from MusicStudio/ImageStudio and calls /api/loras —
