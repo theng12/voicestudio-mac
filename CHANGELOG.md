@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.18.1] — 2026-07-15
+
+### Fixed
+
+- Generation diagnostics and the Install/Update verification commands now import
+  and report `torchaudio`, which is required by the F5-TTS and VoCoS stack.
+  The existing installed environment passed this check; the gap could otherwise
+  have reported F5-TTS as ready while omitting a broken audio dependency.
+
+### Verified
+
+- Existing model catalog, worker dispatch, MLX controls, automatic-update
+  behavior, and UI formatting were checked and deliberately left unchanged.
+- Full test suite, Python compilation, JavaScript parsing, dependency checks,
+  and the live health/diagnostics endpoints passed.
+
+---
+
 ## [1.18.0] — 2026-07-15
 
 ### Added — safe optional automatic updates

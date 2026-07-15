@@ -298,6 +298,7 @@ def _have_diffusers() -> bool:
 # checks these one-by-one and tells the UI which engines are ready.
 _PACKAGE_CHECKLIST = [
     ("torch",         "Core ML framework + MPS device support"),
+    ("torchaudio",    "Audio operators required by F5-TTS and its vocoder stack"),
     ("transformers",  "Tokenizers used by Bark, Spark-TTS, and Whisper"),
     ("misaki",        "Multilingual grapheme-to-phoneme for Kokoro MLX"),
     ("fugashi",       "Japanese tokenizer for Kokoro MLX"),
@@ -333,7 +334,7 @@ _ENGINE_REQUIREMENTS = {
     "voxtral-tts":    ["mlx", "mlx_audio", "mistral_common", "soundfile", "numpy"],
     "marvis":         ["mlx", "mlx_lm", "mlx_audio", "soundfile", "numpy"],
     # F5-TTS (PyTorch, flow-matching). Wired in v1.3.0.
-    "f5-tts":     ["f5_tts", "torch", "vocos", "soundfile"],
+    "f5-tts":     ["f5_tts", "torch", "torchaudio", "vocos", "soundfile"],
 }
 
 # Which engines have an actual worker implemented in this app — i.e. picking

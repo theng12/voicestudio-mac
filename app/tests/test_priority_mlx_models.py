@@ -51,6 +51,8 @@ def test_diagnostics_cover_every_wired_engine_and_show_package_versions() -> Non
     assert result["total_engines"] == 13
     packages = {package["package"]: package for package in result["packages"]}
     assert packages["mlx_audio"]["version"]
+    assert packages["torchaudio"]["installed"]
+    assert "torchaudio" in generation._ENGINE_REQUIREMENTS["f5-tts"]
     assert "mistral_common" in generation._ENGINE_REQUIREMENTS["voxtral-tts"]
     assert "mlx_lm" in generation._ENGINE_REQUIREMENTS["marvis"]
 
