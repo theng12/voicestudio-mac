@@ -188,6 +188,10 @@ class Txt2SpeechBody(BaseModel):
     omnivoice_duration_s: Optional[float] = None
     # ── Bark-specific knobs ──
     bark_voice_preset: Optional[str] = None  # e.g. "v2/en_speaker_6"; None = random
+    bark_temperature: float = 0.7
+    bark_max_coarse_history: int = 60
+    bark_sliding_window_len: int = 60
+    bark_allow_early_stop: bool = True
 
 
 # ───────────── API: meta ─────────────

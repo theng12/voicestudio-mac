@@ -6,7 +6,7 @@ the authoritative list — the audit_truth.py script cross-checks that list
 against the actual dispatch branches on every release.
 
 Currently wired (workers exist):
-- bark            → transformers BarkModel
+- bark            → mlx-audio worker
 - voxcpm-mlx      → mlx-audio worker
 - kokoro-mlx      → mlx-audio worker
 - qwen3-tts       → mlx-audio worker (custom / design / clone modes by repo)
@@ -71,7 +71,7 @@ COMPLIANCE TABLE (keep current when adding workers):
 |-----------------------|---------------------------------------------------------------|--------|
 | _generate_mlx_audio   | load_model(snapshot_path)  Path not str (v1.2.8)              | OK     |
 | _generate_f5_tts      | F5TTS(ckpt_file=…, vocab_file=…)  (v1.3.4)                    | OK     |
-| _generate_bark        | BarkModel.from_pretrained(str(snapshot_path), local_files_only=True)     | OK |
+| Bark via MLX worker   | load_model(snapshot_path) + absolute local voice prompt                   | OK |
 
 ═════════════════════════════════════════════════════════════════════════
 
@@ -220,7 +220,7 @@ LANG_NAMES = {
 def availability() -> dict:
     """Per-engine availability + the static config the frontend needs."""
     qwen3_ok = _have_mlx_audio()
-    bark_ok = _have_bark()
+    bark_ok = qwen3_ok
     omnivoice_ok = qwen3_ok
     f5_tts_ok = _have_f5_tts()
     wired = []
@@ -229,8 +229,6 @@ def availability() -> dict:
         # If mlx-audio imports, every entry in MLX_AUDIO_FAMILIES is wired.
         for fam in MLX_AUDIO_FAMILIES.keys():
             wired.append(fam)
-    if bark_ok:
-        wired.append("bark")
     if f5_tts_ok:
         wired.append("f5-tts")
     return {
@@ -254,7 +252,7 @@ def availability() -> dict:
         "voxtral_voices": VOXTRAL_VOICES,
         "marvis_voices": MARVIS_VOICES,
         "orpheus_voices": ORPHEUS_VOICES,
-        "lang_names": LANG_NAMES,
+        "lang_names": {**LANG_NAMES, **_BARK_LANGUAGES},
         "phase": 2,
         "wired_families": wired,
     }
@@ -262,11 +260,6 @@ def availability() -> dict:
 
 def _have_mlx_audio() -> bool:
     return _package_installed("mlx_audio")
-
-
-def _have_bark() -> bool:
-    """Bark is bundled with Transformers; diagnostics deep-checks the package."""
-    return _package_installed("transformers")
 
 
 def _have_f5_tts() -> bool:
@@ -302,7 +295,7 @@ def _have_diffusers() -> bool:
 # checks these one-by-one and tells the UI which engines are ready.
 _PACKAGE_CHECKLIST = [
     ("torch",         "Core ML framework + MPS device support"),
-    ("transformers",  "Tokenizers and Bark / Spark-TTS architectures"),
+    ("transformers",  "Tokenizers used by Bark, Spark-TTS, and Whisper"),
     ("misaki",        "Multilingual grapheme-to-phoneme for Kokoro MLX"),
     ("fugashi",       "Japanese tokenizer for Kokoro MLX"),
     ("jieba",         "Mandarin tokenizer for Kokoro MLX"),
@@ -310,7 +303,7 @@ _PACKAGE_CHECKLIST = [
     ("accelerate",    "Multi-device model loading"),
     ("soundfile",     "WAV file writing (libsndfile)"),
     ("numpy",         "Tensor numerics"),
-    ("phonemizer",    "IPA conversion for Bark / future engines"),
+    ("phonemizer",    "IPA conversion for speech engines"),
     # MLX-side packages (Qwen3-TTS family). Apple Silicon native, not PyTorch.
     ("mlx",           "Apple Silicon ML framework (Qwen3-TTS)"),
     ("mlx_audio",     "MLX inference wrapper for audio models (including OmniVoice)"),
@@ -321,7 +314,7 @@ _PACKAGE_CHECKLIST = [
 
 _ENGINE_REQUIREMENTS = {
     "voxcpm-mlx":     ["mlx", "mlx_audio", "soundfile", "numpy"],
-    "bark":           ["torch", "transformers", "soundfile", "accelerate"],
+    "bark":           ["mlx", "mlx_audio", "transformers", "soundfile", "numpy"],
     # Other mlx-audio-backed families. All share the same package set, since
     # mlx-audio is the only inference dep.
     "qwen3-tts":      ["mlx", "mlx_audio", "soundfile", "numpy"],
@@ -372,6 +365,12 @@ _WIRED_FAMILIES = {
 # rows, drop a config line here, list it in _WIRED_FAMILIES + _ENGINE_REQUIREMENTS.
 # No new worker code needed unless mlx-audio exposes a never-before-seen kwarg.
 MLX_AUDIO_FAMILIES: dict[str, dict] = {
+    "bark": {
+        "default_sample_rate": 24000,
+        "uses_cfg": False,
+        "mode": "bark",
+        "label": "Suno Bark (MLX)",
+    },
     "qwen3-tts": {
         "default_sample_rate": 24000,
         "uses_cfg": False,
@@ -447,38 +446,22 @@ MLX_AUDIO_FAMILIES: dict[str, dict] = {
 
 # ───────────── Bark preset metadata ─────────────
 
-# Bark ships 130+ preset speakers (v2/<lang>_speaker_0..9 across ~13 languages).
-# We surface a curated set — all 10 English speakers + 2-3 popular per other
-# language — to keep the picker manageable while letting users explore.
+# The current MLX conversion ships all ten v2 prompts for all 13 languages.
+_BARK_LANGUAGES = {
+    "en": "English", "de": "German", "es": "Spanish", "fr": "French",
+    "hi": "Hindi", "it": "Italian", "ja": "Japanese", "ko": "Korean",
+    "pl": "Polish", "pt": "Portuguese", "ru": "Russian", "tr": "Turkish",
+    "zh": "Chinese",
+}
 BARK_VOICE_PRESETS = [
-    # ── English (all 10) ──
-    {"id": "v2/en_speaker_0", "lang": "en", "label": "English · Speaker 0"},
-    {"id": "v2/en_speaker_1", "lang": "en", "label": "English · Speaker 1"},
-    {"id": "v2/en_speaker_2", "lang": "en", "label": "English · Speaker 2"},
-    {"id": "v2/en_speaker_3", "lang": "en", "label": "English · Speaker 3"},
-    {"id": "v2/en_speaker_4", "lang": "en", "label": "English · Speaker 4"},
-    {"id": "v2/en_speaker_5", "lang": "en", "label": "English · Speaker 5"},
-    {"id": "v2/en_speaker_6", "lang": "en", "label": "English · Speaker 6 (popular)"},
-    {"id": "v2/en_speaker_7", "lang": "en", "label": "English · Speaker 7"},
-    {"id": "v2/en_speaker_8", "lang": "en", "label": "English · Speaker 8"},
-    {"id": "v2/en_speaker_9", "lang": "en", "label": "English · Speaker 9"},
-    # ── Other languages — first 3 per language for variety ──
-    {"id": "v2/zh_speaker_0", "lang": "zh", "label": "Chinese · Speaker 0"},
-    {"id": "v2/zh_speaker_4", "lang": "zh", "label": "Chinese · Speaker 4"},
-    {"id": "v2/ja_speaker_0", "lang": "ja", "label": "Japanese · Speaker 0"},
-    {"id": "v2/ja_speaker_3", "lang": "ja", "label": "Japanese · Speaker 3"},
-    {"id": "v2/ko_speaker_0", "lang": "ko", "label": "Korean · Speaker 0"},
-    {"id": "v2/fr_speaker_0", "lang": "fr", "label": "French · Speaker 0"},
-    {"id": "v2/fr_speaker_3", "lang": "fr", "label": "French · Speaker 3"},
-    {"id": "v2/de_speaker_0", "lang": "de", "label": "German · Speaker 0"},
-    {"id": "v2/de_speaker_3", "lang": "de", "label": "German · Speaker 3"},
-    {"id": "v2/es_speaker_0", "lang": "es", "label": "Spanish · Speaker 0"},
-    {"id": "v2/it_speaker_0", "lang": "it", "label": "Italian · Speaker 0"},
-    {"id": "v2/pt_speaker_0", "lang": "pt", "label": "Portuguese · Speaker 0"},
-    {"id": "v2/ru_speaker_0", "lang": "ru", "label": "Russian · Speaker 0"},
-    {"id": "v2/hi_speaker_0", "lang": "hi", "label": "Hindi · Speaker 0"},
-    {"id": "v2/pl_speaker_0", "lang": "pl", "label": "Polish · Speaker 0"},
-    {"id": "v2/tr_speaker_0", "lang": "tr", "label": "Turkish · Speaker 0"},
+    {
+        "id": f"v2/{lang}_speaker_{speaker}",
+        "lang": lang,
+        "label": f"{name} · Speaker {speaker}"
+                 + (" (popular)" if lang == "en" and speaker == 6 else ""),
+    }
+    for lang, name in _BARK_LANGUAGES.items()
+    for speaker in range(10)
 ]
 
 # Non-verbal cues + style modifiers Bark understands. The UI exposes these as
@@ -746,10 +729,6 @@ class GenerationManager:
         # shared — loading two large mlx-audio models would OOM anyway.
         self._mlx_audio_model = None
         self._mlx_audio_model_repo: Optional[str] = None
-        # Bark — both the BarkModel and its AutoProcessor are cached together.
-        self._bark_model = None
-        self._bark_processor = None
-        self._bark_model_repo: Optional[str] = None
         # F5-TTS — single F5TTS instance cached per repo. Holds the flow-matching
         # transformer + VoCoS vocoder (~1.5 GB on disk, more at runtime). Heavy
         # cold-start because the vocoder also loads from HF.
@@ -1044,14 +1023,7 @@ class GenerationManager:
             raise ValueError(f"Model {repo} is not fully cached locally — download it first")
 
         family = model.family
-        if family == "bark":
-            if not _have_bark():
-                raise RuntimeError(
-                    "BarkModel isn't importable from your installed transformers. "
-                    "Run 'Install Generation' from the Pinokio sidebar to upgrade."
-                )
-            self._generate_bark(job, model, output_path)
-        elif family == "f5-tts":
+        if family == "f5-tts":
             if not _have_f5_tts():
                 raise RuntimeError(
                     "The `f5-tts` package isn't installed. Run 'Install Generation' "
@@ -1213,7 +1185,7 @@ class GenerationManager:
         gen_kwargs: dict = {"text": text}
         # VoxCPM2 has no numeric speed parameter; pace is controlled through
         # its natural-language instruction. Passing speed would be silently ignored.
-        if family != "voxcpm-mlx":
+        if family not in {"voxcpm-mlx", "bark"}:
             gen_kwargs["speed"] = speed
 
         # Dispatch to the per-mode resolver to populate voice / clone / instruct
@@ -1311,6 +1283,8 @@ class GenerationManager:
 
         if mode == "qwen3":
             return self._mlx_kwargs_qwen3(model_entry, params, gen_kwargs, voices_module)
+        if mode == "bark":
+            return self._mlx_kwargs_bark(model_entry, params, gen_kwargs)
         if mode == "voxcpm_flex":
             return self._mlx_kwargs_voxcpm_flex(params, gen_kwargs, voices_module)
         if mode == "voice_picker":
@@ -1324,6 +1298,37 @@ class GenerationManager:
         raise RuntimeError(f"Unknown mlx-audio mode {mode!r} for family {family!r}")
 
     # --- per-mode kwarg builders ---
+
+    def _mlx_kwargs_bark(self, model_entry, params, gen_kwargs) -> str:
+        """Resolve Bark's local history prompt and native sampling controls."""
+        preset = (params.get("bark_voice_preset") or "").strip()
+        if preset:
+            valid_presets = {item["id"] for item in BARK_VOICE_PRESETS}
+            if preset not in valid_presets:
+                raise ValueError(f"Unknown Bark voice preset: {preset}")
+            voice_path = self._mlx_audio_snapshot_path(model_entry.repo) / f"{preset}.npz"
+            if not voice_path.exists():
+                raise ValueError(
+                    f"Bark voice preset {preset} is missing. Re-download the model from Models."
+                )
+            gen_kwargs["voice"] = str(voice_path)
+        else:
+            # generate_audio defaults to a Kokoro voice name, which Bark rejects.
+            gen_kwargs["voice"] = None
+
+        gen_kwargs["temperature"] = max(
+            0.1, min(float(params.get("bark_temperature", 0.7)), 1.5)
+        )
+        gen_kwargs["max_coarse_history"] = max(
+            60, min(int(params.get("bark_max_coarse_history", 60)), 630)
+        )
+        gen_kwargs["sliding_window_len"] = max(
+            30, min(int(params.get("bark_sliding_window_len", 60)), 120)
+        )
+        gen_kwargs["allow_early_stop"] = bool(
+            params.get("bark_allow_early_stop", True)
+        )
+        return f"preset={preset}" if preset else "random voice"
 
     def _mlx_kwargs_qwen3(self, model_entry, params, gen_kwargs, voices_module) -> str:
         """Qwen3-TTS: repo-name selects between custom (preset speakers),
@@ -1552,129 +1557,6 @@ class GenerationManager:
         if not ref_text:
             ref_text = voices_module.library.transcript(voice_id) or ""
         gen_kwargs["ref_text"] = ref_text or fallback_transcript
-
-    # ----- Bark (Suno via transformers) -----
-
-    def _bark_get_model(self, repo: str, device: str):
-        """Lazy-load + cache the Bark model. Bark on MPS holds a lot of memory
-        (the full bark is ~4 GB; bark-small ~1.6 GB) — evict on repo switch."""
-        if self._bark_model_repo == repo and self._bark_model is not None:
-            return self._bark_model, self._bark_processor
-
-        if self._bark_model is not None:
-            print(f"[gen] evicting cached Bark model ({self._bark_model_repo})", flush=True)
-            try:
-                del self._bark_model
-                del self._bark_processor
-            except Exception:
-                pass
-            self._bark_model = None
-            self._bark_processor = None
-            self._bark_model_repo = None
-            _release_device_memory(device)
-
-        from transformers import AutoProcessor, BarkModel
-        # v1.3.5 — explicit-path standard. Resolve our HF Hub cache snapshot
-        # and pass it as the local path instead of the repo string. See the
-        # F5-TTS v1.3.4 fix for the failure mode this defends against.
-        snapshot_path = self._mlx_audio_snapshot_path(repo)
-        print(f"[gen] loading Bark from {snapshot_path} on {device}", flush=True)
-        processor = AutoProcessor.from_pretrained(str(snapshot_path), local_files_only=True)
-        model = BarkModel.from_pretrained(str(snapshot_path), local_files_only=True)
-        model = model.to(device)
-        model.eval()
-        self._bark_model = model
-        self._bark_processor = processor
-        self._bark_model_repo = repo
-        return model, processor
-
-    def _generate_bark(self, job: GenerationJob, model_entry, output_path: Path) -> None:
-        """
-        Run Bark via transformers.BarkModel. Supports:
-
-        - **Voice preset**: pass `bark_voice_preset` (e.g. "v2/en_speaker_6") for
-          a specific speaker, or omit/null for Bark's random voice.
-        - **Inline tags**: the user types `[laughter]`, `[singing]`, `♪ ♪`, etc.
-          directly into the text — Bark recognizes these as non-verbal cues.
-          The UI provides a quick-chip inserter so users don't have to remember
-          tag syntax.
-
-        Output is 24 kHz mono float32, saved as 16-bit PCM WAV.
-        """
-        import torch
-        import numpy as np
-        import soundfile as sf
-
-        params = job.params
-        device = _detect_device()
-
-        text = (params.get("text") or "").strip()
-        if not text:
-            raise ValueError("text is required")
-
-        # Seed Bark for reproducibility — same text + voice + seed = same output.
-        seed = params.get("seed")
-        if seed is None or seed < 0:
-            import random
-            seed = random.randint(0, 2**32 - 1)
-        job.resolved_seed = int(seed)
-        try:
-            torch.manual_seed(int(seed))
-            if device == "mps":
-                try:
-                    torch.mps.manual_seed(int(seed))
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        voice_preset = (params.get("bark_voice_preset") or "").strip() or None
-        if voice_preset:
-            print(f"[gen] bark voice_preset={voice_preset}", flush=True)
-        else:
-            print(f"[gen] bark random voice (no preset)", flush=True)
-
-        if job.cancel_event.is_set():
-            return
-
-        model, processor = self._bark_get_model(model_entry.repo, device)
-
-        # Build processor inputs. AutoProcessor for Bark accepts voice_preset
-        # as a string identifier — it resolves to the corresponding speaker
-        # embedding internally.
-        proc_kwargs = {"text": text, "return_tensors": "pt"}
-        if voice_preset:
-            proc_kwargs["voice_preset"] = voice_preset
-        try:
-            inputs = processor(**proc_kwargs)
-        except Exception as e:
-            raise RuntimeError(
-                f"Bark processor rejected the input ({e}). "
-                f"If you used a voice_preset, double-check the id (e.g. 'v2/en_speaker_6')."
-            )
-        # Move tensor inputs to the target device. BatchEncoding has a .to method.
-        if hasattr(inputs, "to"):
-            inputs = inputs.to(device)
-        else:
-            # Dict fallback for older transformers versions.
-            inputs = {k: (v.to(device) if hasattr(v, "to") else v) for k, v in inputs.items()}
-
-        print(f"[gen] bark generating ({len(text)} chars)", flush=True)
-        with torch.no_grad():
-            try:
-                audio_array = model.generate(**inputs)
-            except Exception:
-                # If the input was a dict (older transformers), retry with **inputs unchanged
-                raise
-
-        # `audio_array` shape varies: (batch=1, samples) → squeeze to 1D.
-        audio_np = audio_array.detach().cpu().to(torch.float32).numpy()
-        if audio_np.ndim > 1:
-            audio_np = audio_np.squeeze()
-
-        sr = int(getattr(getattr(model, "generation_config", None), "sample_rate", 24000) or 24000)
-        sf.write(str(output_path), audio_np, sr, format="WAV", subtype="PCM_16")
-        print(f"[gen] bark saved WAV at {sr} Hz, {len(audio_np)/sr:.2f}s: {output_path}", flush=True)
 
     # ----- F5-TTS (SWivid flow-matching) -----
 

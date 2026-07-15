@@ -68,9 +68,9 @@ FAMILIES: dict[str, Family] = {
     ),
     "bark": Family(
         id="bark",
-        label="Suno Bark",
+        label="Suno Bark (MLX)",
         summary=(
-            "Suno's text-to-audio model. Generates expressive speech with embedded "
+            "Suno's text-to-audio model running natively through MLX. Generates expressive speech with embedded "
             "tags ([laughter], [sighs], [singing], [MUSIC]). Slower than dedicated "
             "TTS models but uniquely expressive. MIT licensed."
         ),
@@ -81,7 +81,7 @@ FAMILIES: dict[str, Family] = {
             "delivery; less precise than F5-TTS for plain narration."
         ),
         # Audit (v1.2.4): Suno's FAQ — "output limited to ~13-14 seconds" (GPT-style with
-        # 1024-token semantic/coarse context). Our _generate_bark feeds whole text one-shot.
+        # 1024-token semantic/coarse context). The MLX worker feeds the text one-shot.
         text_guidance=TextGuidance(
             soft_max_chars=150,
             chunking="hard-cap",
@@ -405,50 +405,31 @@ CATALOG: tuple[ModelEntry, ...] = (
         ),
     ),
 
-    # ──────────── Bark ────────────
+    # ──────────── Bark (MLX) ────────────
     ModelEntry(
-        repo="suno/bark",
-        label="Suno Bark (full)",
+        repo="mlx-community/bark",
+        label="Suno Bark (MLX) — current",
         family="bark",
-        # Repo is 20.68 GB — has both transformers-format pytorch_model.bin
-        # (4.3) AND the original .pt checkpoints (16+ GB). Skip the .pt files.
+        # The repo duplicates every preset under speaker_embeddings/. Keep the
+        # root v2/*.npz roster plus the two native MLX weight files.
         size_gb=4.5,
         gated=False,
         min_unified_memory_gb=12,
-        recommended_hardware="M1 Pro / M2 16 GB recommended.",
-        capabilities=("tts", "expressive"),
-        best_for="Character voices, dramatic narration, and audio with embedded tags ([laughter], [singing], [MUSIC]). Slower and less precise than dedicated TTS, but uniquely expressive. MIT licensed.",
+        recommended_hardware="Apple Silicon with 16 GB recommended; 12 GB is the practical floor.",
+        capabilities=("tts", "multilingual", "expressive"),
+        best_for="Native-MLX character voices, dramatic narration, and audio with embedded tags ([laughter], [singing], [MUSIC]). Includes all 130 v2 presets across 13 languages. MIT licensed.",
         sample_rate_hz=24000,
         languages=("en", "zh", "fr", "de", "hi", "it", "ja", "ko", "pl", "pt", "ru", "es", "tr"),
-        ignore_patterns=("*.pt",),
+        ignore_patterns=("speaker_embeddings/*",),
         use_cases=(
-            ("good",  "Character voices + dramatic delivery (vs Kokoro's steady narrator)"),
+            ("good",  "Native Apple Silicon character voices and dramatic delivery"),
             ("good",  "Inline non-verbal tags: [laughter], [sighs], [singing], [MUSIC]"),
-            ("good",  "13 language support with preset speakers (en/zh/fr/de/ja/ko/+)"),
+            ("good",  "All 130 v2 preset speakers across 13 languages"),
             ("good",  "MIT licensed"),
-            ("weak",  "SLOW — 30-60 sec for a single sentence on M-series Macs"),
+            ("weak",  "Slow — Bark remains heavier than dedicated narration models"),
             ("weak",  "Less consistent than dedicated TTS — same prompt + seed can vary"),
-            ("avoid", "Long-form narration — too slow + inconsistent. Use Kokoro / VoxCPM"),
+            ("avoid", "Long-form narration — use Kokoro or VoxCPM instead"),
             ("avoid", "Precise lip-sync or timing-critical work — Bark's pacing varies"),
-        ),
-    ),
-    ModelEntry(
-        repo="suno/bark-small",
-        label="Suno Bark small",
-        family="bark",
-        size_gb=1.6,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any 8 GB+ Mac.",
-        capabilities=("tts", "expressive"),
-        best_for="Half-size Bark — most of the capability at lower fidelity. Run Bark's tag system on 8 GB machines or for quick iteration.",
-        sample_rate_hz=24000,
-        languages=("en", "zh", "fr", "de", "hi", "it", "ja", "ko", "pl", "pt", "ru", "es", "tr"),
-        use_cases=(
-            ("good",  "Try Bark's tag system on 8 GB Macs without the full download"),
-            ("good",  "Faster iteration than full Bark (smaller model)"),
-            ("weak",  "Lower fidelity than full Bark — final renders should use the full variant"),
-            ("avoid", "Anything except experimentation — full Bark is the production-grade tier"),
         ),
     ),
 
@@ -1121,6 +1102,24 @@ def ignore_patterns_for(repo: str) -> tuple[str, ...]:
 #   - chatterbox-mlx    → chatterbox.py loads mlx-community/S3TokenizerV2
 # OmniVoice / Spark load their codecs from inside their own repo (no companion).
 FAMILY_COMPANIONS: dict[str, tuple[dict, ...]] = {
+    "bark": (
+        {
+            "repo": "mlx-community/encodec-24khz-float32",
+            "allow_patterns": None,
+            "label": "Encodec 24 kHz audio codec",
+        },
+        {
+            # Bark imports this historical repo id directly. Cache only the
+            # tokenizer assets; the multi-gigabyte BERT weights are not used.
+            "repo": "bert-base-multilingual-cased",
+            "allow_patterns": (
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "vocab.txt",
+            ),
+            "label": "Multilingual text tokenizer",
+        },
+    ),
     "marvis": (
         {
             "repo": "kyutai/moshiko-pytorch-bf16",
@@ -1171,7 +1170,7 @@ def serialize_model(m: ModelEntry) -> dict:
     # kokoro-mlx / chatterbox-mlx / spark-tts-mlx; the rest are named.
     _MLX_AUDIO_FAMILIES = (
         "qwen3-tts", "orpheus", "kittentts", "vibevoice",
-        "omnivoice", "voxtral-tts", "marvis",
+        "omnivoice", "voxtral-tts", "marvis", "bark",
     )
     apple_optimized = m.family.endswith("-mlx") or m.family in _MLX_AUDIO_FAMILIES
     return {

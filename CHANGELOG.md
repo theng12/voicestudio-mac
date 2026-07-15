@@ -10,6 +10,41 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.17.0] — 2026-07-15
+
+### Refined — current Suno Bark, native MLX
+
+- Consolidated Bark onto the current `mlx-community/bark` conversion and removed
+  the older full and small PyTorch catalog rows. The model now shares Voice
+  Studio's single-memory-slot MLX worker with the other Apple Silicon engines.
+- Added all 130 v2 voice presets across Bark's 13 supported languages. Presets
+  are grouped by language in the existing compact picker.
+- Exposed the controls implemented by the MLX engine: sampling temperature,
+  voice-history context, generation-window size, natural early stopping, and
+  repeatable MLX seeds. The speed control is hidden because upstream currently
+  accepts but does not apply it.
+
+### Fixed
+
+- Bark voice presets now resolve to their downloaded local `.npz` files instead
+  of relying on an upstream relative-path lookup that fails outside the model
+  directory. Random voice mode explicitly avoids inheriting mlx-audio's Kokoro
+  default voice.
+- The voice dropdown now stays synchronized with the selected preset when its
+  130 asynchronously loaded options arrive, instead of visually falling back to
+  Random while generation still used the saved preset.
+- Bark downloads now include its Encodec and multilingual tokenizer companions
+  before the model is marked ready, preventing surprise first-generation
+  downloads. Duplicate preset files and unused BERT model weights are skipped.
+- Temperature is now passed to Bark's semantic, coarse, and fine samplers; the
+  previous PyTorch worker silently ignored the UI's generic temperature value.
+
+No new Python package is required; the pinned `mlx-audio` build already contains
+the Bark engine. Run **Update**, then download **Suno Bark (MLX)** from Models.
+Existing PyTorch Bark caches are left on disk but no longer appear in the catalog.
+
+---
+
 ## [1.16.0] — 2026-07-15
 
 ### Refined — current VoxCPM2, MLX first

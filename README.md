@@ -6,7 +6,7 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 
 ## What it does
 
-- **Catalog of 32 focused local models** across 13 families, including Qwen3-TTS,
+- **Catalog of focused local models** across 13 families, including Qwen3-TTS,
   Chatterbox, OmniVoice, VoxCPM2, Kokoro, F5-TTS, Spark-TTS, Bark,
   Orpheus, KittenTTS, VibeVoice, Voxtral, and Marvis.
 - **Apple Silicon first** — the priority families use curated MLX tiers instead
@@ -15,8 +15,9 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   OmniVoice expose their native cloning and quality controls. Kokoro keeps one
   full-quality MLX model with all 54 voices, nine language variants, speed, and
   equal voice blending. VoxCPM2 keeps a fast 4-bit tier and a bf16 final-render
-  tier, both with voice design and transcript-aware cloning.
-- **Smart downloads** — filters out redundant duplicate weight formats automatically. F5-TTS goes from 6.3 GB → 1.3 GB, Bark from 20 GB → 4 GB, Chatterbox from 11 GB → 3 GB.
+  tier, both with voice design and transcript-aware cloning. Bark uses its current
+  native MLX conversion with all 130 multilingual presets and complete sampling controls.
+- **Smart downloads** — filters out redundant duplicate weight formats automatically. F5-TTS goes from 6.3 GB → 1.3 GB, Bark avoids more than 4 GB of duplicate preset files, and Chatterbox goes from 11 GB → 3 GB.
 - **Resume on retry** — partial downloads pick up where they left off.
 - **Imports** — link or move TTS weights from other launchers (e.g. a standalone VoxCPM webui).
 - **Cloud audio gateway** — connect ElevenLabs, GenAIPro, Fish Audio, fal.ai, or Kie.ai in Settings, explicitly allow paid use, map provider-native IDs onto voices in the library, then use cloud and local models from the same Generate workspace.

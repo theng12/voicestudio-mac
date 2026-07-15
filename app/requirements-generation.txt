@@ -7,7 +7,7 @@
 #
 # Engines covered by these deps alone (no extra installs needed):
 # - VoxCPM2     → mlx-audio
-# - Bark        → transformers
+# - Bark        → mlx-audio + transformers tokenizer
 # - F5-TTS      → diffusers + transformers + a small vendor module
 # - Chatterbox  → transformers
 # - Kokoro      → mlx-audio + multilingual misaki extras
@@ -19,7 +19,7 @@
 torch>=2.6
 torchaudio>=2.6
 # transformers + tokenizers PINNED (v1.6.3). These are a coupled, version-
-# sensitive pair shared by every transformers-based engine (Bark,
+# sensitive pair shared by every transformers-assisted engine (Bark tokenizer,
 # F5-TTS, Voxtral) AND the Whisper STT processor fallback. Floating them
 # (`>=4.55`) let different Macs resolve different latest versions at different
 # `Install Generation` times — and a mismatch against the pinned mlx-audio

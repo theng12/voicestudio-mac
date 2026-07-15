@@ -97,6 +97,10 @@ function studio() {
       // Bark
       bark_available: false,
       bark_voice_preset: "v2/en_speaker_6",
+      bark_temperature: 0.7,
+      bark_max_coarse_history: 60,
+      bark_sliding_window_len: 60,
+      bark_allow_early_stop: true,
       bark_voice_presets: [],     // populated from /api/generate/availability
       bark_tags: [],              // populated from /api/generate/availability
       // OmniVoice (MLX voice design + cloning)
@@ -774,6 +778,7 @@ function studio() {
       "instruct", "voice_design_prompt",
       "chatterbox_cfg_weight", "chatterbox_repetition_penalty",
       "chatterbox_min_p", "chatterbox_top_p",
+      "bark_temperature", "bark_max_coarse_history", "bark_sliding_window_len", "bark_allow_early_stop",
       "omnivoice_num_steps", "omnivoice_guidance_scale", "omnivoice_duration_s",
     ],
 
@@ -2669,7 +2674,8 @@ function studio() {
       return this.isQwen3(repo) || this.isVoxCPMMlx(repo) || this.isKokoroMlx(repo)
           || this.isChatterboxMlx(repo) || this.isSparkTtsMlx(repo) || this.isOrpheus(repo)
           || this.isKittenTts(repo) || this.isVibeVoice(repo)
-          || this.isVoxtral(repo) || this.isMarvis(repo) || this.isOmniVoice(repo);
+          || this.isVoxtral(repo) || this.isMarvis(repo) || this.isOmniVoice(repo)
+          || this.isBark(repo);
     },
     setVoxcpmEmotionExample(text) {
       this.gen.voice_design_prompt = text;
@@ -3109,6 +3115,10 @@ function studio() {
           bark_voice_preset: this.isBark(repo)
                              ? (this.gen.bark_voice_preset || null)
                              : null,
+          bark_temperature: Number(this.gen.bark_temperature),
+          bark_max_coarse_history: Number(this.gen.bark_max_coarse_history),
+          bark_sliding_window_len: Number(this.gen.bark_sliding_window_len),
+          bark_allow_early_stop: !!this.gen.bark_allow_early_stop,
         };
       };
 
@@ -3496,6 +3506,11 @@ function studio() {
       if (typeof p.chatterbox_repetition_penalty === "number") this.gen.chatterbox_repetition_penalty = p.chatterbox_repetition_penalty;
       if (typeof p.chatterbox_min_p === "number") this.gen.chatterbox_min_p = p.chatterbox_min_p;
       if (typeof p.chatterbox_top_p === "number") this.gen.chatterbox_top_p = p.chatterbox_top_p;
+      if (p.bark_voice_preset !== undefined) this.gen.bark_voice_preset = p.bark_voice_preset || "";
+      if (typeof p.bark_temperature === "number") this.gen.bark_temperature = p.bark_temperature;
+      if (typeof p.bark_max_coarse_history === "number") this.gen.bark_max_coarse_history = p.bark_max_coarse_history;
+      if (typeof p.bark_sliding_window_len === "number") this.gen.bark_sliding_window_len = p.bark_sliding_window_len;
+      if (typeof p.bark_allow_early_stop === "boolean") this.gen.bark_allow_early_stop = p.bark_allow_early_stop;
       if (typeof p.omnivoice_num_steps === "number") this.gen.omnivoice_num_steps = p.omnivoice_num_steps;
       if (typeof p.omnivoice_guidance_scale === "number") this.gen.omnivoice_guidance_scale = p.omnivoice_guidance_scale;
       this.gen.omnivoice_duration_s = typeof p.omnivoice_duration_s === "number"

@@ -132,8 +132,7 @@
           <div class="diag-explainer-body">
             <p>
               Different model families use different inference libraries.
-              <strong>Kokoro and VoxCPM2</strong> use <code>mlx-audio</code>,
-              <strong>Bark / Spark-TTS</strong> use <code>transformers</code>,
+              <strong>Kokoro, VoxCPM2, Bark, and Spark-TTS</strong> use <code>mlx-audio</code>,
               <strong>F5-TTS</strong> needs <code>diffusers</code>, and so on.
               The catalog mixes models from different ecosystems so you can pick the
               right tool for each task — but each library has to be importable for
@@ -495,7 +494,8 @@
         <!-- ─── Bark: voice preset picker ─── -->
         <section class="control-block" x-show="isBark(gen.repo)" x-cloak>
           <label>Voice preset</label>
-          <select x-model="gen.bark_voice_preset">
+          <select x-model="gen.bark_voice_preset"
+                  x-effect="gen.bark_voice_presets.length; $nextTick(() => { $el.value = gen.bark_voice_preset || '' })">
             <option value="">🎲 Random voice (different each call)</option>
             <template x-for="lang in Object.keys(barkPresetsByLang())" :key="lang">
               <optgroup :label="(gen.lang_names[lang] || lang.toUpperCase())">
@@ -506,7 +506,7 @@
             </template>
           </select>
           <p class="muted hint">
-            Bark ships 130+ preset speakers (10 per language). Speaker 6 in English is the popular default.
+            Bark ships 130 preset speakers (10 per language). Speaker 6 in English is the popular default.
             Pick "Random" to let Bark sample a different voice each generation — variety is part of Bark's vibe.
           </p>
           <p class="muted hint">
@@ -515,6 +515,36 @@
             Bark interprets them as non-verbal cues.
           </p>
         </section>
+
+        <details class="control-block" x-show="isBark(gen.repo)" x-cloak>
+          <summary>Advanced Bark controls</summary>
+          <div class="advanced-inner">
+            <label>Sampling temperature</label>
+            <div class="slider-row">
+              <input type="range" min="0.1" max="1.5" step="0.05" x-model.number="gen.bark_temperature">
+              <input type="number" class="num-input" min="0.1" max="1.5" step="0.05" x-model.number="gen.bark_temperature">
+            </div>
+            <p class="muted hint">0.7 is balanced. Lower is steadier; higher adds more variation.</p>
+
+            <label class="advanced-label">Voice context</label>
+            <div class="slider-row">
+              <input type="range" min="60" max="630" step="30" x-model.number="gen.bark_max_coarse_history">
+              <input type="number" class="num-input" min="60" max="630" step="30" x-model.number="gen.bark_max_coarse_history">
+            </div>
+            <p class="muted hint">60 is faster. Higher values preserve more of the preset voice history but use more memory.</p>
+
+            <label class="advanced-label">Generation window</label>
+            <div class="slider-row">
+              <input type="range" min="30" max="120" step="10" x-model.number="gen.bark_sliding_window_len">
+              <input type="number" class="num-input" min="30" max="120" step="10" x-model.number="gen.bark_sliding_window_len">
+            </div>
+            <p class="muted hint">60 is the model default. Smaller windows are steadier; larger windows may finish faster.</p>
+
+            <label class="autoplay-toggle muted small">
+              <input type="checkbox" x-model="gen.bark_allow_early_stop"> Allow a natural early ending
+            </label>
+          </div>
+        </details>
 
         <!-- ─── New mlx-audio family controls (Phase D) ─── -->
         <!-- Kokoro-MLX / Orpheus / KittenTTS / VibeVoice: preset voice picker. -->
@@ -774,7 +804,7 @@
         </details>
 
         <!-- Speed slider — only families whose model API actually accepts it. -->
-        <section class="control-block" x-show="(isMlxAudio(gen.repo) && !isVoxCPMMlx(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo)) || isF5TTS(gen.repo)" x-cloak>
+        <section class="control-block" x-show="(isMlxAudio(gen.repo) && !isVoxCPMMlx(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo) && !isBark(gen.repo)) || isF5TTS(gen.repo)" x-cloak>
           <label>Speed</label>
           <div class="slider-row">
             <input type="range" min="0.5" max="2.0" step="0.01" x-model.number="gen.speed">

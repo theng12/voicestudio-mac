@@ -80,6 +80,85 @@ def test_kokoro_language_dependencies_are_explicit() -> None:
     assert "kokoro>=" not in requirements
 
 
+def test_bark_catalog_keeps_current_mlx_release_and_complete_presets() -> None:
+    bark = [entry for entry in catalog.CATALOG if entry.family == "bark"]
+    assert [entry.repo for entry in bark] == ["mlx-community/bark"]
+    assert bark[0].ignore_patterns == ("speaker_embeddings/*",)
+    assert len(generation.BARK_VOICE_PRESETS) == 130
+    assert {item["lang"] for item in generation.BARK_VOICE_PRESETS} == {
+        "en", "de", "es", "fr", "hi", "it", "ja", "ko", "pl", "pt", "ru", "tr", "zh",
+    }
+    assert all(
+        sum(item["lang"] == lang for item in generation.BARK_VOICE_PRESETS) == 10
+        for lang in {item["lang"] for item in generation.BARK_VOICE_PRESETS}
+    )
+
+
+def test_bark_companions_are_complete_without_unused_bert_weights() -> None:
+    companions = catalog.companions_for("mlx-community/bark")
+    assert companions[0]["repo"] == "mlx-community/encodec-24khz-float32"
+    assert companions[1]["repo"] == "bert-base-multilingual-cased"
+    assert companions[1]["allow_patterns"] == (
+        "tokenizer.json", "tokenizer_config.json", "vocab.txt",
+    )
+
+
+def test_bark_mlx_controls_and_local_voice_prompt(tmp_path: Path) -> None:
+    preset = tmp_path / "v2" / "en_speaker_6.npz"
+    preset.parent.mkdir()
+    preset.touch()
+    manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_snapshot_path = lambda repo: tmp_path
+    kwargs: dict = {}
+
+    label = manager._mlx_kwargs_bark(
+        SimpleNamespace(repo="mlx-community/bark"),
+        {
+            "bark_voice_preset": "v2/en_speaker_6",
+            "bark_temperature": 0.85,
+            "bark_max_coarse_history": 240,
+            "bark_sliding_window_len": 80,
+            "bark_allow_early_stop": False,
+        },
+        kwargs,
+    )
+
+    assert label == "preset=v2/en_speaker_6"
+    assert kwargs == {
+        "voice": str(preset),
+        "temperature": 0.85,
+        "max_coarse_history": 240,
+        "sliding_window_len": 80,
+        "allow_early_stop": False,
+    }
+
+
+def test_bark_random_voice_does_not_inherit_kokoro_default() -> None:
+    manager = object.__new__(generation.GenerationManager)
+    kwargs: dict = {}
+    manager._mlx_kwargs_bark(
+        SimpleNamespace(repo="mlx-community/bark"), {}, kwargs
+    )
+    assert kwargs["voice"] is None
+
+
+def test_bark_api_preserves_native_controls() -> None:
+    from backend.main import Txt2SpeechBody
+
+    params = Txt2SpeechBody(
+        repo="mlx-community/bark",
+        text="Hello",
+        bark_temperature=0.6,
+        bark_max_coarse_history=300,
+        bark_sliding_window_len=90,
+        bark_allow_early_stop=False,
+    ).model_dump()
+    assert params["bark_temperature"] == 0.6
+    assert params["bark_max_coarse_history"] == 300
+    assert params["bark_sliding_window_len"] == 90
+    assert params["bark_allow_early_stop"] is False
+
+
 def test_mlx_worker_joins_all_generated_segments() -> None:
     source = inspect.getsource(generation.GenerationManager._generate_mlx_audio)
     assert "join_audio=True" in source
