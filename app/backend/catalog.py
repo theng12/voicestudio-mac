@@ -45,33 +45,6 @@ class Family:
 
 
 FAMILIES: dict[str, Family] = {
-    "voxcpm": Family(
-        id="voxcpm",
-        label="VoxCPM",
-        summary=(
-            "OpenBMB's text-to-speech with voice cloning and voice design. Strong "
-            "multilingual support including English, Chinese, and many others. "
-            "VoxCPM2 is the newer release; both run on Apple Silicon via MPS."
-        ),
-        how_to_use=(
-            "Provide text, optionally a reference audio clip (3–10 seconds) for "
-            "voice cloning, and pick a language. Without a reference, it uses a "
-            "default voice. Great for narration and conversational TTS."
-        ),
-        # Audit (v1.2.4): voxcpm/core.py:189 max_len=4096 audio tokens @ 6.25 Hz ≈ 11 min ENGINE max.
-        # Hardware fix (v1.2.6 → 1.2.7): TWO ceilings hit simultaneously on 16 GB Macs:
-        #   1) Metal per-buffer cap (~9.5 GB on M4): sequential voice-cloning jobs accumulated
-        #      activation tensors across calls → OOM at 2nd job. Fixed by clearing MLX cache
-        #      after each job in _generate_mlx_audio (v1.2.7).
-        #   2) Quality cliff: user-reported voice drift / jibberish past ~30 sec of generated
-        #      audio per call. Engine architecturally supports more but output quality fails.
-        # Cap now reflects #2 (~60 sec @ ~13 chars/sec speech), with safety margin under #1.
-        text_guidance=TextGuidance(
-            soft_max_chars=800,
-            chunking="auto-split",
-            note="Best at ~800 chars (~60 sec audio) per call. Past ~30 sec, voice tends to drift / become jibberish — split into multiple shorter requests.",
-        ),
-    ),
     "f5-tts": Family(
         id="f5-tts",
         label="F5-TTS",
@@ -123,14 +96,16 @@ FAMILIES: dict[str, Family] = {
             "(via Prince Canuma's mlx-audio). 2B parameters, 30 languages, 48 kHz "
             "studio-quality output, faster-than-realtime on M-series chips. "
             "Combines voice cloning + voice design + zero-shot into one model. "
-            "Strictly better than VoxCPM v1 if you have mlx-audio installed."
+            "This is the current VoxCPM architecture and replaces the older "
+            "PyTorch v1 and duplicate v2 entries."
         ),
         how_to_use=(
             "Three modes activate based on what you fill in: leave both fields "
             "blank → zero-shot with the default voice; type a natural-language "
             "voice description → voice design; pick a reference voice from your "
-            "library → voice cloning (transcript optional but recommended). You "
-            "can also combine the description + library voice for stylized cloning."
+            "library → voice cloning. A saved transcript automatically enables "
+            "the highest-fidelity continuation-cloning path. You can also combine "
+            "the description + library voice for controlled cloning."
         ),
         # Audit (v1.2.4): mlx_audio voxcpm/voxcpm.py:259 max_tokens=4096 @ 6.25 Hz ≈ 11 min ENGINE max.
         # Hardware fix (v1.2.6 → 1.2.7): TWO ceilings hit on 16 GB Macs:
@@ -399,51 +374,6 @@ class ModelEntry:
 
 
 CATALOG: tuple[ModelEntry, ...] = (
-    # ──────────── VoxCPM family ────────────
-    ModelEntry(
-        repo="openbmb/VoxCPM2",
-        label="VoxCPM2 (4.4B)",
-        family="voxcpm",
-        # Repo is 4.62 GB total — no duplicates, keep everything.
-        size_gb=5.0,
-        gated=False,
-        min_unified_memory_gb=12,
-        recommended_hardware="M1 Pro / M2 16 GB recommended. 8 GB works but tight.",
-        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
-        best_for="The strongest open multilingual TTS available — supports 30+ languages with voice cloning. The recommended default if you want one model that handles English, Chinese, and beyond. Slower than Kokoro but much higher fidelity for cloned voices.",
-        sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "fr", "de", "es", "it", "ru", "ar", "hi", "+20 more"),
-        use_cases=(
-            ("good",  "Multilingual narration — 30+ languages from one model"),
-            ("good",  "Voice cloning from a 3-15 sec reference (Voices library)"),
-            ("good",  "Emotion / tone control via natural-language description"),
-            ("good",  "Long-form content (audiobooks, podcasts) where consistency matters"),
-            ("weak",  "Slower per-generation than Kokoro (10-20 sec for a paragraph)"),
-            ("avoid", "8 GB Macs — model is 5.0 GB on disk + needs working memory. Use VoxCPM v1 instead."),
-        ),
-    ),
-    ModelEntry(
-        repo="openbmb/VoxCPM-0.5B",
-        label="VoxCPM v1 (0.5B)",
-        family="voxcpm",
-        size_gb=1.6,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        capabilities=("tts", "voice-cloning", "multilingual"),
-        best_for="The original VoxCPM at smaller scale — much faster than VoxCPM2 and still solid quality. Pick this on lower-memory machines or when you want quick iteration.",
-        sample_rate_hz=24000,
-        languages=("en", "zh"),
-        use_cases=(
-            ("good",  "Fast iteration on 8 GB Macs — much lighter than VoxCPM2"),
-            ("good",  "English + Chinese narration"),
-            ("good",  "Voice cloning when you have both reference audio AND a transcript"),
-            ("weak",  "REQUIRES a reference transcript for voice cloning — empty transcript will error"),
-            ("avoid", "Languages beyond English / Chinese — use VoxCPM2 for those"),
-            ("avoid", "Emotion control — VoxCPM v1's expressivity is weaker than v2"),
-        ),
-    ),
-
     # ──────────── F5-TTS ────────────
     ModelEntry(
         repo="SWivid/F5-TTS",
@@ -527,13 +457,13 @@ CATALOG: tuple[ModelEntry, ...] = (
     # that does zero-shot + voice design + cloning. Inference via `mlx-audio`
     # — same library as Qwen3-TTS, so the worker shares load_model + generate.
     # Apache-2.0. 4-bit is the recommended pick (faster + smaller, minimal
-    # quality loss per OpenBMB's own benchmarks).
+    # quality loss per the MLX conversion benchmarks). Keep bf16 as the
+    # final-render tier; the 8-bit middle row has no distinct workflow.
     ModelEntry(
         repo="mlx-community/VoxCPM2-4bit",
         label="VoxCPM2 4-bit (MLX) — recommended",
         family="voxcpm-mlx",
-        # 2.14 GB on HF — no duplicates to filter.
-        size_gb=2.1,
+        size_gb=2.3,
         gated=False,
         min_unified_memory_gb=8,
         recommended_hardware="Any Apple Silicon Mac with 8 GB. Fastest VoxCPM2 variant at near-realtime.",
@@ -547,26 +477,7 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Zero-shot mode (just type text) OR voice cloning from library"),
             ("good",  "Voice design from natural-language prompt ('elderly male, gravelly')"),
             ("weak",  "4-bit quantization can occasionally fumble on rare-word pronunciation"),
-            ("avoid", "Final renders where you can't afford ANY artifact — use 8-bit or bf16"),
-        ),
-    ),
-    ModelEntry(
-        repo="mlx-community/VoxCPM2-8bit",
-        label="VoxCPM2 8-bit (MLX)",
-        family="voxcpm-mlx",
-        size_gb=3.0,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
-        best_for="Higher-precision middle tier. Same capabilities as the 4-bit but with more headroom for nuanced prosody. Pick this if 4-bit shows quantization artifacts in your specific voice.",
-        sample_rate_hz=48000,
-        languages=("en", "zh", "ja", "ko", "id", "fr", "de", "es", "it", "pt", "ru", "ar", "hi", "+19 more"),
-        use_cases=(
-            ("good",  "Sweet spot — near-bf16 quality at ⅔ the size + speed"),
-            ("good",  "Fix the rare 4-bit pronunciation fumbles without going full bf16"),
-            ("good",  "Voice cloning + voice design + zero-shot in one model"),
-            ("weak",  "Slower than 4-bit by ~30%"),
+            ("avoid", "Final renders where you can't afford a quantization artifact — use bf16"),
         ),
     ),
     ModelEntry(

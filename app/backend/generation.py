@@ -6,7 +6,6 @@ the authoritative list — the audit_truth.py script cross-checks that list
 against the actual dispatch branches on every release.
 
 Currently wired (workers exist):
-- voxcpm          → transformers + custom audiovae
 - bark            → transformers BarkModel
 - voxcpm-mlx      → mlx-audio worker
 - kokoro-mlx      → mlx-audio worker
@@ -72,7 +71,6 @@ COMPLIANCE TABLE (keep current when adding workers):
 |-----------------------|---------------------------------------------------------------|--------|
 | _generate_mlx_audio   | load_model(snapshot_path)  Path not str (v1.2.8)              | OK     |
 | _generate_f5_tts      | F5TTS(ckpt_file=…, vocab_file=…)  (v1.3.4)                    | OK     |
-| _generate_voxcpm      | voxcpm.VoxCPM.from_pretrained(str(snapshot_path), local_files_only=True) | OK |
 | _generate_bark        | BarkModel.from_pretrained(str(snapshot_path), local_files_only=True)     | OK |
 
 ═════════════════════════════════════════════════════════════════════════
@@ -222,7 +220,6 @@ LANG_NAMES = {
 def availability() -> dict:
     """Per-engine availability + the static config the frontend needs."""
     qwen3_ok = _have_mlx_audio()
-    voxcpm_ok = _have_voxcpm()
     bark_ok = _have_bark()
     omnivoice_ok = qwen3_ok
     f5_tts_ok = _have_f5_tts()
@@ -232,8 +229,6 @@ def availability() -> dict:
         # If mlx-audio imports, every entry in MLX_AUDIO_FAMILIES is wired.
         for fam in MLX_AUDIO_FAMILIES.keys():
             wired.append(fam)
-    if voxcpm_ok:
-        wired.append("voxcpm")
     if bark_ok:
         wired.append("bark")
     if f5_tts_ok:
@@ -242,7 +237,7 @@ def availability() -> dict:
         "available": TTS_AVAILABLE,
         "kokoro_available": qwen3_ok,
         "qwen3_available": qwen3_ok,
-        "voxcpm_available": voxcpm_ok,
+        "voxcpm_available": qwen3_ok,
         "bark_available": bark_ok,
         "omnivoice_available": omnivoice_ok,
         "f5_tts_available": f5_tts_ok,
@@ -267,10 +262,6 @@ def availability() -> dict:
 
 def _have_mlx_audio() -> bool:
     return _package_installed("mlx_audio")
-
-
-def _have_voxcpm() -> bool:
-    return _package_installed("voxcpm")
 
 
 def _have_bark() -> bool:
@@ -311,7 +302,7 @@ def _have_diffusers() -> bool:
 # checks these one-by-one and tells the UI which engines are ready.
 _PACKAGE_CHECKLIST = [
     ("torch",         "Core ML framework + MPS device support"),
-    ("transformers",  "VoxCPM / Bark / Spark-TTS architectures"),
+    ("transformers",  "Tokenizers and Bark / Spark-TTS architectures"),
     ("misaki",        "Multilingual grapheme-to-phoneme for Kokoro MLX"),
     ("fugashi",       "Japanese tokenizer for Kokoro MLX"),
     ("jieba",         "Mandarin tokenizer for Kokoro MLX"),
@@ -323,15 +314,12 @@ _PACKAGE_CHECKLIST = [
     # MLX-side packages (Qwen3-TTS family). Apple Silicon native, not PyTorch.
     ("mlx",           "Apple Silicon ML framework (Qwen3-TTS)"),
     ("mlx_audio",     "MLX inference wrapper for audio models (including OmniVoice)"),
-    # VoxCPM (OpenBMB) — PyTorch + custom audiovae, official inference wrapper.
-    ("voxcpm",        "VoxCPM TTS engine (OpenBMB official inference package)"),
     # F5-TTS (SWivid) — flow-matching voice cloning.
     ("f5_tts",        "F5-TTS flow-matching TTS engine"),
     ("vocos",         "VoCoS vocoder used by F5-TTS"),
 ]
 
 _ENGINE_REQUIREMENTS = {
-    "voxcpm":         ["torch", "voxcpm", "soundfile", "numpy"],
     "voxcpm-mlx":     ["mlx", "mlx_audio", "soundfile", "numpy"],
     "bark":           ["torch", "transformers", "soundfile", "accelerate"],
     # Other mlx-audio-backed families. All share the same package set, since
@@ -352,7 +340,7 @@ _ENGINE_REQUIREMENTS = {
 # one of these models won't trip a NotImplementedError. Keep in sync with the
 # branches in `_dispatch_txt2speech` below + the MLX_AUDIO_FAMILIES table.
 _WIRED_FAMILIES = {
-    "voxcpm", "bark",
+    "bark",
     # All mlx-audio-backed families share one worker.
     "qwen3-tts", "voxcpm-mlx", "kokoro-mlx",
     "chatterbox-mlx", "spark-tts-mlx", "orpheus",
@@ -758,10 +746,6 @@ class GenerationManager:
         # shared — loading two large mlx-audio models would OOM anyway.
         self._mlx_audio_model = None
         self._mlx_audio_model_repo: Optional[str] = None
-        # Same idea for VoxCPM v1 (PyTorch) — loading takes 10-20 seconds on
-        # Apple Silicon (PyTorch + audiovae + tokenizer + optional torch.compile).
-        self._voxcpm_model = None
-        self._voxcpm_model_repo: Optional[str] = None
         # Bark — both the BarkModel and its AutoProcessor are cached together.
         self._bark_model = None
         self._bark_processor = None
@@ -1060,14 +1044,7 @@ class GenerationManager:
             raise ValueError(f"Model {repo} is not fully cached locally — download it first")
 
         family = model.family
-        if family == "voxcpm":
-            if not _have_voxcpm():
-                raise RuntimeError(
-                    "The `voxcpm` package isn't installed. Run 'Install Generation' "
-                    "from the Pinokio sidebar (this installs the VoxCPM stack)."
-                )
-            self._generate_voxcpm(job, model, output_path)
-        elif family == "bark":
+        if family == "bark":
             if not _have_bark():
                 raise RuntimeError(
                     "BarkModel isn't importable from your installed transformers. "
@@ -1190,6 +1167,15 @@ class GenerationManager:
         finally:
             if audio_config_cls is not None and original_audio_config_init is not None:
                 audio_config_cls.__init__ = original_audio_config_init
+        if entry is not None and entry.family == "voxcpm-mlx":
+            # Backport mlx-audio 3b37f335 without advancing the shared pin by
+            # 93 unrelated commits: materialize this lazy constant before the
+            # cached model is reused by a later generation worker thread.
+            import mlx.core as mx
+            decoder = getattr(getattr(model, "audio_vae", None), "decoder", None)
+            sr_boundaries = getattr(decoder, "_sr_boundaries", None)
+            if sr_boundaries is not None:
+                mx.eval(sr_boundaries)
         self._mlx_audio_model = model
         self._mlx_audio_model_repo = repo
         return model
@@ -1224,7 +1210,11 @@ class GenerationManager:
         speed = float(params.get("speed", 1.0))
         speed = max(0.5, min(speed, 2.0))
 
-        gen_kwargs: dict = {"text": text, "speed": speed}
+        gen_kwargs: dict = {"text": text}
+        # VoxCPM2 has no numeric speed parameter; pace is controlled through
+        # its natural-language instruction. Passing speed would be silently ignored.
+        if family != "voxcpm-mlx":
+            gen_kwargs["speed"] = speed
 
         # Dispatch to the per-mode resolver to populate voice / clone / instruct
         # kwargs. Each resolver may raise ValueError if required inputs are missing.
@@ -1233,11 +1223,13 @@ class GenerationManager:
 
         # Optional cfg knobs — currently only VoxCPM2 uses them.
         if family_config.get("uses_cfg"):
-            gen_kwargs["cfg_value"] = float(params.get("cfg_value", 2.0))
-            gen_kwargs["inference_timesteps"] = int(params.get("inference_timesteps", 7))
+            gen_kwargs["cfg_value"] = max(0.5, min(float(params.get("cfg_value", 2.0)), 6.0))
+            gen_kwargs["inference_timesteps"] = max(4, min(int(params.get("inference_timesteps", 7)), 50))
+            gen_kwargs["warmup_patches"] = max(0, min(int(params.get("voxcpm_warmup_patches", 0)), 4))
+            gen_kwargs["max_tokens"] = max(256, min(int(params.get("voxcpm_max_tokens", 2000)), 4096))
 
-        # Record seed for history — mlx-audio doesn't expose a seed kwarg in
-        # current versions, but we want history "Reuse params" to make sense.
+        # MLX models sample through mlx.core.random. Apply the recorded seed
+        # immediately before inference so history reuse is genuinely repeatable.
         seed = params.get("seed")
         if seed is None or seed < 0:
             import random
@@ -1253,10 +1245,14 @@ class GenerationManager:
         # them) don't collide on the audio_000.wav name.
         temp_dir = Path(tempfile.mkdtemp(prefix=f"mlxaudio_{family}_{job.job_id}_"))
         try:
+            import mlx.core as mx
+            mx.random.seed(int(seed) % (2**32))
             log_extras = []
             if family_config.get("uses_cfg"):
                 log_extras.append(f"steps={gen_kwargs['inference_timesteps']}")
                 log_extras.append(f"cfg={gen_kwargs['cfg_value']}")
+                log_extras.append(f"warmup={gen_kwargs['warmup_patches']}")
+                log_extras.append(f"max_tokens={gen_kwargs['max_tokens']}")
             extras = f" [{', '.join(log_extras)}]" if log_extras else ""
             print(
                 f"[gen] {family} {mode_label} ({len(text)} chars){extras}",
@@ -1375,22 +1371,40 @@ class GenerationManager:
         raise RuntimeError(f"Unknown qwen3-tts mode {mode!r}")
 
     def _mlx_kwargs_voxcpm_flex(self, params, gen_kwargs, voices_module) -> str:
-        """VoxCPM2 (MLX) / Spark-TTS (MLX) / similar: any combination of
-        ref_audio + ref_text + instruct. Falls back to zero-shot if neither
-        is provided."""
+        """VoxCPM2 MLX: zero-shot, voice design, reference cloning, or
+        transcript-aware continuation cloning with optional style control."""
         design_prompt = (params.get("voice_design_prompt") or params.get("instruct") or "").strip()
         if design_prompt:
+            if len(design_prompt) > 500:
+                raise ValueError("VoxCPM2 voice design instructions must be 500 characters or fewer")
             gen_kwargs["instruct"] = design_prompt
 
         voice_id = (params.get("voice_library_id") or "").strip() or None
         if voice_id:
-            self._inject_voice_clone(voice_id, params, gen_kwargs, voices_module,
-                                     fallback_transcript=".")
+            voice = voices_module.library.get(voice_id)
+            if voice is None:
+                raise ValueError(f"Voice {voice_id} not found in library")
+            ref_path = voices_module.library.reference_path(voice_id)
+            if ref_path is None or not ref_path.exists():
+                raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
+            gen_kwargs["ref_audio"] = str(ref_path)
+            transcript = (params.get("ref_transcript") or "").strip()
+            if not transcript:
+                transcript = (voices_module.library.transcript(voice_id) or "").strip()
+            if transcript:
+                # VoxCPM2's highest-fidelity path needs the same clip in both
+                # reference and continuation slots, paired with its transcript.
+                gen_kwargs["prompt_audio"] = str(ref_path)
+                gen_kwargs["prompt_text"] = transcript
 
+        if "prompt_audio" in gen_kwargs and "instruct" in gen_kwargs:
+            return "ultimate clone + style"
+        if "prompt_audio" in gen_kwargs:
+            return "ultimate clone (transcript-aware)"
         if "ref_audio" in gen_kwargs and "instruct" in gen_kwargs:
-            return "combined (clone + design)"
+            return "reference clone + style"
         if "ref_audio" in gen_kwargs:
-            return "voice-cloning"
+            return "reference clone"
         if "instruct" in gen_kwargs:
             return "voice-design"
         return "zero-shot"
@@ -1538,166 +1552,6 @@ class GenerationManager:
         if not ref_text:
             ref_text = voices_module.library.transcript(voice_id) or ""
         gen_kwargs["ref_text"] = ref_text or fallback_transcript
-
-    # ----- VoxCPM (OpenBMB) -----
-
-    def _voxcpm_get_model(self, repo: str, device: str):
-        """Lazy-load + cache the VoxCPM model. Evicts any previously-loaded
-        VoxCPM model on repo switch (each model is several GB on MPS unified
-        memory)."""
-        if self._voxcpm_model_repo == repo and self._voxcpm_model is not None:
-            return self._voxcpm_model
-
-        if self._voxcpm_model is not None:
-            print(f"[gen] evicting cached VoxCPM model ({self._voxcpm_model_repo})", flush=True)
-            try:
-                del self._voxcpm_model
-            except Exception:
-                pass
-            self._voxcpm_model = None
-            self._voxcpm_model_repo = None
-            _release_device_memory(device)
-
-        import voxcpm
-        # v1.3.5 — explicit-path standard. Resolve our HF Hub cache snapshot
-        # and pass it as the local path instead of the repo string. This
-        # bypasses voxcpm's internal HF lookup entirely, so we're immune to
-        # the kind of cache-layout drift that bit F5-TTS in v1.3.4 (where
-        # cached_path has a non-HF-Hub layout). transformers' from_pretrained
-        # accepts both repo strings and local paths interchangeably.
-        snapshot_path = self._mlx_audio_snapshot_path(repo)
-        print(f"[gen] loading VoxCPM model from {snapshot_path} on {device}", flush=True)
-        # load_denoiser=False keeps the model self-contained — the modelscope
-        # zipenhancer denoiser is several hundred MB and we don't currently
-        # surface a denoise toggle. Re-enable when wiring the denoise UI.
-        # optimize=False skips torch.compile — compile takes 30-60s on first
-        # generation and benefits batch use more than one-off generations.
-        model = voxcpm.VoxCPM.from_pretrained(
-            str(snapshot_path),
-            optimize=False,
-            load_denoiser=False,
-            device=device,
-            local_files_only=True,
-        )
-        self._voxcpm_model = model
-        self._voxcpm_model_repo = repo
-        return model
-
-    def _generate_voxcpm(self, job: GenerationJob, model_entry, output_path: Path) -> None:
-        """
-        Run VoxCPM v1 via the official `voxcpm` package. Two effective modes:
-
-        - **Plain** (with optional emotion/tone control): just text, optionally
-          prefixed with `(control_text)` for emotion. Reads `instruct` from
-          params and wraps it in parentheses.
-        - **Voice cloning (continuation)**: pair `voice_library_id` with
-          `ref_transcript`. VoxCPM v1 calls this "continuation mode" and
-          *requires* both the reference clip AND its transcript. If transcript
-          is missing on the library voice, we error with a clear message.
-
-        VoxCPM v1 does NOT support `reference_wav_path` (that's a v2-only
-        argument), so we only use `prompt_wav_path` + `prompt_text`.
-        """
-        import soundfile as sf
-        from . import voices as voices_module
-
-        params = job.params
-        device = _detect_device()
-
-        text = (params.get("text") or "").strip()
-        if not text:
-            raise ValueError("text is required")
-
-        # Emotion / tone control — wrapped in parentheses per VoxCPM convention.
-        # Strip any pre-existing parens from the user's input so we don't break
-        # the `(control)text` prompt format the model expects.
-        import re
-        control_raw = (params.get("instruct") or "").strip()
-        control = re.sub(r"[()（）]", "", control_raw).strip()
-        final_text = f"({control}){text}" if control else text
-
-        # Voice-cloning path: needs both prompt_wav AND prompt_text.
-        prompt_wav_path: Optional[str] = None
-        prompt_text: Optional[str] = None
-        voice_id = (params.get("voice_library_id") or "").strip() or None
-        if voice_id:
-            voice = voices_module.library.get(voice_id)
-            if voice is None:
-                raise ValueError(f"Voice {voice_id} not found in library")
-            ref_path = voices_module.library.reference_path(voice_id)
-            if ref_path is None or not ref_path.exists():
-                raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
-            # Transcript can come from explicit override or the library's
-            # stored transcript. VoxCPM v1 requires both prompt_wav AND
-            # prompt_text — empty transcript is not allowed.
-            override = (params.get("ref_transcript") or "").strip()
-            stored = voices_module.library.transcript(voice_id) or ""
-            prompt_text = override or stored.strip()
-            if not prompt_text:
-                raise ValueError(
-                    "VoxCPM voice cloning needs a transcript of the reference clip. "
-                    "Edit the voice in your Voices library to add one, or provide "
-                    "a transcript override in the Reference transcript field."
-                )
-            prompt_wav_path = str(ref_path)
-            print(f"[gen] voxcpm continuation mode: ref={ref_path.name} transcript_len={len(prompt_text)}", flush=True)
-        else:
-            print(f"[gen] voxcpm plain mode (control: {control[:30]!r})", flush=True)
-
-        cfg_value = float(params.get("cfg_value", 2.0))
-        cfg_value = max(0.5, min(cfg_value, 8.0))
-        inference_timesteps = int(params.get("inference_timesteps", 10))
-        inference_timesteps = max(2, min(inference_timesteps, 50))
-        normalize = bool(params.get("normalize_text", False))
-
-        # Seed — VoxCPM doesn't expose a seed kwarg directly; we set torch
-        # manual seed for reproducibility of the diffusion sampler.
-        seed = params.get("seed")
-        if seed is None or seed < 0:
-            import random
-            seed = random.randint(0, 2**32 - 1)
-        job.resolved_seed = int(seed)
-        try:
-            import torch
-            torch.manual_seed(int(seed))
-            if device == "mps":
-                try:
-                    torch.mps.manual_seed(int(seed))
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        if job.cancel_event.is_set():
-            return
-
-        model = self._voxcpm_get_model(model_entry.repo, device)
-
-        gen_kwargs: dict = {
-            "text": final_text,
-            "cfg_value": cfg_value,
-            "inference_timesteps": inference_timesteps,
-            "normalize": normalize,
-            "denoise": False,
-            "retry_badcase": True,
-        }
-        if prompt_wav_path:
-            gen_kwargs["prompt_wav_path"] = prompt_wav_path
-            gen_kwargs["prompt_text"] = prompt_text
-
-        print(
-            f"[gen] generating voxcpm "
-            f"(text_len={len(final_text)}, cfg={cfg_value}, steps={inference_timesteps}, "
-            f"normalize={normalize}, clone={bool(prompt_wav_path)})",
-            flush=True,
-        )
-        wav = model.generate(**gen_kwargs)
-
-        sr = int(getattr(getattr(model, "tts_model", None), "sample_rate", 16000) or 16000)
-        # VoxCPM returns a 1D float32 numpy array; soundfile.write handles both
-        # 1D mono and 2D (samples, channels) shapes.
-        sf.write(str(output_path), wav, sr, format="WAV", subtype="PCM_16")
-        print(f"[gen] voxcpm saved WAV at {sr} Hz: {output_path}", flush=True)
 
     # ----- Bark (Suno via transformers) -----
 

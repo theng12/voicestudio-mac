@@ -86,8 +86,10 @@ function studio() {
       voxcpm_available: false,
       voxcpm_emotion_examples: [],
       cfg_value: 2.0,
-      inference_timesteps: 10,
+      inference_timesteps: 7,
       normalize_text: false,
+      voxcpm_warmup_patches: 0,
+      voxcpm_max_tokens: 2000,
       chatterbox_cfg_weight: 0.5,
       chatterbox_repetition_penalty: 1.2,
       chatterbox_min_p: 0.05,
@@ -768,6 +770,7 @@ function studio() {
       "voice", "kokoro_blend_voice", "kokoro_language", "preset_speaker", "bark_voice_preset", "voice_library_id",
       "language", "speed", "temperature", "seed", "batchCount",
       "cfg_value", "inference_timesteps", "normalize_text",
+      "voxcpm_warmup_patches", "voxcpm_max_tokens",
       "instruct", "voice_design_prompt",
       "chatterbox_cfg_weight", "chatterbox_repetition_penalty",
       "chatterbox_min_p", "chatterbox_top_p",
@@ -938,7 +941,7 @@ function studio() {
       const qwenMode = this.qwen3Mode(this.gen.repo);
       if (qwenMode === "custom") return this.gen.preset_speaker || "Choose speaker";
       if (this.isBark(this.gen.repo)) return this.gen.bark_voice_preset || "Random voice";
-      const cloneMode = qwenMode === "clone" || this.isVoxCPM(this.gen.repo)
+      const cloneMode = qwenMode === "clone"
                      || this.isMlxCloner(this.gen.repo) || this.isF5TTS(this.gen.repo);
       if (cloneMode && this.gen.voice_library_id) {
         return this.voices.find(v => v.id === this.gen.voice_library_id)?.name
@@ -1149,7 +1152,7 @@ function studio() {
         if (p.voice_library_id) return `clone: ${this._voiceNameById(p.voice_library_id)}`;
         return "default";
       }
-      if (family === "voxcpm" || family === "voxcpm-mlx") {
+      if (family === "voxcpm-mlx") {
         const parts = [];
         if (p.voice_library_id) parts.push(`clone: ${this._voiceNameById(p.voice_library_id)}`);
         if (p.voice_design_prompt) parts.push(`design: "${p.voice_design_prompt.slice(0, 30)}…"`);
@@ -2538,10 +2541,6 @@ function studio() {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "qwen3-tts";
     },
-    isVoxCPM(repo) {
-      const m = (this.models || []).find(x => x.repo === repo);
-      return m?.family === "voxcpm";
-    },
     isVoxCPMMlx(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "voxcpm-mlx";
@@ -2673,7 +2672,18 @@ function studio() {
           || this.isVoxtral(repo) || this.isMarvis(repo) || this.isOmniVoice(repo);
     },
     setVoxcpmEmotionExample(text) {
-      this.gen.instruct = text;
+      this.gen.voice_design_prompt = text;
+    },
+    voxcpmModeLabel() {
+      const hasReference = !!this.gen.voice_library_id;
+      const hasTranscript = !!this.referenceTranscriptForRequest();
+      const hasDesign = !!(this.gen.voice_design_prompt || "").trim();
+      if (hasReference && hasTranscript && hasDesign) return "Ultimate clone + style";
+      if (hasReference && hasTranscript) return "Ultimate clone";
+      if (hasReference && hasDesign) return "Reference clone + style";
+      if (hasReference) return "Reference clone";
+      if (hasDesign) return "Voice design";
+      return "Zero-shot voice";
     },
     onModelChange() {
       // The user has explicitly picked a model. Mark as authoritative so the
@@ -2688,12 +2698,8 @@ function studio() {
       }
       // Apply per-family default knob values when the user switches engines.
       // Saves the user from having to remember each model's sweet-spot defaults.
-      if (this.isVoxCPMMlx(this.gen.repo)) {
-        // VoxCPM2 recommends 7 timesteps (its README) — meaningfully faster than v1's 10.
-        if (this.gen.inference_timesteps === 10) this.gen.inference_timesteps = 7;
-      } else if (this.isVoxCPM(this.gen.repo)) {
-        // VoxCPM v1's default is 10.
-        if (this.gen.inference_timesteps === 7) this.gen.inference_timesteps = 10;
+      if (this.isVoxCPMMlx(this.gen.repo) && !this.gen.inference_timesteps) {
+        this.gen.inference_timesteps = 7;
       }
       // Chatterbox-MLX reuses cfg_value as its exaggeration dial (0.0-1.0).
       // VoxCPM's default 2.0 would be clamped to 1.0 by the backend, but
@@ -2706,7 +2712,7 @@ function studio() {
       } else if (this.gen.cfg_value < 0.5) {
         // Coming back from Chatterbox to a VoxCPM model — restore cfg=2.0
         // if the user left a sub-VoxCPM-range value behind.
-        if (this.isVoxCPM(this.gen.repo) || this.isVoxCPMMlx(this.gen.repo)) {
+        if (this.isVoxCPMMlx(this.gen.repo)) {
           this.gen.cfg_value = 2.0;
         }
       }
@@ -3047,17 +3053,17 @@ function studio() {
                           || this.isSparkTtsMlx(repo);
 
         // Instruct / voice description: Qwen3 custom (tone), Qwen3 design (full
-        // prompt), VoxCPM v1/v2 (emotion control), Spark-TTS-MLX (style hint),
+        // prompt), VoxCPM2 (voice/style control), Spark-TTS-MLX (style hint),
         // and Orpheus (optional style nudge).
         const passesInstruct = mode === "custom" || mode === "design"
-                            || this.isVoxCPM(repo) || this.isVoxCPMMlx(repo)
+                            || this.isVoxCPMMlx(repo)
                             || this.isSparkTtsMlx(repo) || this.isOrpheus(repo);
 
         const passesDesignPrompt = mode === "design" || this.isVoxCPMMlx(repo)
                                 || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo);
 
-        // Voice library: every cloner family + Qwen3 clone mode + VoxCPM v1 + F5-TTS.
-        const passesLibraryVoice = mode === "clone" || this.isVoxCPM(repo)
+        // Voice library: every cloner family + Qwen3 clone mode + F5-TTS.
+        const passesLibraryVoice = mode === "clone"
                                 || this.isMlxCloner(repo)
                                 || this.isF5TTS(repo);
 
@@ -3089,6 +3095,8 @@ function studio() {
           cfg_value: Number(this.gen.cfg_value),
           inference_timesteps: Number(this.gen.inference_timesteps),
           normalize_text: !!this.gen.normalize_text,
+          voxcpm_warmup_patches: Number(this.gen.voxcpm_warmup_patches),
+          voxcpm_max_tokens: Number(this.gen.voxcpm_max_tokens),
           chatterbox_cfg_weight: Number(this.gen.chatterbox_cfg_weight),
           chatterbox_repetition_penalty: Number(this.gen.chatterbox_repetition_penalty),
           chatterbox_min_p: Number(this.gen.chatterbox_min_p),
@@ -3482,6 +3490,8 @@ function studio() {
       if (typeof p.cfg_value === "number")           this.gen.cfg_value = p.cfg_value;
       if (typeof p.inference_timesteps === "number") this.gen.inference_timesteps = p.inference_timesteps;
       if (typeof p.normalize_text === "boolean")     this.gen.normalize_text = p.normalize_text;
+      if (typeof p.voxcpm_warmup_patches === "number") this.gen.voxcpm_warmup_patches = p.voxcpm_warmup_patches;
+      if (typeof p.voxcpm_max_tokens === "number") this.gen.voxcpm_max_tokens = p.voxcpm_max_tokens;
       if (typeof p.chatterbox_cfg_weight === "number") this.gen.chatterbox_cfg_weight = p.chatterbox_cfg_weight;
       if (typeof p.chatterbox_repetition_penalty === "number") this.gen.chatterbox_repetition_penalty = p.chatterbox_repetition_penalty;
       if (typeof p.chatterbox_min_p === "number") this.gen.chatterbox_min_p = p.chatterbox_min_p;

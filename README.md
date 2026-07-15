@@ -6,15 +6,16 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 
 ## What it does
 
-- **Catalog of 35 focused local models** across 14 families, including Qwen3-TTS,
-  Chatterbox, OmniVoice, VoxCPM / VoxCPM2, Kokoro, F5-TTS, Spark-TTS, Bark,
+- **Catalog of 32 focused local models** across 13 families, including Qwen3-TTS,
+  Chatterbox, OmniVoice, VoxCPM2, Kokoro, F5-TTS, Spark-TTS, Bark,
   Orpheus, KittenTTS, VibeVoice, Voxtral, and Marvis.
 - **Apple Silicon first** — the priority families use curated MLX tiers instead
   of presenting every redundant precision. Qwen3 includes 0.6B and 1.7B Base
   voice cloning, 1.7B preset voices, and 1.7B VoiceDesign. Chatterbox and
   OmniVoice expose their native cloning and quality controls. Kokoro keeps one
   full-quality MLX model with all 54 voices, nine language variants, speed, and
-  equal voice blending.
+  equal voice blending. VoxCPM2 keeps a fast 4-bit tier and a bf16 final-render
+  tier, both with voice design and transcript-aware cloning.
 - **Smart downloads** — filters out redundant duplicate weight formats automatically. F5-TTS goes from 6.3 GB → 1.3 GB, Bark from 20 GB → 4 GB, Chatterbox from 11 GB → 3 GB.
 - **Resume on retry** — partial downloads pick up where they left off.
 - **Imports** — link or move TTS weights from other launchers (e.g. a standalone VoxCPM webui).
@@ -194,6 +195,6 @@ The launcher scripts in this repo are MIT. Each TTS model has its own license �
 - **F5-TTS**: non-commercial
 - **Chatterbox, OmniVoice, Qwen3-TTS, Bark, Spark-TTS, Kokoro**: permissive
   (MIT / Apache-2.0; check each catalog entry for exact terms)
-- **VoxCPM / VoxCPM2**: check the OpenBMB license per release
+- **VoxCPM2**: Apache-2.0
 
 Voice cloning models can imitate any voice from a short reference. **Only clone voices you have permission to use.**

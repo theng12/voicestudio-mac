@@ -5,9 +5,7 @@ accelerate==1.14.0
     #   -r app/requirements-generation.txt
     #   f5-tts
 addict==2.4.0
-    # via
-    #   misaki
-    #   voxcpm
+    # via misaki
 aiofiles==24.1.0
     # via gradio
 aiohappyeyeballs==2.6.2
@@ -16,12 +14,6 @@ aiohttp==3.14.1
     # via fsspec
 aiosignal==1.4.0
     # via aiohttp
-aliyun-python-sdk-core==2.16.0
-    # via
-    #   aliyun-python-sdk-kms
-    #   oss2
-aliyun-python-sdk-kms==2.16.5
-    # via oss2
 annotated-doc==0.0.4
     # via
     #   fastapi
@@ -32,15 +24,11 @@ antlr4-python3-runtime==4.9.3
     # via
     #   hydra-core
     #   omegaconf
-anyascii==0.3.3
-    # via textsearch
 anyio==4.14.0
     # via
     #   gradio
     #   httpx
     #   starlette
-argbind==0.3.9
-    # via voxcpm
 attrs==26.1.0
     # via
     #   aiohttp
@@ -100,14 +88,8 @@ confection==1.3.3
     #   weasel
 contourpy==1.3.3
     # via matplotlib
-contractions==0.1.73
-    # via wetext
-crcmod==1.7
-    # via oss2
 cryptography==49.0.0
-    # via
-    #   aliyun-python-sdk-core
-    #   google-auth
+    # via google-auth
 csvw==4.0.0
     # via segments
 curated-tokenizers==0.0.9
@@ -122,9 +104,7 @@ cymem==2.0.13
     #   spacy
     #   thinc
 datasets==3.6.0
-    # via
-    #   f5-tts
-    #   voxcpm
+    # via f5-tts
 decorator==5.3.1
     # via librosa
 diffusers==0.38.0
@@ -137,16 +117,11 @@ dlinfo==2.0.0
     # via phonemizer-fork
 docopt==0.6.2
     # via num2words
-docstring-parser==0.18.0
-    # via argbind
-editdistance==0.8.1
-    # via funasr
 einops==0.8.2
     # via
     #   encodec
     #   torch-einops-utils
     #   vocos
-    #   voxcpm
     #   x-transformers
 einx==0.4.3
     # via x-transformers
@@ -168,7 +143,6 @@ filelock==3.29.4
     #   datasets
     #   diffusers
     #   huggingface-hub
-    #   modelscope
     #   torch
 fonttools==4.63.0
     # via matplotlib
@@ -186,8 +160,6 @@ fsspec==2025.3.0
     #   torch
 fugashi==1.5.2
     # via -r app/requirements-generation.txt
-funasr==1.3.10
-    # via voxcpm
 gitdb==4.0.12
     # via gitpython
 gitpython==3.1.50
@@ -214,10 +186,7 @@ google-resumable-media==2.10.0
 googleapis-common-protos==1.75.0
     # via google-api-core
 gradio==6.10.0
-    # via
-    #   f5-tts
-    #   spaces
-    #   voxcpm
+    # via f5-tts
 gradio-client==2.4.0
     # via
     #   gradio
@@ -241,7 +210,6 @@ httpx==0.28.1
     #   gradio-client
     #   huggingface-hub
     #   safehttpx
-    #   spaces
     #   weasel
 huggingface-hub==1.19.0
     # via
@@ -249,18 +217,14 @@ huggingface-hub==1.19.0
     #   cached-path
     #   datasets
     #   diffusers
-    #   funasr
     #   gradio
     #   gradio-client
     #   mlx-audio
     #   tokenizers
     #   transformers
     #   vocos
-    #   voxcpm
 hydra-core==1.3.3
-    # via
-    #   f5-tts
-    #   funasr
+    # via f5-tts
 idna==3.18
     # via
     #   anyio
@@ -270,21 +234,13 @@ idna==3.18
 importlib-metadata==9.0.0
     # via diffusers
 inflect==7.5.0
-    # via
-    #   -r app/requirements-generation.txt
-    #   voxcpm
+    # via -r app/requirements-generation.txt
 isodate==0.7.2
     # via csvw
 jaconv==0.5.0
-    # via
-    #   -r app/requirements-generation.txt
-    #   funasr
-jamo==0.4.1
-    # via funasr
+    # via -r app/requirements-generation.txt
 jieba==0.42.1
-    # via
-    #   funasr
-    #   misaki
+    # via misaki
 jinja2==3.1.6
     # via
     #   gradio
@@ -293,14 +249,12 @@ jinja2==3.1.6
     #   torch
 jmespath==0.10.0
     # via
-    #   aliyun-python-sdk-core
     #   boto3
     #   botocore
 joblib==1.5.3
     # via
     #   librosa
     #   phonemizer-fork
-    #   pynndescent
     #   scikit-learn
 jsonschema==4.26.0
     # via
@@ -308,10 +262,6 @@ jsonschema==4.26.0
     #   mistral-common
 jsonschema-specifications==2025.9.1
     # via jsonschema
-kaldifst==1.8.0
-    # via wetext
-kaldiio==2.18.1
-    # via funasr
 kiwisolver==1.5.0
     # via matplotlib
 language-tags==1.3.1
@@ -319,14 +269,9 @@ language-tags==1.3.1
 lazy-loader==0.5
     # via librosa
 librosa==0.11.0
-    # via
-    #   f5-tts
-    #   funasr
-    #   voxcpm
+    # via f5-tts
 llvmlite==0.47.0
-    # via
-    #   numba
-    #   pynndescent
+    # via numba
 loguru==0.7.3
     # via x-transformers
 markdown-it-py==4.2.0
@@ -336,9 +281,7 @@ markupsafe==3.0.3
     #   gradio
     #   jinja2
 matplotlib==3.11.0
-    # via
-    #   f5-tts
-    #   voxcpm
+    # via f5-tts
 mdurl==0.1.2
     # via markdown-it-py
 miniaudio==1.71
@@ -360,10 +303,6 @@ mlx-lm==0.31.3
     #   mlx-audio
 mlx-metal==0.31.2
     # via mlx
-modelscope==1.37.1
-    # via
-    #   funasr
-    #   voxcpm
 mojimoji==0.0.13
     # via -r app/requirements-generation.txt
 more-itertools==11.1.0
@@ -393,8 +332,6 @@ numba==0.65.1
     # via
     #   -r app/requirements-generation.txt
     #   librosa
-    #   pynndescent
-    #   umap-learn
 numpy==2.2.6
     # via
     #   -r app/requirements-generation.txt
@@ -405,9 +342,7 @@ numpy==2.2.6
     #   diffusers
     #   einx
     #   encodec
-    #   funasr
     #   gradio
-    #   kaldiio
     #   librosa
     #   matplotlib
     #   mistral-common
@@ -421,22 +356,15 @@ numpy==2.2.6
     #   soundfile
     #   soxr
     #   spacy
-    #   tensorboardx
     #   thinc
-    #   torch-complex
     #   transformers
-    #   umap-learn
     #   vocos
 omegaconf==2.3.1
-    # via
-    #   funasr
-    #   hydra-core
+    # via hydra-core
 ordered-set==4.1.0
     # via misaki
 orjson==3.11.9
     # via gradio
-oss2==2.19.1
-    # via funasr
 packaging==26.2
     # via
     #   accelerate
@@ -448,13 +376,9 @@ packaging==26.2
     #   hydra-core
     #   lazy-loader
     #   matplotlib
-    #   modelscope
     #   pooch
-    #   spaces
     #   spacy
-    #   tensorboardx
     #   thinc
-    #   torch-complex
     #   transformers
     #   wandb
     #   weasel
@@ -495,12 +419,9 @@ protobuf==7.35.1
     #   googleapis-common-protos
     #   mlx-lm
     #   proto-plus
-    #   tensorboardx
     #   wandb
 psutil==7.2.2
     # via accelerate
-pyahocorasick==2.3.1
-    # via textsearch
 pyarrow==24.0.0
     # via datasets
 pyasn1==0.6.3
@@ -511,18 +432,14 @@ pycountry==26.2.16
     # via pydantic-extra-types
 pycparser==3.0
     # via cffi
-pycryptodome==3.23.0
-    # via oss2
 pydantic==2.13.4
     # via
     #   fastapi
     #   gradio
     #   mistral-common
     #   pydantic-extra-types
-    #   spaces
     #   spacy
     #   thinc
-    #   voxcpm
     #   wandb
     #   weasel
 pydantic-core==2.46.4
@@ -535,8 +452,6 @@ pydub==0.25.1
     #   gradio
 pygments==2.20.0
     # via rich
-pynndescent==0.6.0
-    # via umap-learn
 pyopenjtalk==0.4.1
     # via -r app/requirements-generation.txt
 pyparsing==3.3.2
@@ -563,9 +478,7 @@ pytz==2026.2
 pyyaml==6.0.3
     # via
     #   accelerate
-    #   argbind
     #   datasets
-    #   funasr
     #   gradio
     #   huggingface-hub
     #   mlx-lm
@@ -592,14 +505,10 @@ requests==2.34.2
     #   cached-path
     #   datasets
     #   diffusers
-    #   funasr
     #   google-api-core
     #   google-cloud-storage
     #   mistral-common
-    #   modelscope
-    #   oss2
     #   pooch
-    #   spaces
     #   spacy
     #   tiktoken
     #   wandb
@@ -624,23 +533,15 @@ safetensors==0.8.0
     #   accelerate
     #   diffusers
     #   f5-tts
-    #   funasr
     #   transformers
-    #   voxcpm
 scikit-learn==1.9.0
-    # via
-    #   librosa
-    #   pynndescent
-    #   umap-learn
+    # via librosa
 scipy==1.17.1
     # via
-    #   funasr
     #   librosa
     #   mlx-audio
-    #   pynndescent
     #   scikit-learn
     #   torchdiffeq
-    #   umap-learn
     #   vocos
 segments==2.4.0
     # via phonemizer-fork
@@ -649,46 +550,34 @@ semantic-version==2.10.0
 sentencepiece==0.2.1
     # via
     #   -r app/requirements-generation.txt
-    #   funasr
     #   mlx-lm
 sentry-sdk==2.63.0
     # via wandb
 setuptools==81.0.0
     # via
-    #   modelscope
     #   spacy
     #   thinc
     #   torch
 shellingham==1.5.4
     # via typer
-simplejson==4.1.1
-    # via voxcpm
 six==1.17.0
-    # via
-    #   oss2
-    #   python-dateutil
+    # via python-dateutil
 smart-open==7.6.1
     # via weasel
 smmap==5.0.3
     # via gitdb
-sortedcontainers==2.4.0
-    # via voxcpm
 sounddevice==0.5.5
     # via mlx-audio
 soundfile==0.14.0
     # via
     #   -r app/requirements-generation.txt
     #   f5-tts
-    #   funasr
     #   librosa
     #   mistral-common
-    #   voxcpm
 soxr==1.1.0
     # via
     #   librosa
     #   mistral-common
-spaces==0.50.4
-    # via voxcpm
 spacy==3.8.14
     # via misaki
 spacy-curated-transformers==0.3.1
@@ -710,20 +599,14 @@ sympy==1.14.0
     # via
     #   einx
     #   torch
-tensorboardx==2.6.5
-    # via funasr
 termcolor==3.3.0
     # via csvw
-textsearch==0.0.24
-    # via contractions
 thinc==8.3.13
     # via spacy
 threadpoolctl==3.6.0
     # via scikit-learn
 tiktoken==0.13.0
-    # via
-    #   funasr
-    #   mistral-common
+    # via mistral-common
 tokenizers==0.22.2
     # via
     #   -r app/requirements-generation.txt
@@ -744,10 +627,7 @@ torch==2.12.1
     #   torch-einops-utils
     #   torchdiffeq
     #   vocos
-    #   voxcpm
     #   x-transformers
-torch-complex==0.4.4
-    # via funasr
 torch-einops-utils==0.1.4
     # via x-transformers
 torchaudio==2.11.0
@@ -756,35 +636,26 @@ torchaudio==2.11.0
     #   encodec
     #   f5-tts
     #   vocos
-    #   voxcpm
 torchcodec==0.14.0
-    # via
-    #   f5-tts
-    #   voxcpm
+    # via f5-tts
 torchdiffeq==0.2.5
     # via f5-tts
 tqdm==4.68.3
     # via
     #   datasets
     #   f5-tts
-    #   funasr
     #   huggingface-hub
     #   mlx-audio
-    #   modelscope
     #   pyopenjtalk
     #   spacy
     #   transformers
-    #   umap-learn
-    #   voxcpm
 transformers==5.9.0
     # via
     #   -r app/requirements-generation.txt
     #   f5-tts
-    #   funasr
     #   mlx-audio
     #   mlx-lm
     #   transformers-stream-generator
-    #   voxcpm
 transformers-stream-generator==0.0.5
     # via f5-tts
 typeguard==4.5.2
@@ -814,7 +685,6 @@ typing-extensions==4.15.0
     #   pydantic-extra-types
     #   referencing
     #   soundfile
-    #   spaces
     #   starlette
     #   torch
     #   typeguard
@@ -824,8 +694,6 @@ typing-inspection==0.4.2
     # via
     #   fastapi
     #   pydantic
-umap-learn==0.5.12
-    # via funasr
 unidecode==1.4.0
     # via
     #   -r app/requirements-generation.txt
@@ -837,15 +705,12 @@ uritemplate==4.2.0
 urllib3==2.7.0
     # via
     #   botocore
-    #   modelscope
     #   requests
     #   sentry-sdk
 uvicorn==0.49.0
     # via gradio
 vocos==0.1.0
     # via f5-tts
-voxcpm==2.0.3
-    # via -r app/requirements-generation.txt
 wandb==0.27.2
     # via f5-tts
 wasabi==1.1.3
@@ -855,8 +720,6 @@ wasabi==1.1.3
     #   weasel
 weasel==1.0.0
     # via spacy
-wetext==0.1.4
-    # via voxcpm
 wrapt==2.2.1
     # via smart-open
 x-transformers==2.21.6

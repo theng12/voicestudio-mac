@@ -10,6 +10,36 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.16.0] — 2026-07-15
+
+### Refined — current VoxCPM2, MLX first
+
+- Consolidated VoxCPM onto the current 2B VoxCPM2 architecture. The catalog now
+  offers two purposeful MLX tiers: 4-bit for normal generation and bf16 for
+  final-quality output. Removed VoxCPM v1, duplicate PyTorch v2, and the
+  indistinct 8-bit middle tier.
+- Added an active-mode indicator for zero-shot speech, voice design, reference
+  cloning, transcript-aware ultimate cloning, and style-controlled cloning.
+- Exposed VoxCPM2's real quality controls: guidance, diffusion steps, onset
+  warmup patches, maximum audio tokens, and reproducible MLX sampling seeds.
+  The numeric speed control is now hidden because VoxCPM2 controls pace through
+  its natural-language voice instruction instead.
+
+### Fixed
+
+- Saved or overridden reference transcripts now activate VoxCPM2's actual
+  high-fidelity continuation path by pairing prompt text and prompt audio with
+  the reference clip. Clips without transcripts continue to use valid basic
+  reference cloning.
+- Backported the upstream MLX sample-rate-boundary materialization fix so a
+  cached VoxCPM2 model can be reused safely by later worker threads without
+  advancing the shared `mlx-audio` pin across unrelated engine changes.
+- Removed the unused PyTorch `voxcpm` dependency and its ModelScope / WeText
+  chain, reducing the resolved generation environment from 236 to 210 packages.
+
+Run **Update**, then **Reinstall Generation** once to converge on the lighter
+dependency set. Existing cached model files are not deleted automatically.
+
 ## [1.15.0] — 2026-07-15
 
 ### Refined — one complete, MLX-first Kokoro workflow

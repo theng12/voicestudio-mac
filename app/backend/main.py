@@ -168,13 +168,15 @@ class Txt2SpeechBody(BaseModel):
     instruct: Optional[str] = None          # emotion / tone tag, e.g. "Sad and crying, speaking slowly"
     # ── Qwen3-TTS VoiceDesign (natural-language voice description) ──
     voice_design_prompt: Optional[str] = None
-    # ── Voice cloning (Qwen3-TTS Base, VoxCPM, future engines) ──
+    # ── Voice cloning (Qwen3-TTS Base, VoxCPM2, and other engines) ──
     voice_library_id: Optional[str] = None  # id of a voice in app/voices/
-    ref_transcript: Optional[str] = None    # transcript of the reference clip; required by F5-TTS / VoxCPM v1
-    # ── VoxCPM-specific knobs ──
-    cfg_value: float = 2.0                  # guidance scale (VoxCPM default)
-    inference_timesteps: int = 10           # VoxCPM diffusion timesteps
-    normalize_text: bool = False            # let VoxCPM normalize numerics / abbreviations
+    ref_transcript: Optional[str] = None    # enables VoxCPM2 ultimate cloning; required by F5-TTS
+    # ── VoxCPM2 MLX controls ──
+    cfg_value: float = 2.0
+    inference_timesteps: int = 7
+    voxcpm_warmup_patches: int = 0
+    voxcpm_max_tokens: int = 2000
+    normalize_text: bool = False            # retained for old saved-job/API compatibility
     # ── Chatterbox-specific sampling controls ──
     chatterbox_cfg_weight: float = 0.5
     chatterbox_repetition_penalty: float = 1.2

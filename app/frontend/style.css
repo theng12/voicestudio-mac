@@ -1276,6 +1276,17 @@ input.num-input-wide { width: 130px; }
   padding-top: 10px;
 }
 .kokoro-blend select { width: 100%; }
+.voxcpm-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+.voxcpm-mode-row strong { color: var(--accent); font-size: 13px; }
 
 @media (max-width: 620px) {
   .kokoro-language-row,

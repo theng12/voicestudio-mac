@@ -6,7 +6,7 @@
 # we'll vendor it under app/backend/voice_engines/<engine>.py instead.
 #
 # Engines covered by these deps alone (no extra installs needed):
-# - VoxCPM      → transformers
+# - VoxCPM2     → mlx-audio
 # - Bark        → transformers
 # - F5-TTS      → diffusers + transformers + a small vendor module
 # - Chatterbox  → transformers
@@ -19,7 +19,7 @@
 torch>=2.6
 torchaudio>=2.6
 # transformers + tokenizers PINNED (v1.6.3). These are a coupled, version-
-# sensitive pair shared by every transformers-based engine (VoxCPM, Bark,
+# sensitive pair shared by every transformers-based engine (Bark,
 # F5-TTS, Voxtral) AND the Whisper STT processor fallback. Floating them
 # (`>=4.55`) let different Macs resolve different latest versions at different
 # `Install Generation` times — and a mismatch against the pinned mlx-audio
@@ -36,7 +36,7 @@ sentencepiece>=0.2
 soundfile>=0.12
 
 # ─── numba / llvmlite / numpy — matched set (Python 3.12 / 3.13 safe) ───
-# librosa (pulled in by voxcpm + f5-tts) needs numba, and numba compiles
+# librosa (pulled in by f5-tts) needs numba, and numba compiles
 # llvmlite. numpy is otherwise unconstrained here, so the resolver floats it to
 # the newest release (2.5+). But every modern numba caps numpy (e.g. numba
 # 0.61/0.66 require numpy<2.3), so with numpy at 2.5 ALL modern numbas are
@@ -83,12 +83,6 @@ mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@14add666b5313cadff94a23
 # imports fine without it — but generation does not. Marvis (sesame engine)
 # needs no extra dep beyond mlx-lm/mlx-audio already pinned above.
 mistral-common[audio]>=1.5
-
-# ─── Phase 2.1: VoxCPM (transformers + custom audiovae) ───
-# Official OpenBMB inference package. Pulls torch + transformers (already pinned),
-# plus modelscope (for the optional denoiser — we currently load it with
-# load_denoiser=False so the denoiser model isn't a hard requirement).
-voxcpm>=0.4
 
 # ─── F5-TTS (SWivid flow-matching, Phase 2.2) ───
 # Official PyPI package. Pulls vocos (vocoder), cached_path, torchdiffeq, and

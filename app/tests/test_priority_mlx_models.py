@@ -8,8 +8,9 @@ from backend import catalog, generation
 
 
 class _VoiceLibrary:
-    def __init__(self, reference: Path) -> None:
+    def __init__(self, reference: Path, transcript: str = "Saved reference transcript") -> None:
         self.reference = reference
+        self._transcript = transcript
 
     def get(self, voice_id: str):
         return {"id": voice_id} if voice_id == "voice-1" else None
@@ -18,7 +19,7 @@ class _VoiceLibrary:
         return self.reference
 
     def transcript(self, voice_id: str) -> str:
-        return "Saved reference transcript"
+        return self._transcript
 
 
 def _repos(family: str) -> list[str]:
@@ -83,6 +84,80 @@ def test_mlx_worker_joins_all_generated_segments() -> None:
     source = inspect.getsource(generation.GenerationManager._generate_mlx_audio)
     assert "join_audio=True" in source
     assert 'temp_dir / "audio.wav"' in source
+
+
+def test_voxcpm_catalog_keeps_latest_mlx_workflows_only() -> None:
+    assert _repos("voxcpm-mlx") == [
+        "mlx-community/VoxCPM2-4bit",
+        "mlx-community/VoxCPM2-bf16",
+    ]
+    assert "voxcpm" not in catalog.FAMILIES
+    requirements = (Path(__file__).resolve().parents[1] / "requirements-generation.txt").read_text()
+    assert not any(line.startswith("voxcpm") for line in requirements.splitlines())
+
+
+def test_voxcpm_saved_transcript_enables_ultimate_clone(tmp_path: Path) -> None:
+    reference = tmp_path / "voice.wav"
+    reference.touch()
+    voices = SimpleNamespace(library=_VoiceLibrary(reference))
+    manager = object.__new__(generation.GenerationManager)
+    kwargs: dict = {}
+
+    label = manager._mlx_kwargs_voxcpm_flex(
+        {"voice_library_id": "voice-1", "voice_design_prompt": "calm and warm"},
+        kwargs,
+        voices,
+    )
+
+    assert label == "ultimate clone + style"
+    assert kwargs == {
+        "instruct": "calm and warm",
+        "ref_audio": str(reference),
+        "prompt_audio": str(reference),
+        "prompt_text": "Saved reference transcript",
+    }
+
+
+def test_voxcpm_clone_without_transcript_stays_reference_only(tmp_path: Path) -> None:
+    reference = tmp_path / "voice.wav"
+    reference.touch()
+    voices = SimpleNamespace(library=_VoiceLibrary(reference, transcript=""))
+    manager = object.__new__(generation.GenerationManager)
+    kwargs: dict = {}
+
+    label = manager._mlx_kwargs_voxcpm_flex(
+        {"voice_library_id": "voice-1"}, kwargs, voices
+    )
+
+    assert label == "reference clone"
+    assert kwargs == {"ref_audio": str(reference)}
+
+
+def test_mlx_worker_applies_seed_and_voxcpm_controls() -> None:
+    source = inspect.getsource(generation.GenerationManager._generate_mlx_audio)
+    assert "mx.random.seed" in source
+    assert 'gen_kwargs["warmup_patches"]' in source
+    assert 'gen_kwargs["max_tokens"]' in source
+
+
+def test_voxcpm_api_preserves_advanced_controls() -> None:
+    from backend.main import Txt2SpeechBody
+
+    body = Txt2SpeechBody(
+        repo="mlx-community/VoxCPM2-4bit",
+        text="Hello",
+        voxcpm_warmup_patches=2,
+        voxcpm_max_tokens=3072,
+    )
+    params = body.model_dump()
+    assert params["voxcpm_warmup_patches"] == 2
+    assert params["voxcpm_max_tokens"] == 3072
+
+
+def test_voxcpm_cached_model_materializes_thread_sensitive_boundary() -> None:
+    source = inspect.getsource(generation.GenerationManager._mlx_audio_get_model)
+    assert 'entry.family == "voxcpm-mlx"' in source
+    assert "mx.eval(sr_boundaries)" in source
 
 
 def test_qwen_17b_base_uses_clone_mode() -> None:

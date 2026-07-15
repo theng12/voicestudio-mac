@@ -132,8 +132,8 @@
           <div class="diag-explainer-body">
             <p>
               Different model families use different inference libraries.
-              <strong>Kokoro</strong> uses the <code>kokoro</code> package,
-              <strong>VoxCPM / Bark / Spark-TTS</strong> use <code>transformers</code>,
+              <strong>Kokoro and VoxCPM2</strong> use <code>mlx-audio</code>,
+              <strong>Bark / Spark-TTS</strong> use <code>transformers</code>,
               <strong>F5-TTS</strong> needs <code>diffusers</code>, and so on.
               The catalog mixes models from different ecosystems so you can pick the
               right tool for each task — but each library has to be importable for
@@ -287,8 +287,8 @@
                 <strong>In the meantime:</strong> use a different model whose engine is
                 already wired up (look for ✓ green chips in the diag panel). Voice
                 Studio currently ships workers for <strong>Kokoro</strong>,
-                <strong>Qwen3-TTS</strong>, <strong>VoxCPM v1</strong>,
-                <strong>VoxCPM2-MLX</strong>, and <strong>Bark</strong> — pick any of
+                <strong>Qwen3-TTS</strong>, <strong>VoxCPM2-MLX</strong>, and
+                <strong>Bark</strong> — pick any of
                 those families from the Models tab.
               </p>
             </div>
@@ -410,85 +410,23 @@
           </p>
         </section>
 
-        <!-- ─── VoxCPM: optional reference voice (cloning) ─── -->
-        <section class="control-block" x-show="isVoxCPM(gen.repo)" x-cloak>
-          <label>Reference voice (optional, enables voice cloning)</label>
-          <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
-            <option value="">— no reference, use voice design via emotion below —</option>
-            <template x-for="v in voices" :key="v.id">
-              <option :value="v.id" x-text="v.name + ' (' + v.language + ', ' + genderLabel(v.gender) + ')' + (v.has_transcript ? ' ✓ transcript' : ' ⚠ no transcript')"></option>
-            </template>
-          </select>
+        <!-- ─── VoxCPM2-MLX: voice design prompt (optional) ─── -->
+        <section class="control-block" x-show="isVoxCPMMlx(gen.repo)" x-cloak>
+          <div class="voxcpm-mode-row">
+            <span class="muted small">Active mode</span>
+            <strong x-text="voxcpmModeLabel()"></strong>
+          </div>
+          <label>Voice and delivery design <span class="muted small">optional</span></label>
+          <textarea x-model="gen.voice_design_prompt" rows="2"
+                    maxlength="500"
+                    placeholder="e.g. A young woman with a warm, gentle voice, speaking slowly and reassuringly."></textarea>
           <p class="muted hint">
-            VoxCPM v1 voice cloning uses "continuation" mode: provide a reference clip <strong>and</strong> its
-            transcript. Voices without a saved transcript will need an override below. Leave blank to skip cloning
-            and use plain TTS with the emotion control.
-          </p>
-        </section>
-
-        <section class="control-block" x-show="isVoxCPM(gen.repo) && gen.voice_library_id" x-cloak>
-          <label>Reference transcript (required for cloning) <span class="required">*</span></label>
-          <textarea x-model="gen.ref_transcript" rows="2"
-                    placeholder="What's said in the reference clip. Leave blank to use the library's saved transcript."></textarea>
-          <p class="muted hint">
-            VoxCPM v1 *requires* a transcript paired with the reference clip — that's how its continuation mode works.
-            If the voice in your library has a saved transcript, you can leave this blank.
-          </p>
-        </section>
-
-        <!-- ─── VoxCPM: emotion / tone control ─── -->
-        <section class="control-block" x-show="isVoxCPM(gen.repo)" x-cloak>
-          <label>Emotion / tone control (optional)</label>
-          <input type="text" x-model="gen.instruct"
-                 placeholder="e.g. sad and slow, elderly male gravelly. Leave empty for natural delivery.">
-          <p class="muted hint">
-            VoxCPM wraps this in parentheses as a prompt prefix (the model treats <code>(sad and slow)Hello world</code>
-            as an emotion-conditioned utterance). Works whether or not you've picked a reference voice.
+            Describe gender, age, tone, emotion, accent, or pace. Without a reference this designs a new voice;
+            with one it steers the cloned voice's delivery. Leave blank for natural, context-aware speech.
           </p>
           <div class="design-presets">
             <template x-for="ex in (gen.voxcpm_emotion_examples || [])" :key="ex">
               <button class="btn ghost small" @click="setVoxcpmEmotionExample(ex)" x-text="ex"></button>
-            </template>
-          </div>
-        </section>
-
-        <!-- ─── VoxCPM: advanced generation knobs ─── -->
-        <details class="control-block" x-show="isVoxCPM(gen.repo)" x-cloak>
-          <summary>Advanced VoxCPM knobs</summary>
-          <div class="advanced-inner">
-            <label>Guidance (cfg_value)</label>
-            <div class="slider-row">
-              <input type="range" min="0.5" max="6.0" step="0.05" x-model.number="gen.cfg_value">
-              <input type="number" class="num-input" min="0.5" max="6.0" step="0.01" x-model.number="gen.cfg_value">
-            </div>
-            <p class="muted hint">Higher = stricter adherence to text + emotion. VoxCPM default is 2.0. Type any float.</p>
-
-            <label class="advanced-label">Inference timesteps</label>
-            <div class="slider-row">
-              <input type="range" min="4" max="30" step="1" x-model.number="gen.inference_timesteps">
-              <input type="number" class="num-input" min="4" max="50" step="1" x-model.number="gen.inference_timesteps">
-            </div>
-            <p class="muted hint">More steps = slower but typically cleaner audio. Default 10.</p>
-
-            <label class="advanced-checkbox">
-              <input type="checkbox" x-model="gen.normalize_text">
-              <span>Normalize numbers / abbreviations before TTS (e.g. "Dr." → "doctor")</span>
-            </label>
-          </div>
-        </details>
-
-        <!-- ─── VoxCPM2-MLX: voice design prompt (optional) ─── -->
-        <section class="control-block" x-show="isVoxCPMMlx(gen.repo)" x-cloak>
-          <label>Voice design (optional)</label>
-          <textarea x-model="gen.voice_design_prompt" rows="2"
-                    placeholder="Describe the voice in natural language. e.g. 'A young woman, gentle and sweet voice'. Leave blank for default or use the reference voice below instead."></textarea>
-          <p class="muted hint">
-            VoxCPM2 can design a voice from your description without needing a reference clip. Combine with a
-            reference below for stylized cloning, or leave both blank for zero-shot default voice.
-          </p>
-          <div class="design-presets">
-            <template x-for="ex in (gen.qwen3_voice_design_examples || [])" :key="ex">
-              <button class="btn ghost small" @click="setVoiceDesignExample(ex)" x-text="ex"></button>
             </template>
           </div>
         </section>
@@ -503,16 +441,24 @@
             </template>
           </select>
           <p class="muted hint">
-            VoxCPM2 voice cloning works even without a transcript (unlike v1) — but the library's saved
-            transcript improves prosody when available. Combine with the voice design field above for
-            stylized cloning ("clone this voice but speaking sadly").
+            A clean 3–15 second clip enables reference cloning. A saved transcript automatically upgrades it
+            to VoxCPM2's highest-fidelity continuation cloning mode.
           </p>
         </section>
 
         <section class="control-block" x-show="isVoxCPMMlx(gen.repo) && gen.voice_library_id" x-cloak>
-          <label>Reference transcript override (optional)</label>
+          <label>Saved reference transcript</label>
+          <textarea :value="selectedStoredTranscript" rows="2" readonly
+                    placeholder="No transcript is saved for this voice; basic reference cloning will be used."></textarea>
+          <p class="muted hint" x-show="selectedStoredTranscript">
+            Paired automatically with the selected clip for ultimate cloning.
+          </p>
+          <label>Reference transcript override <span class="muted small">optional</span></label>
           <textarea x-model="gen.ref_transcript" rows="2"
-                    placeholder="Override the library's saved transcript. Leave blank to use the library's stored transcript (or '.' fallback if none)."></textarea>
+                    placeholder="Leave blank to use the saved transcript above."></textarea>
+          <p class="muted hint">
+            Enter exactly what is spoken in the clip. This affects only this generation and does not change the Voices library.
+          </p>
         </section>
 
         <!-- ─── VoxCPM2-MLX: advanced knobs ─── -->
@@ -531,7 +477,18 @@
               <input type="range" min="4" max="30" step="1" x-model.number="gen.inference_timesteps">
               <input type="number" class="num-input" min="4" max="50" step="1" x-model.number="gen.inference_timesteps">
             </div>
-            <p class="muted hint">VoxCPM2 default is 7 — meaningfully faster than v1's 10 while keeping quality.</p>
+            <p class="muted hint">7 is the recommended fast setting; 10 is the architecture default. More steps trade speed for refinement.</p>
+
+            <label class="advanced-label">Onset warmup patches</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="4" step="1" x-model.number="gen.voxcpm_warmup_patches">
+              <input type="number" class="num-input" min="0" max="4" step="1" x-model.number="gen.voxcpm_warmup_patches">
+            </div>
+            <p class="muted hint">0 is fastest. Try 1–2 only if the first syllable sounds unstable; warmup audio is discarded.</p>
+
+            <label class="advanced-label">Maximum audio tokens</label>
+            <input type="number" min="256" max="4096" step="64" x-model.number="gen.voxcpm_max_tokens">
+            <p class="muted hint">2000 is the model default. Raise it only for unusually long single generations.</p>
           </div>
         </details>
 
@@ -816,8 +773,8 @@
           </div>
         </details>
 
-        <!-- Speed slider — all mlx-audio families that accept it (everything except Bark + VoxCPM v1). -->
-        <section class="control-block" x-show="(isMlxAudio(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo)) || isF5TTS(gen.repo)" x-cloak>
+        <!-- Speed slider — only families whose model API actually accepts it. -->
+        <section class="control-block" x-show="(isMlxAudio(gen.repo) && !isVoxCPMMlx(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo)) || isF5TTS(gen.repo)" x-cloak>
           <label>Speed</label>
           <div class="slider-row">
             <input type="range" min="0.5" max="2.0" step="0.01" x-model.number="gen.speed">
@@ -831,7 +788,7 @@
         </section>
 
         <!-- Seed — applies to all wired engines -->
-        <section class="control-block" x-show="isMlxAudio(gen.repo) || isVoxCPM(gen.repo) || isBark(gen.repo)" x-cloak>
+        <section class="control-block" x-show="isMlxAudio(gen.repo) || isBark(gen.repo)" x-cloak>
           <label>Seed</label>
           <div class="seed-row">
             <input type="number" class="num-input" x-model.number="gen.seed" placeholder="-1 = random">
@@ -839,7 +796,7 @@
           </div>
           <p class="muted hint">
             Same seed + same params = same output. -1 picks a fresh random seed each time.
-            <span x-show="isMlxAudio(gen.repo)">(Recorded in history; mlx-audio doesn't currently expose a seed kwarg.)</span>
+            <span x-show="isMlxAudio(gen.repo)">(Applied to MLX sampling and recorded in history.)</span>
           </p>
         </section>
 
@@ -1427,8 +1384,8 @@
     <section class="page-head">
       <h1>Voices</h1>
       <p class="muted">
-        Reference clips for voice cloning. Used by cloning-capable engines (VoxCPM, F5-TTS, Chatterbox,
-        Spark-TTS, XTTS, Qwen3-TTS CustomVoice) when they ship in Phase 2.1+. Each clip is engine-agnostic —
+        Reference clips for voice cloning. Used by cloning-capable engines (VoxCPM2, F5-TTS, Chatterbox,
+        Spark-TTS, OmniVoice, and Qwen3-TTS Base). Each clip is engine-agnostic —
         upload once, use everywhere.
       </p>
 
