@@ -38,10 +38,26 @@ def test_priority_catalog_is_focused_and_clone_capable() -> None:
     assert "mlx-community/chatterbox-turbo-8bit" not in chatterbox
 
     omni = [entry for entry in catalog.CATALOG if entry.family == "omnivoice"]
-    assert len(omni) == 3
+    assert [entry.repo for entry in omni] == ["mlx-community/OmniVoice-bfloat16"]
     assert all(entry.repo.startswith("mlx-community/") for entry in omni)
     assert all("voice-cloning" in entry.capabilities for entry in omni)
     assert "k2-fsa/OmniVoice" not in {entry.repo for entry in omni}
+
+
+def test_diagnostics_cover_every_wired_engine_and_show_package_versions() -> None:
+    result = generation.diagnostics()
+
+    assert {engine["family"] for engine in result["engines"]} == generation._WIRED_FAMILIES
+    assert result["total_engines"] == 13
+    packages = {package["package"]: package for package in result["packages"]}
+    assert packages["mlx_audio"]["version"]
+    assert "mistral_common" in generation._ENGINE_REQUIREMENTS["voxtral-tts"]
+    assert "mlx_lm" in generation._ENGINE_REQUIREMENTS["marvis"]
+
+
+def test_mlx_cache_release_prefers_current_api() -> None:
+    source = inspect.getsource(generation._release_device_memory)
+    assert source.index('hasattr(mx, "clear_cache")') < source.index('hasattr(mx, "metal")')
 
 
 def test_kokoro_catalog_is_single_mlx_multilingual_release() -> None:

@@ -82,6 +82,7 @@ survive server restarts.
 from __future__ import annotations
 
 import importlib.util
+from importlib import metadata
 import json
 import os
 import platform
@@ -93,6 +94,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from packaging.version import InvalidVersion, Version
 
 from . import catalog, cache
 
@@ -299,14 +302,16 @@ _PACKAGE_CHECKLIST = [
     ("misaki",        "Multilingual grapheme-to-phoneme for Kokoro MLX"),
     ("fugashi",       "Japanese tokenizer for Kokoro MLX"),
     ("jieba",         "Mandarin tokenizer for Kokoro MLX"),
-    ("diffusers",     "Future engines (F5-TTS etc.)"),
+    ("diffusers",     "Diffusion utilities used by optional audio pipelines"),
     ("accelerate",    "Multi-device model loading"),
     ("soundfile",     "WAV file writing (libsndfile)"),
     ("numpy",         "Tensor numerics"),
     ("phonemizer",    "IPA conversion for speech engines"),
     # MLX-side packages (Qwen3-TTS family). Apple Silicon native, not PyTorch.
     ("mlx",           "Apple Silicon ML framework (Qwen3-TTS)"),
+    ("mlx_lm",        "MLX language-model runtime used by Marvis"),
     ("mlx_audio",     "MLX inference wrapper for audio models (including OmniVoice)"),
+    ("mistral_common", "Voxtral speech tokenizer and audio request encoding"),
     # F5-TTS (SWivid) — flow-matching voice cloning.
     ("f5_tts",        "F5-TTS flow-matching TTS engine"),
     ("vocos",         "VoCoS vocoder used by F5-TTS"),
@@ -325,6 +330,8 @@ _ENGINE_REQUIREMENTS = {
     "kittentts":      ["mlx", "mlx_audio", "soundfile", "numpy"],
     "vibevoice":      ["mlx", "mlx_audio", "soundfile", "numpy"],
     "omnivoice":      ["mlx", "mlx_audio", "torch", "transformers", "soundfile", "numpy"],
+    "voxtral-tts":    ["mlx", "mlx_audio", "mistral_common", "soundfile", "numpy"],
+    "marvis":         ["mlx", "mlx_lm", "mlx_audio", "soundfile", "numpy"],
     # F5-TTS (PyTorch, flow-matching). Wired in v1.3.0.
     "f5-tts":     ["f5_tts", "torch", "vocos", "soundfile"],
 }
@@ -591,14 +598,50 @@ def _qwen3_mode_from_repo(repo: str) -> str:
     return "custom"   # safest fallback
 
 
+_PACKAGE_DISTRIBUTIONS = {
+    "mlx_lm": "mlx-lm",
+    "mlx_audio": "mlx-audio",
+    "mistral_common": "mistral-common",
+    "f5_tts": "f5-tts",
+}
+_PACKAGE_MIN_VERSIONS = {"mistral_common": "1.10.0"}
+
+
 def _probe_package(name: str) -> dict:
     try:
         import importlib
         mod = importlib.import_module(name)
         version = getattr(mod, "__version__", None)
-        return {"installed": True, "version": version, "error": None}
+        if not version:
+            try:
+                version = metadata.version(_PACKAGE_DISTRIBUTIONS.get(name, name))
+            except metadata.PackageNotFoundError:
+                version = None
+        minimum = _PACKAGE_MIN_VERSIONS.get(name)
+        compatible = True
+        error = None
+        if version and minimum:
+            try:
+                compatible = Version(version) >= Version(minimum)
+            except InvalidVersion:
+                compatible = False
+            if not compatible:
+                error = f"Version {version} is too old; {minimum} or newer is required"
+        return {
+            "installed": True,
+            "compatible": compatible,
+            "version": version,
+            "minimum_version": minimum,
+            "error": error,
+        }
     except Exception as e:
-        return {"installed": False, "version": None, "error": f"{type(e).__name__}: {e}"}
+        return {
+            "installed": False,
+            "compatible": False,
+            "version": None,
+            "minimum_version": _PACKAGE_MIN_VERSIONS.get(name),
+            "error": f"{type(e).__name__}: {e}",
+        }
 
 
 def diagnostics() -> dict:
@@ -610,7 +653,7 @@ def diagnostics() -> dict:
     for pkg, role in _PACKAGE_CHECKLIST:
         probe = _probe_package(pkg)
         pkg_results.append({"package": pkg, "role": role, **probe})
-        pkg_status[pkg] = probe["installed"]
+        pkg_status[pkg] = probe["installed"] and probe["compatible"]
 
     engine_results = []
     for family, requires in _ENGINE_REQUIREMENTS.items():
@@ -630,7 +673,7 @@ def diagnostics() -> dict:
         "device": _detect_device() if TTS_AVAILABLE else None,
         "packages": pkg_results,
         "engines": engine_results,
-        "any_missing": any(not p["installed"] for p in pkg_results),
+        "any_missing": any(not p["compatible"] for p in pkg_results),
         "ready_count": sum(1 for e in engine_results if e["ready"]),
         "total_engines": len(engine_results),
     }
@@ -656,16 +699,16 @@ def _release_device_memory(device: str) -> None:
             torch.cuda.empty_cache()
     except Exception:
         pass
-    # MLX-specific cache release. mlx.metal.clear_cache() was added around
-    # mlx 0.18; older versions don't have it and the import fails silently.
+    # MLX-specific cache release. Prefer the current API and keep the older
+    # mlx.metal fallback for existing installations.
     # Without this, MLX retains buffers from the previous generation and the
     # next mlx-audio call's activations stack on top → Metal alloc OOM.
     try:
         import mlx.core as mx
-        if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
-            mx.metal.clear_cache()
-        elif hasattr(mx, "clear_cache"):
+        if hasattr(mx, "clear_cache"):
             mx.clear_cache()
+        elif hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
+            mx.metal.clear_cache()
     except Exception:
         pass
 

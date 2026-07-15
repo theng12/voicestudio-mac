@@ -77,7 +77,7 @@ module.exports = {
         path: "app",
         conda: { "path": "{{path.resolve(cwd, 'conda_env')}}" },
         message: [
-          "python -c \"import torch, transformers, diffusers; print('GEN_VERIFY_OK')\" 2>&1"
+          "python -c \"import torch, transformers, diffusers, mlx, mlx_lm, mlx_audio, mistral_common, f5_tts; from importlib.metadata import version; assert version('mistral-common') == '1.11.5'; print('GEN_VERIFY_OK')\" 2>&1"
         ],
         on: [{ event: "/(ModuleNotFoundError|ImportError|Traceback)/", break: true }]
       }

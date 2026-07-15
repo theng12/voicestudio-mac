@@ -42,7 +42,7 @@ ALLOWED_GENDERS = {"m", "f", "n"}            # n = neutral / unknown
 
 # Soft size limit — voice references should be short clips. Anything larger
 # is almost certainly the wrong file. Enforced at the FastAPI layer too.
-MAX_BYTES = 25 * 1024 * 1024                  # 25 MB
+MAX_BYTES = 25_000_000                         # 25 MB (decimal)
 
 
 # ───────────── Seed catalog (curated public-domain voices) ─────────────
@@ -179,7 +179,7 @@ class VoiceLibrary:
             raise ValueError("audio file is empty")
         if len(audio_bytes) > MAX_BYTES:
             raise ValueError(
-                f"audio file is too large ({len(audio_bytes) / 1024 / 1024:.1f} MB > {MAX_BYTES / 1024 / 1024:.0f} MB limit). "
+                f"audio file is too large ({len(audio_bytes) / 1_000_000:.1f} MB > {MAX_BYTES / 1_000_000:.0f} MB limit). "
                 "Voice references should be short clips (3-15 sec) — trim before uploading."
             )
 
@@ -263,7 +263,7 @@ class VoiceLibrary:
             raise ValueError(f"{url} returned an empty response")
         if len(audio_bytes) > MAX_BYTES:
             raise ValueError(
-                f"fetched audio too large ({len(audio_bytes)/1024/1024:.1f} MB > {MAX_BYTES/1024/1024:.0f} MB limit)"
+                f"fetched audio too large ({len(audio_bytes)/1_000_000:.1f} MB > {MAX_BYTES/1_000_000:.0f} MB limit)"
             )
 
         # Derive original filename from the URL path for extension detection.

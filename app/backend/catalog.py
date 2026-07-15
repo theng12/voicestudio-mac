@@ -291,9 +291,9 @@ FAMILIES: dict[str, Family] = {
         ),
         how_to_use=(
             "Choose a reference voice to clone it, enter voice traits to design a "
-            "new voice, or combine both to steer the cloned delivery. Start with "
-            "4-bit for speed, move to 8-bit if the voice has artifacts, and use "
-            "bf16 for final-quality work on a Mac with enough memory."
+            "new voice, or combine both to steer the cloned delivery. The bf16 "
+            "checkpoint is the supported MLX option; allow extra memory headroom "
+            "for longer or higher-step generations."
         ),
         # Audit (v1.2.4): mlx_audio omnivoice/omnivoice.py:483 — flow-matching (diffusion).
         # Takes explicit duration_s or estimates via RuleDurationEstimator. No GPT-style cliff.
@@ -930,67 +930,25 @@ CATALOG: tuple[ModelEntry, ...] = (
     ),
 
     # ──────────── OmniVoice (MLX) ────────────
-    # k2-fsa's OmniVoice through mlx-audio. The current MLX implementation
-    # supports both voice design and cloning from a 3–10 second reference clip.
-    ModelEntry(
-        repo="mlx-community/OmniVoice-4bit",
-        label="OmniVoice 0.6B 4-bit (MLX) — recommended",
-        family="omnivoice",
-        size_gb=1.1,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
-        best_for="The recommended OmniVoice pick. Compact MLX quant with 646-language voice cloning and voice design; start here for fast iteration and move to 8-bit only if a reference voice shows artifacts.",
-        sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "ru", "+636 more"),
-        use_cases=(
-            ("good",  "Truly multilingual TTS — 646 languages from one tiny model"),
-            ("good",  "Voice design via natural language ('female, british accent, slow')"),
-            ("good",  "Non-verbal symbols inline ([laughter], [cough])"),
-            ("good",  "Apache-2.0 — commercial use OK (rare for multilingual TTS)"),
-            ("good",  "8 GB Mac friendly — only 1.1 GB on disk"),
-            ("good",  "Voice cloning from a clean 3–10 second clip in the Voices library"),
-            ("weak",  "Upstream MLX backend is marked experimental — quality may vary by language"),
-            ("avoid", "Unauthorized impersonation or cloning without the speaker's permission"),
-        ),
-    ),
-    ModelEntry(
-        repo="mlx-community/OmniVoice-8bit",
-        label="OmniVoice 0.6B 8-bit (MLX)",
-        family="omnivoice",
-        size_gb=1.5,
-        gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB.",
-        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
-        best_for="Higher-precision OmniVoice cloning and voice design. Pick it when 4-bit produces audible artifacts in your reference speaker or target language.",
-        sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "ru", "+636 more"),
-        use_cases=(
-            ("good",  "Higher fidelity when 4-bit shows artifacts in a specific language"),
-            ("good",  "Voice cloning and voice design through the same MLX workflow"),
-            ("good",  "Apache-2.0 — commercial-friendly multilingual TTS"),
-            ("weak",  "~2× memory of 4-bit, slightly slower"),
-        ),
-    ),
+    # k2-fsa's OmniVoice through mlx-audio. The published 4-bit and 8-bit
+    # conversions use a custom row-wise scale layout that mlx-audio cannot
+    # currently load. Keep the compatible unquantized MLX checkpoint visible.
     ModelEntry(
         repo="mlx-community/OmniVoice-bfloat16",
-        label="OmniVoice 0.6B bf16 (MLX)",
+        label="OmniVoice 0.6B bf16 (MLX) — recommended",
         family="omnivoice",
         size_gb=2.0,
         gated=False,
         min_unified_memory_gb=8,
         recommended_hardware="M1 Pro / M2 16 GB recommended.",
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
-        best_for="Full bf16 OmniVoice for final-quality cloning and voice design. It preserves the reference checkpoint precision without the redundant fp32 download.",
+        best_for="The reliable OmniVoice MLX option for multilingual cloning and voice design. It preserves the reference checkpoint precision without the redundant fp32 download.",
         sample_rate_hz=24000,
         languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "ru", "+636 more"),
         use_cases=(
             ("good",  "Reference-quality OmniVoice at half the size of fp32"),
             ("good",  "Apache-2.0, 646 languages, voice cloning and voice design"),
-            ("weak",  "12 GB recommended"),
-            ("avoid", "8 GB Macs — use 4-bit or 8-bit instead"),
+            ("weak",  "16 GB recommended; the published compact conversions are not compatible with the current MLX engine"),
         ),
     ),
 

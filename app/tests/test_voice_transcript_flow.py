@@ -57,3 +57,5 @@ def test_frontend_uses_saved_transcript_and_clears_stale_override() -> None:
     assert "Saved reference transcript" in markup
     assert '@change="onReferenceVoiceChange()"' in markup
     assert "Loaded automatically from the selected voice and sent to F5-TTS" in markup
+    assert "friendlyJobError(job.error)" in markup
+    assert 'class="diag-table-wrap"' in markup

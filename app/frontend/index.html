@@ -115,7 +115,7 @@
           <span class="muted small">
             <span x-show="diag.total_engines"
                   x-text="diag.ready_count + ' / ' + diag.total_engines + ' engines ready'"></span>
-            <span x-show="diag.any_missing" class="diag-warn"> · some packages missing</span>
+            <span x-show="diag.any_missing" class="diag-warn"> · attention needed</span>
           </span>
         </span>
         <button class="btn ghost small" @click.prevent="refreshDiagnostics()">↻ Re-check</button>
@@ -132,17 +132,16 @@
           <div class="diag-explainer-body">
             <p>
               Different model families use different inference libraries.
-              <strong>Kokoro, VoxCPM2, Bark, and Spark-TTS</strong> use <code>mlx-audio</code>,
-              <strong>F5-TTS</strong> needs <code>diffusers</code>, and so on.
+              <strong>Kokoro, VoxCPM2, Bark, Voxtral, and Spark-TTS</strong> use <code>mlx-audio</code>,
+              while <strong>F5-TTS</strong> uses its own flow-matching engine and VoCoS vocoder.
               The catalog mixes models from different ecosystems so you can pick the
               right tool for each task — but each library has to be importable for
               that model's engine to run.
             </p>
             <p>
-              <strong>Good news: installation is a one-time thing.</strong> Click
-              <strong>Install Generation</strong> in the Pinokio sidebar once, restart
-              the server, and every model in those families works permanently. You
-              only ever re-install after <strong>Reset</strong> or on a new machine.
+              Normally this is a one-time install. Re-run <strong>Reinstall Generation</strong>
+              after a Reset, on a new machine, when release notes request it, or when
+              this panel reports an incompatible package. Restart the server afterward.
             </p>
             <p>
               The "Install Generation" script bundles all the libraries together for
@@ -154,25 +153,26 @@
         </details>
 
         <h4 class="diag-h4">Packages</h4>
-        <table class="diag-table">
+        <div class="diag-table-wrap"><table class="diag-table">
           <thead><tr><th></th><th>Package</th><th>Version</th><th>Role</th></tr></thead>
           <tbody>
             <template x-for="p in (diag.packages || [])" :key="p.package">
-              <tr :class="{'diag-row-bad': !p.installed}">
-                <td><span x-text="p.installed ? '✅' : '❌'"></span></td>
+              <tr :class="{'diag-row-bad': !p.compatible}">
+                <td><span x-text="p.compatible ? '✅' : '❌'"></span></td>
                 <td><code x-text="p.package"></code></td>
                 <td class="diag-version">
-                  <span x-show="p.installed" x-text="p.version || '(no __version__)'"></span>
+                  <span x-show="p.installed" x-text="p.version || 'installed'"></span>
+                  <span x-show="p.installed && !p.compatible" class="diag-bad" x-text="' · needs ' + p.minimum_version + '+'"></span>
                   <span x-show="!p.installed" class="muted small" x-text="p.error || 'not importable'"></span>
                 </td>
                 <td class="muted small" x-text="p.role"></td>
               </tr>
             </template>
           </tbody>
-        </table>
+        </table></div>
 
         <h4 class="diag-h4">Engines</h4>
-        <table class="diag-table">
+        <div class="diag-table-wrap"><table class="diag-table">
           <thead><tr><th></th><th>Family</th><th>Status</th><th>Requires</th></tr></thead>
           <tbody>
             <template x-for="e in (diag.engines || [])" :key="e.family">
@@ -189,7 +189,7 @@
                     Worker ships in a future phase (packages OK)
                   </span>
                   <span x-show="!e.deps_ok" class="diag-bad">
-                    Missing:
+                    Missing or incompatible:
                     <template x-for="m in e.missing" :key="m">
                       <code x-text="m"></code>
                     </template>
@@ -203,7 +203,7 @@
               </tr>
             </template>
           </tbody>
-        </table>
+        </table></div>
       </div>
     </details>
 
@@ -1053,8 +1053,10 @@
                     </span>
                   </div>
                   <!-- Error state -->
-                  <div class="history-error error-text" x-show="job.state === 'error'"
-                       x-text="job.error || 'generation failed'"></div>
+                  <details class="history-error" x-show="job.state === 'error'">
+                    <summary class="error-text" x-text="friendlyJobError(job.error)"></summary>
+                    <pre x-text="job.error || 'Generation failed without a technical error message.'"></pre>
+                  </details>
                 </div>
 
                 <div class="audio-actions">
@@ -1678,7 +1680,7 @@
             </template>
             <template x-if="voiceUploader.audioBlob">
               <div class="dropzone-filled">
-                <div class="muted small" x-text="voiceUploader.audioFilename + ' · ' + (voiceUploader.audioSizeBytes/1024/1024).toFixed(2) + ' MB'"></div>
+                <div class="muted small" x-text="voiceUploader.audioFilename + ' · ' + formatBytes(voiceUploader.audioSizeBytes)"></div>
                 <audio :src="voiceUploader.audioPreviewUrl" controls preload="metadata"></audio>
                 <button class="btn ghost small" @click.stop="clearVoiceUploaderAudio()">✕ Remove</button>
               </div>
@@ -1732,7 +1734,7 @@
           <template x-if="voiceUploader.recordPhase === 'preview'">
             <div class="record-preview">
               <p class="muted small">
-                ✓ Recorded <strong x-text="(voiceUploader.audioSizeBytes/1024).toFixed(0) + ' KB'"></strong>
+                ✓ Recorded <strong x-text="formatBytes(voiceUploader.audioSizeBytes)"></strong>
                 · 24 kHz mono WAV
               </p>
               <audio :src="voiceUploader.audioPreviewUrl" controls preload="metadata"></audio>

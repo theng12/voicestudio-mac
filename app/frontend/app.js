@@ -1335,7 +1335,7 @@ function studio() {
         "audio = requests.get(f'{SERVER}/api/generate/jobs/{job_id}/audio').content",
         "with open('speech.wav', 'wb') as f:",
         "    f.write(audio)",
-        "print(f\"saved speech.wav ({len(audio)//1024} KB, {job['duration_seconds']:.1f}s)\")",
+        "print(f\"saved speech.wav ({len(audio)//1000} KB, {job['duration_seconds']:.1f}s)\")",
       ];
       return lines.join("\n");
     },
@@ -3446,6 +3446,23 @@ function studio() {
       const d = Math.floor(sec / 86400);
       const h = Math.floor((sec % 86400) / 3600);
       return `${d}d ${h.toString().padStart(2, "0")}h`;
+    },
+
+    formatBytes(bytes) {
+      return humanBytes(bytes || 0);
+    },
+
+    friendlyJobError(error) {
+      const raw = String(error || "").trim();
+      if (!raw) return "Generation failed";
+      if (raw.includes("parameters not in model") || raw.includes("weight.scales")) {
+        return "The downloaded model weights are not compatible with this engine.";
+      }
+      if (raw.includes("didn't produce a wav file")) {
+        return "The model did not produce audio. Open details for the engine error.";
+      }
+      const firstLine = raw.split("\n").find((line) => line.trim()) || raw;
+      return firstLine.length > 180 ? `${firstLine.slice(0, 177)}…` : firstLine;
     },
 
     downloadFilename(job) {

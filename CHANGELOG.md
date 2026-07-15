@@ -10,6 +10,47 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.17.2] — 2026-07-15
+
+### Fixed — final MLX runtime audit
+
+- Voxtral generation now pins `mistral-common[audio]` 1.11.5. Its speech-request
+  encoder is required by the current MLX tokenizer; the previous 1.9.1 install
+  imported successfully but failed only when speech generation began.
+- Removed the published OmniVoice 4-bit and 8-bit conversions from the catalog.
+  Their custom row-wise scale tensors do not match the parameter layout accepted
+  by the current or latest upstream `mlx-audio` loader. The compatible bf16 MLX
+  checkpoint remains as the recommended OmniVoice option.
+- MLX memory cleanup now prefers the current `mlx.clear_cache()` API, avoiding a
+  deprecation warning while preserving compatibility with older installations.
+- Voice-reference upload sizes and the 25 MB limit now use the same decimal units
+  as the rest of the app.
+
+### Improved — diagnostics and interface
+
+- Dependency diagnostics now cover all 13 wired engine families, including
+  Voxtral and Marvis, show package versions even when modules omit `__version__`,
+  and distinguish an installed-but-incompatible package from a missing one.
+- Long engine tracebacks in Recent generations are now collapsed behind a short,
+  readable explanation. Technical details remain available on demand without
+  stretching the page by thousands of lines.
+- Diagnostic tables scroll inside their panel on compact screens and use the
+  shared success, warning, and error colors consistently.
+- Update and Reinstall Generation now verify the full MLX stack and the exact
+  Voxtral tokenizer version before displaying a success notification.
+
+### Verified
+
+- Real local MLX generations passed for Kokoro, VoxCPM2, Qwen3-TTS cloning and
+  VoiceDesign, Chatterbox, Orpheus, Marvis, and Voxtral. Voxtral was re-run
+  successfully with the new dependency before it was pinned.
+- The dependency resolver changes only `mistral-common` 1.9.1 to 1.11.5; the
+  pinned MLX, MLX-LM, MLX-Audio, Transformers, and Torch stack remains unchanged.
+- Catalog, worker dispatch, and diagnostics all agree on the same 13 families.
+  Automated tests, Python compilation, JavaScript parsing, and dependency checks
+  pass. Run **Update** once; it applies the dependency and restarts the active
+  Voice Studio mode automatically.
+
 ## [1.17.1] — 2026-07-15
 
 ### Fixed

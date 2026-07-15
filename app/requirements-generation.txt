@@ -79,10 +79,12 @@ mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@14add666b5313cadff94a23
 # Voxtral's tekken tokenizer is loaded via mistral-common, and the audio path
 # needs the [audio] extra (soundfile + audio helpers). Without it, generation
 # fails at tokenizer-load with: "Voxtral TTS tekken tokenizers require
-# mistral-common[audio]". mlx-audio imports it lazily so the engine module
-# imports fine without it — but generation does not. Marvis (sesame engine)
-# needs no extra dep beyond mlx-lm/mlx-audio already pinned above.
-mistral-common[audio]>=1.5
+# mistral-common[audio]". The speech-request encoder landed after 1.9.1;
+# 1.11.5 is the exact release validated by a real local Voxtral generation.
+# mlx-audio imports it lazily so the engine module imports fine without it —
+# but generation does not. Marvis (sesame engine) needs no extra dep beyond
+# mlx-lm/mlx-audio already pinned above.
+mistral-common[audio]==1.11.5
 
 # ─── F5-TTS (SWivid flow-matching, Phase 2.2) ───
 # Official PyPI package. Pulls vocos (vocoder), cached_path, torchdiffeq, and

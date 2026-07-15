@@ -946,7 +946,7 @@ input.num-input-wide { width: 130px; }
 }
 .diag[open] > summary::before { transform: rotate(90deg); }
 .diag-summary-text { flex: 1; }
-.diag-warn { color: #ffb347; }
+.diag-warn { color: var(--warn); }
 .diag-body {
   padding: 0 16px 16px 16px;
   border-top: 1px solid var(--border, #2a2a32);
@@ -964,6 +964,12 @@ input.num-input-wide { width: 130px; }
   border-collapse: collapse;
   font-size: 0.92em;
 }
+.diag-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+.diag-table { min-width: 620px; }
 .diag-table th {
   text-align: left;
   padding: 6px 12px 6px 0;
@@ -977,11 +983,11 @@ input.num-input-wide { width: 130px; }
   border-bottom: 1px solid color-mix(in srgb, var(--border, #2a2a32) 60%, transparent);
 }
 .diag-table td:first-child { width: 28px; }
-.diag-row-bad td { color: #ffb347; }
-.diag-row-bad code { color: #ff8a65; }
+.diag-row-bad td { color: var(--warn); }
+.diag-row-bad code { color: var(--bad); }
 .diag-version { font-family: ui-monospace, monospace; font-size: 0.9em; }
-.diag-ok { color: #6ee7b7; }
-.diag-bad { color: #ff8a65; }
+.diag-ok { color: var(--ok); }
+.diag-bad { color: var(--bad); }
 .diag-bad code { margin-right: 6px; }
 
 /* ──────── per-model engine-readiness chip + dep-warn banner ──────── */
@@ -1760,6 +1766,24 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 .history-error {
   font-size: 0.85em;
   margin-top: 2px;
+}
+.history-error summary {
+  cursor: pointer;
+  line-height: 1.4;
+}
+.history-error pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bad) 8%, var(--surface));
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 /* History row action column — Download on top (prominent), Reuse below. */
