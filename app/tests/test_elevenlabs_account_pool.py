@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -9,6 +10,15 @@ import pytest
 from fastapi import HTTPException
 
 from backend import generation, main, providers, voices
+
+
+def test_account_form_resists_password_manager_autofill() -> None:
+    markup = (Path(__file__).resolve().parents[1] / "frontend" / "index.html").read_text()
+    assert 'name="voicestudio-elevenlabs-account-label"' in markup
+    assert 'name="voicestudio-elevenlabs-new-key"' in markup
+    assert ":name=\"'voicestudio-provider-' + provider.key + '-new-key'\"" in markup
+    assert 'autocomplete="new-password"' in markup
+    assert 'data-1p-ignore="true" data-lpignore="true"' in markup
 
 
 def _settings_store(monkeypatch, entry: dict) -> dict:

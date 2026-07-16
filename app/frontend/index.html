@@ -2275,9 +2275,11 @@
           <div class="provider-key-row" x-show="!provider.account_pool_supported">
             <input :type="providerShowKeys[provider.key] ? 'text' : 'password'"
                    :data-provider-key="provider.key"
+                   :name="'voicestudio-provider-' + provider.key + '-new-key'"
                    :value="providerKeyInputs[provider.key] || ''"
                    @input="providerKeyInputs = {...providerKeyInputs, [provider.key]: $event.target.value}"
-                   placeholder="Paste API key" autocomplete="off" spellcheck="false">
+                   placeholder="Paste API key" autocomplete="new-password"
+                   data-1p-ignore="true" data-lpignore="true" spellcheck="false">
             <button type="button" class="icon-text-button ghost small"
                     @click="providerShowKeys = {...providerShowKeys, [provider.key]: !providerShowKeys[provider.key]}"
                     x-text="providerShowKeys[provider.key] ? 'Hide' : 'Show'"></button>
@@ -2314,10 +2316,14 @@
 
             <div class="provider-account-add">
               <input type="text" x-model="providerAccountDraft.label"
-                     placeholder="Account name, e.g. ElevenLabs 2" autocomplete="off">
+                     name="voicestudio-elevenlabs-account-label"
+                     placeholder="Account name, e.g. ElevenLabs 2" autocomplete="off"
+                     data-1p-ignore="true" data-lpignore="true">
               <input :type="providerAccountShowKey ? 'text' : 'password'"
                      x-model="providerAccountDraft.api_key"
-                     placeholder="Paste ElevenLabs API key" autocomplete="off" spellcheck="false">
+                     name="voicestudio-elevenlabs-new-key"
+                     placeholder="Paste ElevenLabs API key" autocomplete="new-password"
+                     data-1p-ignore="true" data-lpignore="true" spellcheck="false">
               <button type="button" class="ghost small" @click="providerAccountShowKey = !providerAccountShowKey"
                       x-text="providerAccountShowKey ? 'Hide' : 'Show'"></button>
               <button type="button" class="primary" @click="addProviderAccount(provider.key)"

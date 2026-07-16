@@ -10,6 +10,25 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.1] — 2026-07-16
+
+### Fixed
+
+- All cloud-provider key fields, including the ElevenLabs account-pool fields,
+  now use explicit new-key field names and password-manager-safe autocomplete
+  hints. Browser credential autofill could visually populate fields without
+  firing the input events Alpine uses for `x-model`, leaving **Save key** or
+  **Add account** disabled and creating no saved provider configuration.
+
+### Verified
+
+- The account API and existing account-pool behavior remain unchanged; the
+  focused provider tests and frontend markup regression check pass.
+- Existing saved voices, provider mappings, local generation, and the current
+  account-pool storage format were deliberately left untouched.
+
+---
+
 ## [1.20.0] — 2026-07-16
 
 ### Added — centralized ElevenLabs account pool
