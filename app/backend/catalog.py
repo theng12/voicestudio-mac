@@ -137,12 +137,13 @@ FAMILIES: dict[str, Family] = {
             "voice without needing audio. Use 0.6B Base for speed or 1.7B Base "
             "for the strongest cloning quality."
         ),
-        # Audit (v1.2.4): mlx_audio qwen3_tts/qwen3_tts.py:1149 max_tokens=4096 per segment
-        # @ 12 Hz ≈ 5.7 min. Default split_pattern="\n" for transparent text splitting.
+        # Qwen's ICL/Base clone path bypasses mlx-audio's newline splitter. Voice
+        # Studio therefore renders a long clone in short sentence-aware sections
+        # and joins them with clean pauses before returning one chapter audio file.
         text_guidance=TextGuidance(
-            soft_max_chars=3000,
+            soft_max_chars=None,
             chunking="auto-split",
-            note="Best at ~3000 chars (~5.7 min audio) per call. Auto-splits on newlines — use \\n between paragraphs for clean cuts.",
+            note="Long voice-clone scripts are split at sentence boundaries, rendered with the same reference, and joined into one chapter. No manual splitting needed.",
         ),
     ),
     "kokoro-mlx": Family(

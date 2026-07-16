@@ -10,6 +10,35 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.3] — 2026-07-16
+
+### Fixed — Qwen3-TTS long-form voice cloning
+
+- Qwen3 Base voice cloning now breaks long narration into sentence-aware
+  sections (about 360 characters each), renders every section with the same
+  reference voice and transcript, then joins them with short clean pauses into
+  one WAV. This prevents the progressive speed-up and loss of intelligibility
+  caused by a chapter being treated as one in-context clone sequence.
+- Generation progress now identifies the active narration part, for example
+  **part 4/18**, while retaining one input job and one finished audio file.
+- The Qwen Base-clone speed control is now hidden: the current MLX Qwen engine
+  accepts but does not apply that value, so the UI no longer implies native pace
+  control that is not present.
+
+### Kept compatible
+
+- Story Studio and Studio Hub still submit one full chapter as one voice job.
+  The new splitting, rendering, joining, and progress reporting happen wholly
+  inside Voice Studio; its public generation contract is unchanged.
+
+### Verified
+
+- Regression coverage verifies sentence and fallback word splitting, lossless
+  text preservation, joined WAV pause placement, per-section rendering, and
+  progress metadata without loading a Qwen model.
+
+---
+
 ## [1.20.2] — 2026-07-16
 
 ### Fixed

@@ -600,6 +600,120 @@ def _qwen3_mode_from_repo(repo: str) -> str:
     return "custom"   # safest fallback
 
 
+# Qwen's Base / ICL clone path does not use the model's built-in newline
+# splitting. Keeping each independent clone invocation below roughly half a
+# minute avoids the long-context pacing collapse while preserving the same
+# reference voice on every section.
+_QWEN_CLONE_CHUNK_CHARS = 360
+_QWEN_CLONE_JOIN_PAUSE_S = 0.12
+_QWEN_SENTENCE_ENDINGS = frozenset(".!?。！？")
+_QWEN_TRAILING_CLOSERS = frozenset("\"'”’»）】〕〉")
+
+
+def _qwen_clone_text_chunks(text: str, max_chars: int = _QWEN_CLONE_CHUNK_CHARS) -> list[str]:
+    """Split long Qwen Base clone text at natural narration boundaries.
+
+    Qwen's ICL cloning routine treats its whole input as one sequence, even
+    though the non-cloning code path understands newline segments. This keeps
+    each independent clone safely short, prefers sentence endings, retains
+    paragraph pauses, and falls back to word (then character) boundaries for
+    unusually long sentences.
+    """
+    if max_chars < 40:
+        raise ValueError("Qwen clone chunk size must be at least 40 characters")
+    paragraphs = [
+        " ".join(part.split())
+        for part in text.strip().split("\n\n")
+        if part.strip()
+    ]
+    chunks: list[str] = []
+    for paragraph in paragraphs:
+        sentences: list[str] = []
+        start = 0
+        index = 0
+        while index < len(paragraph):
+            if paragraph[index] in _QWEN_SENTENCE_ENDINGS:
+                end = index + 1
+                while end < len(paragraph) and paragraph[end] in _QWEN_TRAILING_CLOSERS:
+                    end += 1
+                if end == len(paragraph) or paragraph[end].isspace():
+                    sentence = paragraph[start:end].strip()
+                    if sentence:
+                        sentences.append(sentence)
+                    start = end
+                    index = end
+                    continue
+            index += 1
+        remainder = paragraph[start:].strip()
+        if remainder:
+            sentences.append(remainder)
+
+        current = ""
+        for sentence in sentences:
+            units = _qwen_clone_split_long_unit(sentence, max_chars)
+            for unit in units:
+                if current and len(current) + 1 + len(unit) > max_chars:
+                    chunks.append(current)
+                    current = ""
+                current = f"{current} {unit}".strip()
+        if current:
+            chunks.append(current)
+    return chunks
+
+
+def _qwen_clone_split_long_unit(text: str, max_chars: int) -> list[str]:
+    """Break one overlong sentence without dropping or rewriting text."""
+    pieces: list[str] = []
+    remaining = text.strip()
+    floor = max(1, int(max_chars * 0.55))
+    while len(remaining) > max_chars:
+        whitespace = remaining.rfind(" ", floor, max_chars + 1)
+        punctuation = max(
+            (remaining.rfind(mark, floor, max_chars + 1) + 1 for mark in ",;:、，；："),
+            default=0,
+        )
+        cut = max(whitespace, punctuation)
+        if cut <= 0:
+            cut = max_chars
+        piece = remaining[:cut].strip()
+        if not piece:
+            cut = max_chars
+            piece = remaining[:cut]
+        pieces.append(piece)
+        remaining = remaining[cut:].strip()
+    if remaining:
+        pieces.append(remaining)
+    return pieces
+
+
+def _join_qwen_clone_wavs(segment_paths: list[Path], output_path: Path,
+                          pause_s: float = _QWEN_CLONE_JOIN_PAUSE_S) -> None:
+    """Join independently cloned WAVs with a short clean narration pause."""
+    if not segment_paths:
+        raise ValueError("No Qwen clone audio segments were generated")
+    import numpy as np
+    import soundfile as sf
+
+    first_info = sf.info(str(segment_paths[0]))
+    sample_rate = first_info.samplerate
+    channels = first_info.channels
+    if sample_rate <= 0 or channels <= 0:
+        raise RuntimeError("Qwen clone returned audio with an invalid format")
+
+    joined: list = []
+    pause = np.zeros((round(max(0.0, pause_s) * sample_rate), channels), dtype=np.float32)
+    for index, path in enumerate(segment_paths):
+        info = sf.info(str(path))
+        if info.samplerate != sample_rate or info.channels != channels:
+            raise RuntimeError("Qwen clone segments returned incompatible audio formats")
+        audio, _ = sf.read(str(path), dtype="float32", always_2d=True)
+        joined.append(audio)
+        if index < len(segment_paths) - 1 and len(pause):
+            joined.append(pause)
+    sf.write(str(output_path), np.concatenate(joined, axis=0), sample_rate,
+             format="WAV", subtype=first_info.subtype)
+
+
 _PACKAGE_DISTRIBUTIONS = {
     "mlx_lm": "mlx-lm",
     "mlx_audio": "mlx-audio",
@@ -736,6 +850,8 @@ class GenerationJob:
                                             # retry/restart RECALLS it instead of
                                             # re-submitting (never double-charge)
     provider_task_meta: dict = field(default_factory=dict)  # opaque recall URLs/tokens
+    chunk_index: Optional[int] = None       # current long-form local segment (1-based)
+    chunk_total: Optional[int] = None       # number of long-form local segments
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: Optional[threading.Thread] = None
 
@@ -752,6 +868,8 @@ class GenerationJob:
             "provider_account_id": self.provider_account_id,
             "provider_task_id": self.provider_task_id,
             "progress": self.progress,
+            "chunk_index": self.chunk_index,
+            "chunk_total": self.chunk_total,
             "params": self.params,
             "output_path": self.output_path,
             "output_url": f"/api/generate/jobs/{self.job_id}/audio" if self.output_path else None,
@@ -1406,6 +1524,22 @@ class GenerationManager:
                 f"[gen] {family} {mode_label} ({len(text)} chars){extras}",
                 flush=True,
             )
+            qwen_clone_chunks = (
+                _qwen_clone_text_chunks(text)
+                if family == "qwen3-tts" and _qwen3_mode_from_repo(model_entry.repo) == "clone"
+                else []
+            )
+            if len(qwen_clone_chunks) > 1:
+                self._generate_qwen_clone_long_form(
+                    job, model, gen_kwargs, qwen_clone_chunks, temp_dir,
+                    output_path, generate_audio,
+                )
+                if not job.cancel_event.is_set():
+                    print(
+                        f"[gen] qwen3-tts joined {len(qwen_clone_chunks)} clone sections: {output_path}",
+                        flush=True,
+                    )
+                return
             generate_audio(
                 model=model,
                 output_path=str(temp_dir),
@@ -1439,6 +1573,44 @@ class GenerationManager:
             # loaded (model weights are not the OOM trigger); only the
             # per-generation activation buffers get freed. See v1.2.7 fix.
             _release_device_memory("mps")
+
+    @staticmethod
+    def _mlx_audio_output_file(output_dir: Path) -> Path:
+        """Find the WAV written by mlx-audio across its output naming variants."""
+        produced = output_dir / "audio.wav"
+        if produced.exists():
+            return produced
+        candidates = sorted(output_dir.glob("*.wav"))
+        if candidates:
+            return candidates[0]
+        raise RuntimeError(f"mlx-audio didn't produce a wav file. Temp dir: {output_dir}")
+
+    def _generate_qwen_clone_long_form(self, job: GenerationJob, model, gen_kwargs: dict,
+                                       chunks: list[str], temp_dir: Path, output_path: Path,
+                                       generate_audio) -> None:
+        """Render a Qwen Base clone in safe independent sections, then join it."""
+        segment_paths: list[Path] = []
+        job.chunk_total = len(chunks)
+        job.chunk_index = 0
+        for index, chunk in enumerate(chunks, start=1):
+            if job.cancel_event.is_set():
+                return
+            job.chunk_index = index
+            job.progress = max(job.progress, min(0.93, 0.08 + (index - 1) / len(chunks) * 0.85))
+            segment_dir = temp_dir / f"section_{index:03d}"
+            segment_dir.mkdir()
+            print(f"[gen] qwen3-tts clone section {index}/{len(chunks)} ({len(chunk)} chars)", flush=True)
+            generate_audio(
+                model=model,
+                output_path=str(segment_dir),
+                join_audio=True,
+                **{**gen_kwargs, "text": chunk},
+            )
+            if job.cancel_event.is_set():
+                return
+            segment_paths.append(self._mlx_audio_output_file(segment_dir))
+            job.progress = max(job.progress, min(0.95, 0.08 + index / len(chunks) * 0.85))
+        _join_qwen_clone_wavs(segment_paths, output_path)
 
     def _resolve_mlx_kwargs(self, mode: str, family: str, model_entry, params: dict,
                             gen_kwargs: dict) -> str:
@@ -2029,6 +2201,8 @@ class GenerationManager:
             "provider_task_id": job.provider_task_id,
             "provider_task_meta": job.provider_task_meta,
             "progress": job.progress,
+            "chunk_index": job.chunk_index,
+            "chunk_total": job.chunk_total,
             "params": job.params,
             "output_path": job.output_path,
             "resolved_seed": job.resolved_seed,
@@ -2054,6 +2228,8 @@ class GenerationManager:
                 provider_task_id=raw.get("provider_task_id"),
                 provider_task_meta=raw.get("provider_task_meta") or {},
                 progress=raw.get("progress", 1.0),
+                chunk_index=raw.get("chunk_index"),
+                chunk_total=raw.get("chunk_total"),
                 output_path=output_path,
                 resolved_seed=raw.get("resolved_seed"),
                 error=raw.get("error"),

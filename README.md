@@ -11,7 +11,10 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   Orpheus, KittenTTS, VibeVoice, Voxtral, and Marvis.
 - **Apple Silicon first** — the priority families use curated MLX tiers instead
   of presenting every redundant precision. Qwen3 includes 0.6B and 1.7B Base
-  voice cloning, 1.7B preset voices, and 1.7B VoiceDesign. Chatterbox and
+  voice cloning, with long cloned scripts automatically rendered in short
+  sentence-aware sections and joined into one chapter file. Qwen's Base clone
+  mode does not expose a native speed control in the current MLX engine.
+  Qwen3 also includes 1.7B preset voices and 1.7B VoiceDesign. Chatterbox and
   OmniVoice expose their native cloning and quality controls. Kokoro keeps one
   full-quality MLX model with all 54 voices, nine language variants, speed, and
   equal voice blending. VoxCPM2 keeps a fast 4-bit tier and a bf16 final-render

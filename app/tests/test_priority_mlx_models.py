@@ -313,6 +313,77 @@ def test_qwen_17b_base_uses_clone_mode() -> None:
     ) == "clone"
 
 
+def test_qwen_clone_long_form_chunks_at_sentences_without_losing_text() -> None:
+    text = " ".join([
+        "First sentence keeps a natural pace.",
+        "Second sentence remains with the same cloned voice.",
+        "Third sentence is long enough to make this a genuine narration section.",
+        "Fourth sentence begins the next section without accelerating the ending.",
+        "Fifth sentence confirms every word survives the split.",
+    ])
+    chunks = generation._qwen_clone_text_chunks(text, max_chars=120)
+
+    assert len(chunks) >= 2
+    assert all(len(chunk) <= 120 for chunk in chunks)
+    assert " ".join(chunks) == " ".join(text.split())
+
+
+def test_qwen_clone_long_sentence_falls_back_to_word_boundaries() -> None:
+    text = "word " * 100
+    chunks = generation._qwen_clone_text_chunks(text, max_chars=80)
+
+    assert len(chunks) > 1
+    assert all(len(chunk) <= 80 for chunk in chunks)
+    assert " ".join(chunks) == " ".join(text.split())
+
+
+def test_qwen_clone_join_preserves_segment_audio_and_pause(tmp_path: Path) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    first = tmp_path / "first.wav"
+    second = tmp_path / "second.wav"
+    output = tmp_path / "joined.wav"
+    sf.write(first, np.full(10, 0.25, dtype=np.float32), 1000, subtype="PCM_16")
+    sf.write(second, np.full(10, -0.25, dtype=np.float32), 1000, subtype="PCM_16")
+
+    generation._join_qwen_clone_wavs([first, second], output, pause_s=0.01)
+    audio, sample_rate = sf.read(output, dtype="float32")
+
+    assert sample_rate == 1000
+    assert len(audio) == 30
+    assert np.allclose(audio[:10], 0.25, atol=1e-3)
+    assert np.allclose(audio[10:20], 0.0, atol=1e-6)
+    assert np.allclose(audio[20:], -0.25, atol=1e-3)
+
+
+def test_qwen_clone_long_form_renders_each_section_and_reports_progress(tmp_path: Path) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    calls: list[str] = []
+
+    def fake_generate_audio(*, model, output_path, join_audio, **kwargs) -> None:
+        assert model == "qwen-model"
+        assert join_audio is True
+        calls.append(kwargs["text"])
+        sf.write(Path(output_path) / "audio.wav", np.ones(10, dtype=np.float32), 1000)
+
+    manager = object.__new__(generation.GenerationManager)
+    job = generation.GenerationJob(job_id="qwen-long", mode="txt2speech", params={})
+    chunks = ["First short section.", "Second short section."]
+    output = tmp_path / "output.wav"
+    manager._generate_qwen_clone_long_form(
+        job, "qwen-model", {"text": "ignored", "ref_audio": "voice.wav"},
+        chunks, tmp_path, output, fake_generate_audio,
+    )
+
+    assert calls == chunks
+    assert (job.chunk_index, job.chunk_total) == (2, 2)
+    assert 0.92 < job.progress < 0.94
+    assert output.exists()
+
+
 def test_chatterbox_controls_match_standard_and_turbo_engines(tmp_path: Path) -> None:
     reference = tmp_path / "voice.wav"
     reference.touch()

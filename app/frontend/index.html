@@ -817,8 +817,9 @@
           </div>
         </details>
 
-        <!-- Speed slider — only families whose model API actually accepts it. -->
-        <section class="control-block" x-show="(isMlxAudio(gen.repo) && !isVoxCPMMlx(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo) && !isBark(gen.repo)) || isF5TTS(gen.repo)" x-cloak>
+        <!-- Speed slider — Qwen Base cloning accepts the value but its current
+             MLX engine does not apply it, so do not present a misleading control. -->
+        <section class="control-block" x-show="((isMlxAudio(gen.repo) && !isVoxCPMMlx(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo) && !isBark(gen.repo) && qwen3Mode(gen.repo) !== 'clone') || isF5TTS(gen.repo))" x-cloak>
           <label>Speed</label>
           <div class="slider-row">
             <input type="range" min="0.5" max="2.0" step="0.01" x-model.number="gen.speed">

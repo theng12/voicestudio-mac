@@ -3194,8 +3194,11 @@ function studio() {
             const pct = Math.round((running.progress || 0) * 100);
             const elapsed = running.started_at
               ? Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(running.started_at)) : 0;
+            const chunkTotal = Number(running.chunk_total || 0);
+            const chunkIndex = Number(running.chunk_index || 0);
             this.gen.busyLabel = "Generating…"
               + (pct > 0 ? ` ${pct}%` : "")
+              + (chunkTotal > 1 ? ` · part ${Math.max(1, chunkIndex)}/${chunkTotal}` : "")
               + (elapsed ? ` · ${elapsed}s` : "");
           }
         } catch { /* swallow */ }
