@@ -4,6 +4,8 @@ from pathlib import Path
 import inspect
 from types import SimpleNamespace
 
+import pytest
+
 from backend import catalog, generation
 
 
@@ -355,6 +357,46 @@ def test_qwen_clone_join_preserves_segment_audio_and_pause(tmp_path: Path) -> No
     assert np.allclose(audio[:10], 0.25, atol=1e-3)
     assert np.allclose(audio[10:20], 0.0, atol=1e-6)
     assert np.allclose(audio[20:], -0.25, atol=1e-3)
+
+
+def test_qwen_speed_is_pitch_preserving_and_changes_duration(tmp_path: Path) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    if generation._find_ffmpeg_executable() is None:
+        pytest.skip("FFmpeg is unavailable in this test environment")
+    sample_rate = 24000
+    seconds = 2.0
+    time_axis = np.arange(round(sample_rate * seconds), dtype=np.float32) / sample_rate
+    original = 0.25 * np.sin(2 * np.pi * 440.0 * time_axis)
+    output = tmp_path / "qwen.wav"
+    sf.write(output, original, sample_rate, subtype="PCM_16")
+
+    assert generation._apply_qwen_output_speed(output, 0.90) is True
+    adjusted, adjusted_rate = sf.read(output, dtype="float32")
+
+    assert adjusted_rate == sample_rate
+    assert len(adjusted) == pytest.approx(len(original) / 0.90, rel=0.03)
+    spectrum = np.abs(np.fft.rfft(adjusted))
+    frequencies = np.fft.rfftfreq(len(adjusted), 1 / adjusted_rate)
+    dominant_hz = frequencies[int(np.argmax(spectrum))]
+    assert dominant_hz == pytest.approx(440.0, abs=3.0)
+
+
+def test_qwen_speed_one_is_a_lossless_noop(tmp_path: Path) -> None:
+    output = tmp_path / "qwen.wav"
+    payload = b"unchanged"
+    output.write_bytes(payload)
+
+    assert generation._apply_qwen_output_speed(output, 1.0) is False
+    assert output.read_bytes() == payload
+
+
+def test_qwen_clone_speed_control_is_visible_and_truthful() -> None:
+    markup = (Path(__file__).parents[1] / "frontend" / "index.html").read_text()
+
+    assert "qwen3Mode(gen.repo) !== 'clone'" not in markup
+    assert "Qwen preserves pitch by adjusting the finished WAV" in markup
 
 
 def test_qwen_clone_long_form_renders_each_section_and_reports_progress(tmp_path: Path) -> None:

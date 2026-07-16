@@ -86,6 +86,8 @@ from importlib import metadata
 import json
 import os
 import platform
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -712,6 +714,89 @@ def _join_qwen_clone_wavs(segment_paths: list[Path], output_path: Path,
             joined.append(pause)
     sf.write(str(output_path), np.concatenate(joined, axis=0), sample_rate,
              format="WAV", subtype=first_info.subtype)
+
+
+def _find_ffmpeg_executable() -> Optional[Path]:
+    """Find FFmpeg in normal, Pinokio-bundled, and common Apple Silicon paths."""
+    override = (os.environ.get("VOICESTUDIO_FFMPEG") or "").strip()
+    candidates = [Path(override)] if override else []
+    resolved = shutil.which("ffmpeg")
+    if resolved:
+        candidates.append(Path(resolved))
+    # launchd services start with a minimal PATH. Walk upward until the
+    # Pinokio root is found so service mode can still use its bundled FFmpeg.
+    for parent in Path(__file__).resolve().parents:
+        candidates.extend([
+            parent / "bin" / "miniforge" / "bin" / "ffmpeg",
+            parent / "bin" / "ffmpeg-env" / "bin" / "ffmpeg",
+        ])
+    candidates.extend([Path("/opt/homebrew/bin/ffmpeg"), Path("/usr/local/bin/ffmpeg")])
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _apply_qwen_output_speed(output_path: Path, speed: float) -> bool:
+    """Apply pitch-preserving tempo to a finished Qwen WAV atomically.
+
+    The current MLX Qwen implementation accepts ``speed`` but explicitly does
+    not use it. FFmpeg's ``atempo`` changes duration while preserving pitch,
+    so cloned identity is retained and both short and joined long-form output
+    obey the same public speed control. Returns False for the 1.0 no-op.
+    """
+    speed = max(0.5, min(float(speed), 2.0))
+    if abs(speed - 1.0) < 1e-6:
+        return False
+    ffmpeg = _find_ffmpeg_executable()
+    if ffmpeg is None:
+        raise RuntimeError(
+            f"Qwen speed {speed:.2f}x needs FFmpeg for pitch-preserving tempo, "
+            "but Voice Studio could not find FFmpeg. Run Update or reinstall Voice Studio."
+        )
+
+    import soundfile as sf
+
+    source = sf.info(str(output_path))
+    if source.frames <= 0 or source.samplerate <= 0 or source.channels <= 0:
+        raise RuntimeError("Qwen produced an invalid WAV before speed adjustment")
+    codec = {
+        "PCM_16": "pcm_s16le",
+        "PCM_24": "pcm_s24le",
+        "PCM_32": "pcm_s32le",
+        "FLOAT": "pcm_f32le",
+        "DOUBLE": "pcm_f64le",
+    }.get(source.subtype, "pcm_s16le")
+    temporary = output_path.with_name(f".{output_path.stem}.tempo-{uuid.uuid4().hex}.wav")
+    try:
+        result = subprocess.run(
+            [
+                str(ffmpeg), "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                "-i", str(output_path), "-filter:a", f"atempo={speed:.6f}",
+                "-c:a", codec, str(temporary),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "unknown FFmpeg error").strip()
+            raise RuntimeError(f"Qwen speed adjustment failed: {detail[-800:]}")
+        adjusted = sf.info(str(temporary))
+        expected_frames = source.frames / speed
+        tolerance = max(source.samplerate * 0.20, expected_frames * 0.08)
+        if (
+            adjusted.frames <= 0
+            or adjusted.samplerate != source.samplerate
+            or adjusted.channels != source.channels
+            or abs(adjusted.frames - expected_frames) > tolerance
+        ):
+            raise RuntimeError("Qwen speed adjustment produced an invalid audio duration or format")
+        os.replace(temporary, output_path)
+        return True
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 _PACKAGE_DISTRIBUTIONS = {
@@ -1458,7 +1543,6 @@ class GenerationManager:
         rather than returning bytes. We request one joined file so newline and
         sentence segmentation never drops everything after the first segment.
         """
-        import shutil
         import tempfile
         from mlx_audio.tts.generate import generate_audio
 
@@ -1480,7 +1564,9 @@ class GenerationManager:
         # VoxCPM2 has no numeric speed parameter; pace is controlled through
         # its natural-language instruction. Passing speed would be silently ignored.
         if family not in {"voxcpm-mlx", "bark"}:
-            gen_kwargs["speed"] = speed
+            # Qwen accepts this argument but does not apply it upstream. Keep
+            # native generation at 1.0 and adjust the finished WAV below.
+            gen_kwargs["speed"] = 1.0 if family == "qwen3-tts" else speed
 
         # Dispatch to the per-mode resolver to populate voice / clone / instruct
         # kwargs. Each resolver may raise ValueError if required inputs are missing.
@@ -1535,6 +1621,8 @@ class GenerationManager:
                     output_path, generate_audio,
                 )
                 if not job.cancel_event.is_set():
+                    if _apply_qwen_output_speed(output_path, speed):
+                        print(f"[gen] qwen3-tts applied pitch-preserving {speed:.2f}x tempo", flush=True)
                     print(
                         f"[gen] qwen3-tts joined {len(qwen_clone_chunks)} clone sections: {output_path}",
                         flush=True,
@@ -1558,6 +1646,9 @@ class GenerationManager:
                 produced = candidates[0]
 
             shutil.move(str(produced), str(output_path))
+            if family == "qwen3-tts" and not job.cancel_event.is_set():
+                if _apply_qwen_output_speed(output_path, speed):
+                    print(f"[gen] qwen3-tts applied pitch-preserving {speed:.2f}x tempo", flush=True)
             sr = model_entry.sample_rate_hz or family_config["default_sample_rate"]
             print(f"[gen] {family} saved WAV at {sr} Hz: {output_path}", flush=True)
         finally:

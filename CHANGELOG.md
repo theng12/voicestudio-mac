@@ -10,6 +10,37 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.4] — 2026-07-16
+
+### Added — truthful Qwen3-TTS speed control
+
+- Qwen3-TTS now applies its requested speed to the finished WAV with FFmpeg's
+  pitch-preserving tempo filter. This cleanly supports values such as `0.95×`
+  and `0.90×` even though the current MLX Qwen engine accepts but ignores its
+  native `speed` argument.
+- The Speed control is available for Qwen Base voice cloning again and clearly
+  explains that Qwen adjusts the finished audio while preserving pitch. Direct
+  API, Story Studio, and Studio Hub requests use the same backend behavior.
+- Speed is applied after long narration sections are joined, so every sentence
+  keeps the same cloned voice and the short inter-section pauses remain smooth.
+
+### Kept safe
+
+- Sentence-aware splitting remains unchanged: complete sentences are preferred;
+  an unusually long sentence falls back to punctuation or whitespace; only an
+  unbroken token longer than the safety limit can require a character split.
+- Other engines retain their existing native speed controls. VoxCPM2 and Bark
+  remain unchanged because they do not advertise this numeric control.
+
+### Verified
+
+- Regression coverage verifies the `0.90×` output is about 11% longer while a
+  440 Hz test tone remains 440 Hz, proving pitch is preserved. It also covers
+  the `1.0×` lossless no-op, Qwen clone UI visibility, sentence-safe chunking,
+  and joined-WAV integrity.
+
+---
+
 ## [1.20.3] — 2026-07-16
 
 ### Fixed — Qwen3-TTS long-form voice cloning

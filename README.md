@@ -12,8 +12,9 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 - **Apple Silicon first** — the priority families use curated MLX tiers instead
   of presenting every redundant precision. Qwen3 includes 0.6B and 1.7B Base
   voice cloning, with long cloned scripts automatically rendered in short
-  sentence-aware sections and joined into one chapter file. Qwen's Base clone
-  mode does not expose a native speed control in the current MLX engine.
+  sentence-aware sections and joined into one chapter file. Because the current
+  MLX Qwen engine ignores its native speed argument, Voice Studio applies the
+  selected pace to the finished WAV with pitch-preserving tempo adjustment.
   Qwen3 also includes 1.7B preset voices and 1.7B VoiceDesign. Chatterbox and
   OmniVoice expose their native cloning and quality controls. Kokoro keeps one
   full-quality MLX model with all 54 voices, nine language variants, speed, and
