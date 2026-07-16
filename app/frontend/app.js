@@ -303,6 +303,8 @@ function studio() {
     providerFeedback: {},
     providerLiveModels: {},
     providerVoices: {},
+    providerAccountDraft: { label: "", api_key: "" },
+    providerAccountShowKey: false,
 
     // ──────── network/connectivity (where the API can be reached) ────────
     conn: {
@@ -1859,20 +1861,171 @@ function studio() {
       }
     },
 
-    async refreshProviderVoices(key, force = false) {
-      if (!force && this.providerVoices[key]) return this.providerVoices[key];
-      this._setProviderBusy(key, "voices");
+    providerAccountBusyKey(accountId) {
+      return `elevenlabs-account:${accountId}`;
+    },
+
+    providerTagKey(providerKey, accountId = "") {
+      return accountId ? `${providerKey}::${accountId}` : providerKey;
+    },
+
+    providerAccountStatus(account) {
+      return ({
+        ready: "Ready",
+        exhausted: "No credits",
+        invalid: "Invalid key",
+        unavailable: "Unavailable",
+        quota_unknown: "Quota hidden",
+        cooldown: "Cooling down",
+        paused: "Paused",
+        unchecked: "Not checked",
+      })[account?.status] || "Not checked";
+    },
+
+    providerAccountNumber(value) {
+      return Number.isFinite(Number(value)) ? Number(value).toLocaleString() : "—";
+    },
+
+    providerAccountTime(value) {
+      if (!value) return "Not checked yet";
+      const date = new Date(Number(value) * 1000);
+      return Number.isNaN(date.getTime()) ? "Not checked yet" : date.toLocaleString();
+    },
+
+    providerAccountUsagePercent(account) {
+      const used = Number(account?.character_count);
+      const limit = Number(account?.character_limit);
+      if (!Number.isFinite(used) || !Number.isFinite(limit) || limit <= 0) return 0;
+      return Math.max(0, Math.min(100, (used / limit) * 100));
+    },
+
+    async addProviderAccount(key) {
+      const label = (this.providerAccountDraft.label || "").trim();
+      const apiKey = (this.providerAccountDraft.api_key || "").trim();
+      if (!label || !apiKey) {
+        this._setProviderFeedback(key, false, "Enter an account name and API key.");
+        return;
+      }
+      this._setProviderBusy(key, "account-add");
+      this._setProviderFeedback(key, true, "Adding and checking the account…");
       try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/voices/live`);
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ label, api_key: apiKey }),
+        });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this.providerVoices = { ...this.providerVoices, [key]: data.voices || [] };
+        this._replaceProvider(data);
+        this.providerAccountDraft = { label: "", api_key: "" };
+        this.providerAccountShowKey = false;
+        this._setProviderFeedback(key, true, "Account added to the local pool.");
+        await this.refreshCatalog();
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+      } finally {
+        this._setProviderBusy(key, "");
+      }
+    },
+
+    async refreshProviderAccounts(key) {
+      this._setProviderBusy(key, "accounts-refresh");
+      this._setProviderFeedback(key, true, "Checking balances and account health…");
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts/refresh`, {
+          method: "POST",
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this._replaceProvider(data);
+        this._setProviderFeedback(key, true, "Account balances refreshed.");
+        await this.refreshCatalog();
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+      } finally {
+        this._setProviderBusy(key, "");
+      }
+    },
+
+    async testProviderAccount(key, accountId) {
+      const busyKey = this.providerAccountBusyKey(accountId);
+      this._setProviderBusy(busyKey, "test");
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts/${encodeURIComponent(accountId)}/test`, {
+          method: "POST",
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        await this.refreshProviders();
+        this._setProviderFeedback(key, !!data.ok, data.account?.message || (data.ok ? "Connected." : "Connection failed."));
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+      } finally {
+        this._setProviderBusy(busyKey, "");
+      }
+    },
+
+    async setProviderAccountEnabled(key, account, enabled) {
+      const busyKey = this.providerAccountBusyKey(account.id);
+      this._setProviderBusy(busyKey, "toggle");
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts/${encodeURIComponent(account.id)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: !!enabled }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this._replaceProvider(data);
+        this._setProviderFeedback(key, true, enabled ? `${account.label} resumed.` : `${account.label} paused.`);
+        await this.refreshCatalog();
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+      } finally {
+        this._setProviderBusy(busyKey, "");
+      }
+    },
+
+    async deleteProviderAccount(key, account) {
+      if (!await this.askConfirm(
+        `Remove ${account.label}?`,
+        "The API key is removed from this Mac. Existing per-account voice mappings stay visible until you edit those voices.",
+        "Remove account"
+      )) return;
+      const busyKey = this.providerAccountBusyKey(account.id);
+      this._setProviderBusy(busyKey, "delete");
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts/${encodeURIComponent(account.id)}`, {
+          method: "DELETE",
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this._replaceProvider(data);
+        this._setProviderFeedback(key, true, `${account.label} removed.`);
+        await this.refreshCatalog();
+      } catch (e) {
+        this._setProviderFeedback(key, false, String(e.message || e));
+      } finally {
+        this._setProviderBusy(busyKey, "");
+      }
+    },
+
+    async refreshProviderVoices(key, force = false, accountId = "") {
+      const cacheKey = this.providerTagKey(key, accountId);
+      if (!force && this.providerVoices[cacheKey]) return this.providerVoices[cacheKey];
+      this._setProviderBusy(cacheKey, "voices");
+      try {
+        const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : "";
+        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/voices/live${query}`);
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
+        this.providerVoices = { ...this.providerVoices, [cacheKey]: data.voices || [] };
         return data.voices || [];
       } catch (e) {
         this._setProviderFeedback(key, false, String(e.message || e));
         return [];
       } finally {
-        this._setProviderBusy(key, "");
+        this._setProviderBusy(cacheKey, "");
       }
     },
 
@@ -2487,12 +2640,26 @@ function studio() {
         license: voice.license || "self-owned",
         notes: voice.notes || "",
         transcript,
-        providerTags: Object.fromEntries(
-          providerTags.map(tag => [tag.provider, tag.voice_id])
-        ),
+        providerTags: Object.fromEntries(providerTags.filter(tag => {
+          if (tag.provider !== "elevenlabs" || !tag.account_id) return true;
+          const accountIds = new Set(
+            (this.providers.find(item => item.key === "elevenlabs")?.accounts || [])
+              .map(account => account.id)
+          );
+          return accountIds.has(tag.account_id);
+        }).map(tag => [
+          this.providerTagKey(tag.provider, tag.account_id || ""),
+          tag.voice_id,
+        ])),
       });
       for (const provider of this.providers.filter(item => item.has_key)) {
-        this.refreshProviderVoices(provider.key);
+        if (provider.key === "elevenlabs" && provider.accounts?.length) {
+          for (const account of provider.accounts) {
+            this.refreshProviderVoices(provider.key, false, account.id);
+          }
+        } else {
+          this.refreshProviderVoices(provider.key);
+        }
       }
     },
     closeVoiceEditor() {
@@ -2516,10 +2683,14 @@ function studio() {
           transcript: e.transcript,
           providers: Object.entries(e.providerTags || {})
             .filter(([, voiceId]) => String(voiceId || "").trim())
-            .map(([provider, voiceId]) => ({
-              provider,
-              voice_id: String(voiceId).trim(),
-            })),
+            .map(([mappingKey, voiceId]) => {
+              const [provider, accountId = ""] = mappingKey.split("::", 2);
+              return {
+                provider,
+                voice_id: String(voiceId).trim(),
+                ...(accountId ? { account_id: accountId } : {}),
+              };
+            }),
         };
         const r = await fetch("/api/voices/" + encodeURIComponent(e.voice.id), {
           method: "PATCH",
@@ -2570,13 +2741,28 @@ function studio() {
       return ({ m: "♂ male", f: "♀ female", n: "neutral" })[g] || g;
     },
 
-    voiceProviderTag(voice, providerKey) {
-      return (voice?.providers || []).find(tag => tag.provider === providerKey) || null;
+    voiceProviderTag(voice, providerKey, accountId = "") {
+      return (voice?.providers || []).find(tag =>
+        tag.provider === providerKey
+        && (!accountId || tag.account_id === accountId)
+      ) || null;
     },
 
-    providerVoiceLabel(providerKey, voiceId) {
-      const match = (this.providerVoices[providerKey] || []).find(voice => voice.id === voiceId);
+    providerVoiceLabel(providerKey, voiceId, accountId = "") {
+      const cacheKey = this.providerTagKey(providerKey, accountId);
+      const match = (this.providerVoices[cacheKey] || []).find(voice => voice.id === voiceId);
       return match?.label || voiceId;
+    },
+
+    cloudVoiceOptionLabel(voice, providerKey) {
+      const tags = (voice?.providers || []).filter(tag => tag.provider === providerKey);
+      if (providerKey === "elevenlabs" && tags.some(tag => tag.account_id)) {
+        return `${voice.name} · ${tags.length} account${tags.length === 1 ? "" : "s"} mapped`;
+      }
+      const tag = tags[0];
+      return tag
+        ? `${voice.name} · ${this.providerVoiceLabel(providerKey, tag.voice_id, tag.account_id || "")}`
+        : voice.name;
     },
 
     licenseLabel(lic) {
@@ -3161,7 +3347,8 @@ function studio() {
                                 || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo);
 
         // Voice library: every cloner family + Qwen3 clone mode + F5-TTS.
-        const passesLibraryVoice = mode === "clone"
+        const passesLibraryVoice = this.isCloudModel(repo)
+                                || mode === "clone"
                                 || this.isMlxCloner(repo)
                                 || this.isF5TTS(repo);
 

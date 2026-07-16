@@ -20,9 +20,9 @@ SELF-HEALING — NEVER DOUBLE-CHARGE:
   Cloud generation costs credits. For async providers, we persist the provider's
   task id and opaque recall metadata on the job the moment they're issued; a retry
   or a post-restart recovery POLLS that task via `poll()` instead of re-submitting
-  via `submit()`. Sync providers (ElevenLabs and Fish Audio) are
-  atomic — the audio either came back (job done) or it didn't (safe to retry) —
-  so they need no task id. `Adapter.is_async` tells the worker which path to use.
+  via `submit()`. ElevenLabs response drops are recovered from its History API;
+  an ambiguous result is never blindly resubmitted. Connection failures that
+  happen before submission are retried by the generation worker.
 
 Model/voice model:
   kie and fal largely resell ElevenLabs' *models* (fal with a wider voice
@@ -34,7 +34,12 @@ Model/voice model:
 from __future__ import annotations
 
 import json
+import os
+import re
+import threading
 import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
@@ -68,6 +73,26 @@ class PollResult:
     mime: Optional[str] = None
     error: Optional[str] = None
     progress: float = 0.0
+
+
+class ProviderRequestError(RuntimeError):
+    """Structured provider failure used by the account-pool failover policy."""
+
+    def __init__(self, provider: str, response: httpx.Response):
+        self.status_code = response.status_code
+        self.code = ""
+        try:
+            payload = response.json()
+            detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
+            if isinstance(detail, dict):
+                self.code = str(detail.get("code") or detail.get("type") or "")
+        except Exception:
+            pass
+        super().__init__(_http_err(provider, response))
+
+
+class ProviderResultUncertain(RuntimeError):
+    """The paid request may have completed, but no unique result was recoverable."""
 
 
 # ───────────────────────── adapter interface ─────────────────────────
@@ -132,6 +157,7 @@ class Provider:
 
 _EL_BASE = "https://api.elevenlabs.io"
 _EL_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+_EL_CONTROL_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 
 class ElevenLabsAdapter(TTSAdapter):
@@ -145,7 +171,7 @@ class ElevenLabsAdapter(TTSAdapter):
         return {"xi-api-key": api_key, "accept": "audio/mpeg"}
 
     def list_models(self, api_key: str) -> list[CloudModel]:
-        with httpx.Client(timeout=_EL_TIMEOUT) as c:
+        with httpx.Client(timeout=_EL_CONTROL_TIMEOUT) as c:
             r = c.get(f"{_EL_BASE}/v1/models", headers={"xi-api-key": api_key})
             r.raise_for_status()
             out: list[CloudModel] = []
@@ -189,26 +215,114 @@ class ElevenLabsAdapter(TTSAdapter):
               if k in params and params[k] is not None}
         if vs:
             body["voice_settings"] = vs
-        with httpx.Client(timeout=_EL_TIMEOUT) as c:
-            r = c.post(
-                f"{_EL_BASE}/v1/text-to-speech/{voice}",
-                headers=self._headers(api_key),
-                params={"output_format": fmt},
-                json=body,
+        started_at = int(time.time())
+        try:
+            with httpx.Client(timeout=_EL_TIMEOUT) as c:
+                r = c.post(
+                    f"{_EL_BASE}/v1/text-to-speech/{voice}",
+                    headers=self._headers(api_key),
+                    params={"output_format": fmt},
+                    json=body,
+                )
+        except (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError,
+                httpx.WriteTimeout, httpx.WriteError) as exc:
+            recovered = self.recover_recent(
+                api_key, text=text, model=model, voice=voice,
+                started_at=started_at,
             )
-            if r.status_code >= 400:
-                raise RuntimeError(_http_err("ElevenLabs", r))
-            return r.content, "audio/mpeg"
+            if recovered is not None:
+                return recovered
+            raise ProviderResultUncertain(
+                "ElevenLabs connection dropped after submission and no unique "
+                "history result could be recovered. The request was not resubmitted "
+                "to avoid charging twice."
+            ) from exc
+        if r.status_code >= 400:
+            raise ProviderRequestError("ElevenLabs", r)
+        return r.content, "audio/mpeg"
+
+    def recover_recent(self, api_key: str, *, text: str, model: str, voice: str,
+                       started_at: int) -> Optional[tuple[bytes, str]]:
+        """Recover a completed TTS call after its response connection drops.
+
+        ElevenLabs has no idempotency key for synchronous TTS, but logged calls
+        appear in History. We only adopt a result when exactly one recent item
+        matches account + text + model + voice; ambiguity is never resubmitted.
+        """
+        headers = {"xi-api-key": api_key}
+        for attempt in range(5):
+            if attempt:
+                time.sleep(2.0)
+            try:
+                with httpx.Client(timeout=_EL_TIMEOUT) as c:
+                    r = c.get(
+                        f"{_EL_BASE}/v1/history",
+                        headers=headers,
+                        params={
+                            "page_size": 20,
+                            "voice_id": voice,
+                            "model_id": model,
+                            "date_after_unix": max(0, started_at - 2),
+                            "source": "TTS",
+                        },
+                    )
+                    if r.status_code >= 400:
+                        continue
+                    matches = [
+                        item for item in (r.json().get("history") or [])
+                        if item.get("text") == text
+                        and item.get("voice_id") == voice
+                        and item.get("model_id") == model
+                        and int(item.get("date_unix") or 0) >= started_at - 2
+                    ]
+                    if len(matches) != 1:
+                        continue
+                    item_id = matches[0].get("history_item_id")
+                    if not item_id:
+                        continue
+                    audio = c.get(
+                        f"{_EL_BASE}/v1/history/{item_id}/audio",
+                        headers={**headers, "accept": "audio/mpeg"},
+                    )
+                    if audio.status_code == 200 and audio.content:
+                        return audio.content, audio.headers.get(
+                            "content-type", "audio/mpeg"
+                        )
+            except httpx.HTTPError:
+                continue
+        return None
+
+    def subscription(self, api_key: str) -> dict:
+        """Return the authoritative quota snapshot used by pool selection."""
+        with httpx.Client(timeout=_EL_CONTROL_TIMEOUT) as c:
+            r = c.get(
+                f"{_EL_BASE}/v1/user/subscription",
+                headers={"xi-api-key": api_key},
+            )
+        if r.status_code >= 400:
+            raise ProviderRequestError("ElevenLabs", r)
+        data = r.json() or {}
+        used = data.get("character_count")
+        limit = data.get("character_limit")
+        remaining = None
+        if isinstance(used, (int, float)) and isinstance(limit, (int, float)):
+            remaining = max(0, int(limit - used))
+        return {
+            "tier": str(data.get("tier") or ""),
+            "subscription_status": str(data.get("status") or ""),
+            "character_count": int(used) if isinstance(used, (int, float)) else None,
+            "character_limit": int(limit) if isinstance(limit, (int, float)) else None,
+            "remaining": remaining,
+            "next_reset": data.get("next_character_count_reset_unix"),
+        }
 
     def test(self, api_key: str) -> tuple[bool, str]:
         try:
-            with httpx.Client(timeout=_EL_TIMEOUT) as c:
-                r = c.get(f"{_EL_BASE}/v1/user", headers={"xi-api-key": api_key})
-            if r.status_code == 200:
-                data = r.json()
-                tier = (data.get("subscription") or {}).get("tier", "")
-                return True, f"Connected{f' · {tier} plan' if tier else ''}."
-            return False, _http_err("ElevenLabs", r)
+            data = self.subscription(api_key)
+            tier = data.get("tier", "")
+            remaining = data.get("remaining")
+            suffix = f" · {remaining:,} credits remaining" if remaining is not None else ""
+            return True, f"Connected{f' · {tier} plan' if tier else ''}{suffix}."
         except Exception as e:
             return False, f"{type(e).__name__}: {e}"
 
@@ -889,9 +1003,9 @@ PROVIDERS: dict[str, Provider] = {
 
 
 # ───────────────── settings-backed key / paid / enabled ─────────────────
-# Stored under settings.json key "providers": { "<key>": {api_key, paid, enabled} }.
-
-import os
+# Most providers retain one key. ElevenLabs additionally supports a named pool:
+# {accounts: [{id, label, api_key, enabled}], paid, enabled}. Existing one-key
+# installs are exposed as the stable ``primary`` account until the first edit.
 
 
 def _all() -> dict:
@@ -902,7 +1016,312 @@ def _one(key: str) -> dict:
     return _all().get(key, {})
 
 
+_EL_ACCOUNT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_EL_HEALTH_TTL_S = 60.0
+_el_health_lock = threading.Lock()
+_el_health: dict[str, dict] = {}
+
+
+def _masked_key(api_key: str) -> str:
+    if len(api_key) < 10:
+        return "•" * len(api_key)
+    return f"{api_key[:3]}…{api_key[-4:]}"
+
+
+def _normalize_account(raw: dict) -> Optional[dict]:
+    if not isinstance(raw, dict):
+        return None
+    account_id = str(raw.get("id") or "").strip().lower()
+    api_key = str(raw.get("api_key") or "").strip()
+    if not _EL_ACCOUNT_RE.fullmatch(account_id) or not api_key:
+        return None
+    label = str(raw.get("label") or account_id).strip()[:80] or account_id
+    return {
+        "id": account_id,
+        "label": label,
+        "api_key": api_key,
+        "enabled": bool(raw.get("enabled", True)),
+        "created_at": float(raw.get("created_at") or 0),
+    }
+
+
+def elevenlabs_accounts() -> list[dict]:
+    """Private account records, including keys. Never return this from an API."""
+    entry = _one("elevenlabs")
+    accounts = [
+        normalized for normalized in (
+            _normalize_account(raw) for raw in (entry.get("accounts") or [])
+        ) if normalized is not None
+    ]
+    env = os.environ.get(PROVIDERS["elevenlabs"].env_var, "").strip()
+    if env:
+        accounts.insert(0, {
+            "id": "environment",
+            "label": "Environment key",
+            "api_key": env,
+            "enabled": True,
+            "created_at": 0.0,
+            "read_only": True,
+        })
+    legacy = str(entry.get("api_key") or "").strip()
+    if legacy and not accounts:
+        accounts.append({
+            "id": "primary",
+            "label": "Primary account",
+            "api_key": legacy,
+            "enabled": True,
+            "created_at": 0.0,
+            "legacy": True,
+        })
+    return accounts
+
+
+def _materialized_accounts() -> list[dict]:
+    """Stored editable accounts, migrating the legacy key when necessary."""
+    accounts = [a for a in elevenlabs_accounts() if not a.get("read_only")]
+    return [{k: a[k] for k in ("id", "label", "api_key", "enabled", "created_at")}
+            for a in accounts]
+
+
+def _save_elevenlabs_accounts(accounts: list[dict]) -> None:
+    _write("elevenlabs", {"accounts": accounts, "api_key": ""})
+    valid = {a["id"] for a in accounts} | ({"environment"} if os.environ.get(
+        PROVIDERS["elevenlabs"].env_var, "").strip() else set())
+    with _el_health_lock:
+        for account_id in list(_el_health):
+            if account_id not in valid:
+                _el_health.pop(account_id, None)
+    _live_cache.pop("elevenlabs", None)
+    for cache_key in list(_voice_cache):
+        if cache_key == "elevenlabs" or cache_key.startswith("elevenlabs:"):
+            _voice_cache.pop(cache_key, None)
+
+
+def add_elevenlabs_account(label: str, api_key: str) -> dict:
+    label = str(label or "").strip()[:80]
+    api_key = str(api_key or "").strip()
+    if not label:
+        raise ValueError("Account name is required.")
+    if not api_key:
+        raise ValueError("API key is required.")
+    existing = elevenlabs_accounts()
+    accounts = _materialized_accounts()
+    if any(a["api_key"] == api_key for a in existing):
+        raise ValueError("That ElevenLabs API key is already in the pool.")
+    account = {
+        "id": uuid.uuid4().hex[:12],
+        "label": label,
+        "api_key": api_key,
+        "enabled": True,
+        "created_at": time.time(),
+    }
+    accounts.append(account)
+    _save_elevenlabs_accounts(accounts)
+    return account
+
+
+def update_elevenlabs_account(account_id: str, *, label: Optional[str] = None,
+                              api_key: Optional[str] = None,
+                              enabled: Optional[bool] = None) -> dict:
+    if account_id == "environment":
+        raise ValueError("The environment key is read-only; change it in the service environment.")
+    accounts = _materialized_accounts()
+    account = next((a for a in accounts if a["id"] == account_id), None)
+    if account is None:
+        raise KeyError(account_id)
+    if label is not None:
+        clean = str(label).strip()[:80]
+        if not clean:
+            raise ValueError("Account name is required.")
+        account["label"] = clean
+    if api_key is not None:
+        clean = str(api_key).strip()
+        if not clean:
+            raise ValueError("API key cannot be empty.")
+        if any(a["id"] != account_id and a["api_key"] == clean
+               for a in elevenlabs_accounts()):
+            raise ValueError("That ElevenLabs API key is already in the pool.")
+        account["api_key"] = clean
+        with _el_health_lock:
+            _el_health.pop(account_id, None)
+    if enabled is not None:
+        account["enabled"] = bool(enabled)
+    _save_elevenlabs_accounts(accounts)
+    return account
+
+
+def delete_elevenlabs_account(account_id: str) -> bool:
+    if account_id == "environment":
+        raise ValueError("The environment key is read-only; change it in the service environment.")
+    accounts = _materialized_accounts()
+    kept = [a for a in accounts if a["id"] != account_id]
+    if len(kept) == len(accounts):
+        return False
+    _save_elevenlabs_accounts(kept)
+    return True
+
+
+def get_elevenlabs_account(account_id: str) -> Optional[dict]:
+    return next((a for a in elevenlabs_accounts() if a["id"] == account_id), None)
+
+
+def _set_el_health(account_id: str, **patch) -> dict:
+    with _el_health_lock:
+        state = dict(_el_health.get(account_id, {}))
+        state.update(patch)
+        _el_health[account_id] = state
+        return dict(state)
+
+
+def refresh_elevenlabs_account(account_id: str) -> dict:
+    account = get_elevenlabs_account(account_id)
+    if account is None:
+        raise KeyError(account_id)
+    now = time.time()
+    try:
+        snapshot = PROVIDERS["elevenlabs"].adapter.subscription(account["api_key"])
+        status = "exhausted" if snapshot.get("remaining") == 0 else "ready"
+        return _set_el_health(
+            account_id,
+            **snapshot,
+            status=status,
+            message="Connected." if status == "ready" else "No credits remaining.",
+            last_checked=now,
+            cooldown_until=None,
+        )
+    except ProviderRequestError as exc:
+        status = "invalid" if exc.status_code == 401 else (
+            "exhausted" if exc.status_code == 402 else (
+                "quota_unknown" if exc.status_code == 403 else "unavailable"
+            )
+        )
+        message = (
+            "This key cannot read subscription quota; generation can still use it."
+            if status == "quota_unknown" else str(exc)
+        )
+        return _set_el_health(
+            account_id,
+            status=status,
+            message=message,
+            last_checked=now,
+        )
+    except Exception as exc:
+        return _set_el_health(
+            account_id,
+            status="unavailable",
+            message=f"{type(exc).__name__}: {exc}",
+            last_checked=now,
+        )
+
+
+def report_elevenlabs_error(account_id: str, exc: Exception) -> None:
+    now = time.time()
+    if isinstance(exc, ProviderRequestError):
+        if exc.status_code == 402 or exc.code == "insufficient_credits":
+            _set_el_health(account_id, status="exhausted", remaining=0,
+                           message=str(exc), last_checked=now)
+            return
+        if exc.status_code in (401, 403):
+            _set_el_health(account_id,
+                           status="invalid" if exc.status_code == 401 else "unavailable",
+                           message=str(exc),
+                           last_checked=now)
+            return
+        if exc.status_code == 429:
+            _set_el_health(account_id, status="cooldown", message=str(exc),
+                           cooldown_until=now + 15, last_checked=now)
+            return
+    _set_el_health(account_id, status="unavailable", message=str(exc),
+                   cooldown_until=now + 5, last_checked=now)
+
+
+def record_elevenlabs_success(account_id: str, character_cost: int) -> None:
+    with _el_health_lock:
+        state = dict(_el_health.get(account_id, {}))
+        used = state.get("character_count")
+        remaining = state.get("remaining")
+        if isinstance(used, int):
+            state["character_count"] = used + max(0, character_cost)
+        if isinstance(remaining, int):
+            state["remaining"] = max(0, remaining - max(0, character_cost))
+        state.update({"status": "ready", "message": "Last generation succeeded.",
+                      "last_used": time.time(), "cooldown_until": None})
+        _el_health[account_id] = state
+
+
+def elevenlabs_candidates(allowed_ids: Optional[set[str]] = None) -> list[dict]:
+    """Healthy enabled accounts, ordered by most remaining credits."""
+    now = time.time()
+    accounts = [
+        account for account in elevenlabs_accounts()
+        if account.get("enabled", True)
+        and (allowed_ids is None or account["id"] in allowed_ids)
+    ]
+    stale_ids = []
+    with _el_health_lock:
+        for account in accounts:
+            state = _el_health.get(account["id"], {})
+            if (not state.get("last_checked")
+                    or now - state["last_checked"] >= _EL_HEALTH_TTL_S):
+                stale_ids.append(account["id"])
+    if stale_ids:
+        with ThreadPoolExecutor(max_workers=min(4, len(stale_ids))) as pool:
+            list(pool.map(refresh_elevenlabs_account, stale_ids))
+
+    candidates = []
+    for account in accounts:
+        with _el_health_lock:
+            state = dict(_el_health.get(account["id"], {}))
+        if state.get("status") in ("invalid", "exhausted"):
+            continue
+        if (state.get("cooldown_until") or 0) > now:
+            continue
+        candidates.append({**account, "health": state})
+    candidates.sort(key=lambda a: (
+        a["health"].get("remaining") is None,
+        -(a["health"].get("remaining") or 0),
+        a.get("created_at", 0),
+    ))
+    return candidates
+
+
+def public_elevenlabs_accounts() -> list[dict]:
+    now = time.time()
+    out = []
+    with _el_health_lock:
+        health = {key: dict(value) for key, value in _el_health.items()}
+    for account in elevenlabs_accounts():
+        state = health.get(account["id"], {})
+        status = state.get("status", "unchecked")
+        if not account.get("enabled", True):
+            status = "paused"
+        elif (state.get("cooldown_until") or 0) > now:
+            status = "cooldown"
+        out.append({
+            "id": account["id"],
+            "label": account["label"],
+            "enabled": account.get("enabled", True),
+            "read_only": account.get("read_only", False),
+            "key_masked": _masked_key(account["api_key"]),
+            "status": status,
+            "message": state.get("message", "Not checked yet."),
+            "tier": state.get("tier", ""),
+            "subscription_status": state.get("subscription_status", ""),
+            "character_count": state.get("character_count"),
+            "character_limit": state.get("character_limit"),
+            "remaining": state.get("remaining"),
+            "next_reset": state.get("next_reset"),
+            "last_checked": state.get("last_checked"),
+            "last_used": state.get("last_used"),
+            "cooldown_until": state.get("cooldown_until"),
+        })
+    return out
+
+
 def get_api_key(key: str) -> str:
+    if key == "elevenlabs":
+        account = next((a for a in elevenlabs_accounts() if a.get("enabled", True)), None)
+        return account["api_key"] if account else ""
     prov = PROVIDERS.get(key)
     if prov:
         env = os.environ.get(prov.env_var)
@@ -938,6 +1357,19 @@ def _write(key: str, patch: dict) -> None:
 
 
 def set_key(key: str, api_key: Optional[str]) -> None:
+    if key == "elevenlabs":
+        clean = (api_key or "").strip()
+        accounts = _materialized_accounts()
+        if clean:
+            if accounts:
+                accounts[0]["api_key"] = clean
+            else:
+                accounts = [{"id": "primary", "label": "Primary account",
+                             "api_key": clean, "enabled": True, "created_at": time.time()}]
+        else:
+            accounts = []
+        _save_elevenlabs_accounts(accounts)
+        return
     _write(key, {"api_key": (api_key or "").strip()})
 
 
@@ -977,7 +1409,8 @@ def models_for_provider(key: str, force: bool = False) -> list[CloudModel]:
     return list(prov.curated_models)
 
 
-def voices_for_provider(key: str, force: bool = False) -> list[dict]:
+def voices_for_provider(key: str, force: bool = False,
+                        account_id: Optional[str] = None) -> list[dict]:
     """Provider-native voice catalog, cached briefly like model listings.
 
     Voice discovery is a convenience for mapping Voice Studio library entries
@@ -987,12 +1420,19 @@ def voices_for_provider(key: str, force: bool = False) -> list[dict]:
     prov = PROVIDERS.get(key)
     if prov is None or not has_key(key):
         return []
+    api_key = get_api_key(key)
+    if key == "elevenlabs" and account_id:
+        account = get_elevenlabs_account(account_id)
+        if account is None or not account.get("enabled", True):
+            return []
+        api_key = account["api_key"]
     now = time.time()
-    cached = _voice_cache.get(key)
+    cache_key = f"{key}:{account_id}" if account_id else key
+    cached = _voice_cache.get(cache_key)
     if not force and cached and (now - cached[0]) < _LIVE_TTL_S:
         return cached[1]
     try:
-        voices = prov.adapter.list_voices(get_api_key(key))
+        voices = prov.adapter.list_voices(api_key)
         cleaned = [
             {
                 "id": str(v.get("id") or "").strip(),
@@ -1004,7 +1444,7 @@ def voices_for_provider(key: str, force: bool = False) -> list[dict]:
             for v in voices
             if str(v.get("id") or "").strip()
         ]
-        _voice_cache[key] = (now, cleaned)
+        _voice_cache[cache_key] = (now, cleaned)
         return cleaned
     except Exception:
         return []
@@ -1047,7 +1487,11 @@ def serialize_provider(key: str, include_models: bool = True) -> dict:
         "enabled": is_enabled(key),
         "live": is_live(key),
         "voice_mapping_supported": True,
+        "account_pool_supported": key == "elevenlabs",
     }
+    if key == "elevenlabs":
+        d["accounts"] = public_elevenlabs_accounts()
+        d["account_count"] = len(d["accounts"])
     if include_models:
         # Only surface models when the provider is actually usable, so Story
         # Studio never sees a model it can't call (no key / no paid consent).

@@ -306,11 +306,11 @@
             <option value="">— choose a tagged library voice —</option>
             <template x-for="v in selectedCloudVoices" :key="v.id">
               <option :value="v.id"
-                      x-text="v.name + ' · ' + providerVoiceLabel(cloudProviderKey(gen.repo), voiceProviderTag(v, cloudProviderKey(gen.repo)).voice_id)"></option>
+                      x-text="cloudVoiceOptionLabel(v, cloudProviderKey(gen.repo))"></option>
             </template>
           </select>
           <p class="muted hint" x-show="selectedCloudVoices.length">
-            Voice Studio sends the mapped provider voice ID; your reference audio stays on this Mac.
+            Voice Studio chooses the account and its mapped voice ID together; your reference audio stays on this Mac.
           </p>
           <div class="cloud-voice-empty" x-show="!selectedCloudVoices.length" x-cloak>
             <span>No library voice is tagged for this provider.</span>
@@ -1468,9 +1468,9 @@
             <span class="chip gender" x-text="genderLabel(v.gender)"></span>
             <span class="chip license" :class="'license-' + v.license" x-text="licenseLabel(v.license)"></span>
             <span class="chip" x-show="v.has_transcript" title="Has transcript (works with F5-TTS)">📝 transcript</span>
-            <template x-for="tag in (v.providers || [])" :key="tag.provider">
+            <template x-for="tag in (v.providers || [])" :key="tag.provider + ':' + (tag.account_id || '')">
               <span class="chip provider-tag" :title="tag.voice_id"
-                    x-text="(providers.find(p => p.key === tag.provider)?.name || tag.provider) + ' linked'"></span>
+                    x-text="(providers.find(p => p.key === tag.provider)?.name || tag.provider) + (tag.account_id ? ' account linked' : ' linked')"></span>
             </template>
           </div>
           <audio class="voice-audio" :src="v.audio_url" controls preload="metadata"></audio>
@@ -1611,7 +1611,7 @@
                 <span class="provider-pick-state" :class="provider.has_key ? 'ok' : 'warn'"
                       x-text="provider.has_key ? 'Connected' : 'Key needed'"></span>
               </div>
-              <div class="voice-provider-map-input">
+              <div class="voice-provider-map-input" x-show="provider.key !== 'elevenlabs' || !(provider.accounts || []).length">
                 <input type="text"
                        :list="'provider-voices-' + provider.key"
                        :value="voiceEditor.providerTags[provider.key] || ''"
@@ -1630,6 +1630,34 @@
               </div>
               <small class="muted" x-show="(providerVoices[provider.key] || []).length"
                      x-text="(providerVoices[provider.key] || []).length + ' provider voices available'"></small>
+              <div class="voice-account-maps" x-show="provider.key === 'elevenlabs' && (provider.accounts || []).length" x-cloak>
+                <template x-for="account in (provider.accounts || [])" :key="'voice-account-' + account.id">
+                  <div class="voice-account-map">
+                    <div class="voice-account-map-head">
+                      <strong x-text="account.label"></strong>
+                      <span class="muted small" x-text="account.key_masked"></span>
+                    </div>
+                    <div class="voice-provider-map-input">
+                      <input type="text"
+                             :list="'provider-voices-elevenlabs-' + account.id"
+                             :value="voiceEditor.providerTags[providerTagKey('elevenlabs', account.id)] || ''"
+                             @input="voiceEditor.providerTags = {...voiceEditor.providerTags, [providerTagKey('elevenlabs', account.id)]: $event.target.value}"
+                             placeholder="Select or paste this account's voice ID">
+                      <datalist :id="'provider-voices-elevenlabs-' + account.id">
+                        <template x-for="nativeVoice in (providerVoices[providerTagKey('elevenlabs', account.id)] || [])" :key="nativeVoice.id">
+                          <option :value="nativeVoice.id" x-text="nativeVoice.label"></option>
+                        </template>
+                      </datalist>
+                      <button type="button" class="btn ghost small"
+                              :disabled="providerBusy[providerTagKey('elevenlabs', account.id)] === 'voices'"
+                              @click="refreshProviderVoices('elevenlabs', true, account.id)"
+                              title="Refresh this account's voice list">↻</button>
+                    </div>
+                    <small class="muted"
+                           x-text="(providerVoices[providerTagKey('elevenlabs', account.id)] || []).length + ' voices available'"></small>
+                  </div>
+                </template>
+              </div>
             </div>
           </template>
         </div>
@@ -2244,7 +2272,7 @@
             <a class="provider-doc-link" :href="provider.docs_url" target="_blank" rel="noopener">Get a key ↗</a>
           </div>
 
-          <div class="provider-key-row">
+          <div class="provider-key-row" x-show="!provider.account_pool_supported">
             <input :type="providerShowKeys[provider.key] ? 'text' : 'password'"
                    :data-provider-key="provider.key"
                    :value="providerKeyInputs[provider.key] || ''"
@@ -2265,10 +2293,81 @@
             </button>
           </div>
 
-          <div class="provider-saved-row" x-show="provider.has_key" x-cloak>
+          <div class="provider-saved-row" x-show="provider.has_key && !provider.account_pool_supported" x-cloak>
             <span class="chip ok">Key saved</span>
             <button class="link small danger" @click="clearProviderKey(provider.key)"
                     :disabled="providerBusy[provider.key]">Remove key</button>
+          </div>
+
+          <div class="provider-account-pool" x-show="provider.account_pool_supported" x-cloak>
+            <div class="provider-account-pool-head">
+              <div>
+                <strong>Account pool on this Hub Mac</strong>
+                <p class="muted small">Voice Studio chooses an enabled account with credits and automatically skips exhausted or unavailable accounts. Keys from the same ElevenLabs workspace share one quota.</p>
+              </div>
+              <button type="button" class="ghost small" @click="refreshProviderAccounts(provider.key)"
+                      :disabled="providerBusy[provider.key]">
+                <span x-show="providerBusy[provider.key] !== 'accounts-refresh'">↻ Check all balances</span>
+                <span x-show="providerBusy[provider.key] === 'accounts-refresh'">Checking…</span>
+              </button>
+            </div>
+
+            <div class="provider-account-add">
+              <input type="text" x-model="providerAccountDraft.label"
+                     placeholder="Account name, e.g. ElevenLabs 2" autocomplete="off">
+              <input :type="providerAccountShowKey ? 'text' : 'password'"
+                     x-model="providerAccountDraft.api_key"
+                     placeholder="Paste ElevenLabs API key" autocomplete="off" spellcheck="false">
+              <button type="button" class="ghost small" @click="providerAccountShowKey = !providerAccountShowKey"
+                      x-text="providerAccountShowKey ? 'Hide' : 'Show'"></button>
+              <button type="button" class="primary" @click="addProviderAccount(provider.key)"
+                      :disabled="providerBusy[provider.key] || !providerAccountDraft.label.trim() || !providerAccountDraft.api_key.trim()">
+                <span x-show="providerBusy[provider.key] !== 'account-add'">＋ Add account</span>
+                <span x-show="providerBusy[provider.key] === 'account-add'">Adding…</span>
+              </button>
+            </div>
+
+            <div class="provider-account-list" x-show="(provider.accounts || []).length">
+              <template x-for="account in (provider.accounts || [])" :key="account.id">
+                <article class="provider-account-card" :class="'status-' + account.status">
+                  <div class="provider-account-title">
+                    <div>
+                      <strong x-text="account.label"></strong>
+                      <span class="muted small" x-text="account.key_masked"></span>
+                    </div>
+                    <span class="provider-account-state" :class="account.status"
+                          x-text="providerAccountStatus(account)"></span>
+                  </div>
+                  <div class="provider-account-stats">
+                    <span><small>Plan</small><strong x-text="account.tier || 'Unknown'"></strong></span>
+                    <span><small>Remaining</small><strong x-text="providerAccountNumber(account.remaining)"></strong></span>
+                    <span><small>Used / limit</small><strong x-text="providerAccountNumber(account.character_count) + ' / ' + providerAccountNumber(account.character_limit)"></strong></span>
+                    <span><small>Last checked</small><strong x-text="providerAccountTime(account.last_checked)"></strong></span>
+                  </div>
+                  <div class="provider-account-meter" x-show="account.character_limit != null">
+                    <span :style="'width:' + providerAccountUsagePercent(account) + '%'" aria-hidden="true"></span>
+                  </div>
+                  <p class="muted small provider-account-message" x-text="account.message"></p>
+                  <div class="provider-account-actions">
+                    <button type="button" class="ghost small"
+                            @click="testProviderAccount(provider.key, account.id)"
+                            :disabled="providerBusy[providerAccountBusyKey(account.id)]">
+                      <span x-show="providerBusy[providerAccountBusyKey(account.id)] !== 'test'">Test</span>
+                      <span x-show="providerBusy[providerAccountBusyKey(account.id)] === 'test'">Testing…</span>
+                    </button>
+                    <button type="button" class="ghost small" x-show="!account.read_only"
+                            @click="setProviderAccountEnabled(provider.key, account, !account.enabled)"
+                            :disabled="providerBusy[providerAccountBusyKey(account.id)]"
+                            x-text="account.enabled ? 'Pause' : 'Resume'"></button>
+                    <button type="button" class="link small danger" x-show="!account.read_only"
+                            @click="deleteProviderAccount(provider.key, account)"
+                            :disabled="providerBusy[providerAccountBusyKey(account.id)]">Remove</button>
+                    <span class="muted small" x-show="account.read_only">Managed by environment</span>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <p class="muted empty" x-show="!(provider.accounts || []).length">No accounts yet. Add the first ElevenLabs account above.</p>
           </div>
 
           <div class="provider-consent-grid">

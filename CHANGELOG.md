@@ -10,6 +10,42 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.0] — 2026-07-16
+
+### Added — centralized ElevenLabs account pool
+
+- ElevenLabs Settings now accepts multiple named accounts on the main Voice
+  Studio Mac. Each account shows a masked key, plan, usage, remaining credits,
+  reset/check state, and clear Ready, paused, exhausted, invalid, cooldown, or
+  unavailable status. Accounts can be added, tested, paused, resumed, removed,
+  or refreshed together without exposing credentials in API responses or Git.
+- Account selection prefers the enabled mapping with the most known remaining
+  credits and automatically skips exhausted, invalid, cooling-down, and failed
+  accounts. Definite quota, permission, voice, rate-limit, or server failures
+  fail over to another mapped account; successful usage updates the local
+  balance estimate immediately.
+- Voice library entries can now store a different ElevenLabs voice ID for every
+  account. The voice editor fetches each account's native voice catalog and the
+  generation request carries the stable library voice ID, allowing account and
+  voice selection to stay atomic.
+
+### Automatic recovery and safety
+
+- Connection setup failures retry with bounded backoff. If an ElevenLabs paid
+  request loses its response, Voice Studio searches ElevenLabs History for one
+  exact recent text/model/voice result and downloads that audio instead of
+  submitting again. Ambiguous results stop safely and are never double-billed.
+- Studio Hub supplies a stable request ID per voice item. A lost Hub-to-Voice
+  submit response returns the original job, while a Voice Studio restart during
+  a bound paid call performs History-only recovery and never blind resubmission.
+- Existing single-key installations migrate transparently to a Primary account
+  on the first pool edit. Environment keys remain read-only, and keys from the
+  same ElevenLabs workspace are clearly noted as sharing one workspace quota.
+- Added isolated tests for legacy migration, secret masking, quota ordering,
+  per-account mappings, exhausted-account failover, exact history recovery,
+  ambiguous-drop protection, and unknown-account validation. No new generation
+  dependency or model installation is required.
+
 ## [1.19.0] — 2026-07-16
 
 ### Added — authenticated shared voice synchronization

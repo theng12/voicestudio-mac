@@ -2877,6 +2877,82 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 .provider-feedback.ok { color: var(--ok); }
 .provider-feedback.error { color: var(--bad); }
 .provider-update-hint { margin-top: 16px; }
+.provider-account-pool {
+  display: grid;
+  gap: 11px;
+  padding: 13px;
+  border: 1px solid #335147;
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgba(54,139,98,.08), rgba(18,21,26,.9));
+}
+.provider-account-pool-head,
+.provider-account-title,
+.provider-account-actions,
+.voice-account-map-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.provider-account-pool-head p,
+.provider-account-message { margin: 3px 0 0; }
+.provider-account-add {
+  display: grid;
+  grid-template-columns: minmax(150px,.65fr) minmax(220px,1.35fr) auto auto;
+  gap: 8px;
+}
+.provider-account-add input[type="password"],
+.provider-account-add input[type="text"]:nth-child(2) {
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+}
+.provider-account-list { display: grid; gap: 9px; }
+.provider-account-card {
+  display: grid;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #12151a;
+}
+.provider-account-card.status-ready { border-color: #385d4d; }
+.provider-account-card.status-exhausted,
+.provider-account-card.status-cooldown,
+.provider-account-card.status-quota_unknown { border-color: #69512b; }
+.provider-account-card.status-invalid,
+.provider-account-card.status-unavailable { border-color: #743d3d; }
+.provider-account-title > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.provider-account-state {
+  flex: none;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 750 10px/1 "JetBrains Mono", monospace;
+}
+.provider-account-state.ready { color: var(--ok); border-color: #385d4d; }
+.provider-account-state.exhausted,
+.provider-account-state.cooldown,
+.provider-account-state.quota_unknown { color: var(--warn); border-color: #69512b; }
+.provider-account-state.invalid,
+.provider-account-state.unavailable { color: var(--bad); border-color: #743d3d; }
+.provider-account-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap: 7px;
+}
+.provider-account-stats span {
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,.025);
+}
+.provider-account-stats small,
+.provider-account-stats strong { display: block; overflow: hidden; text-overflow: ellipsis; }
+.provider-account-stats small { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
+.provider-account-stats strong { margin-top: 3px; font-size: 11px; white-space: nowrap; }
+.provider-account-meter { height: 4px; overflow: hidden; border-radius: 999px; background: #272b33; }
+.provider-account-meter span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.provider-account-actions { justify-content: flex-start; }
 
 /* Cloud model voice selection + provider mappings in the Voice editor. */
 .cloud-voice-control { border-color: #335147; background: rgba(54,139,98,.06); }
@@ -2910,6 +2986,9 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 .voice-provider-map { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 7px; background: #12151a; }
 .voice-provider-map-name { justify-content: space-between; }
 .voice-provider-map-input input { flex: 1; min-width: 0; font-family: "JetBrains Mono", "SF Mono", monospace; font-size: 12px; }
+.voice-account-maps { display: grid; gap: 8px; }
+.voice-account-map { display: grid; gap: 6px; padding: 9px; border: 1px solid #2e3d3a; border-radius: 6px; background: rgba(54,139,98,.04); }
+.voice-account-map-head strong { font-size: 11px; }
 
 @media (max-width: 680px) {
   .providers-panel-head,
@@ -2918,9 +2997,12 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
   .provider-toolbar { align-items: stretch; flex-direction: column; }
   .provider-search { width: 100%; }
   .provider-picker-grid,
-  .provider-consent-grid { grid-template-columns: 1fr; }
+  .provider-consent-grid,
+  .provider-account-add,
+  .provider-account-stats { grid-template-columns: 1fr; }
   .provider-key-row > *,
   .provider-doc-link { width: 100%; }
+  .provider-account-pool-head { align-items: stretch; flex-direction: column; }
   .cloud-voice-empty { align-items: flex-start; flex-direction: column; }
 }
 

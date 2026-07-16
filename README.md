@@ -20,7 +20,7 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 - **Smart downloads** — filters out redundant duplicate weight formats automatically. F5-TTS goes from 6.3 GB → 1.3 GB, Bark avoids more than 4 GB of duplicate preset files, and Chatterbox goes from 11 GB → 3 GB.
 - **Resume on retry** — partial downloads pick up where they left off.
 - **Imports** — link or move TTS weights from other launchers (e.g. a standalone VoxCPM webui).
-- **Cloud audio gateway** — connect ElevenLabs, GenAIPro, Fish Audio, fal.ai, or Kie.ai in Settings, explicitly allow paid use, map provider-native IDs onto voices in the library, then use cloud and local models from the same Generate workspace.
+- **Cloud audio gateway** — connect ElevenLabs, GenAIPro, Fish Audio, fal.ai, or Kie.ai in Settings, explicitly allow paid use, map provider-native IDs onto voices in the library, then use cloud and local models from the same Generate workspace. ElevenLabs supports a centralized named account pool with quota-aware failover.
 - **Restart-safe cloud jobs** — asynchronous provider tasks are saved immediately and recalled after an Update or restart, so Voice Studio polls the existing paid task instead of submitting it twice.
 - **Hub-managed shared voices** — Studio Hub can securely install one reference
   voice under the same stable ID, audio hash, and transcript on every Voice
@@ -33,7 +33,29 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 2. Start: click **Start** (runs uvicorn on port 47870 across all interfaces).
 3. Click **Open UI** to see the catalog. Pick models from **Models** → **Download**.
 4. **Install Generation** (the ✨ wand sidebar item) to use local models. Cloud models do not require the local generation engine.
-5. For cloud speech, open **Settings → Cloud audio providers**, choose a provider card, save and test its key, enable paid usage, then map a provider voice under **Voices → Edit**.
+5. For cloud speech, open **Settings → Cloud audio providers**. For ElevenLabs,
+   add each account to the pool on the main Hub Mac, check balances, and enable
+   paid usage. Then use **Voices → Edit** to map that same voice separately for
+   each account. Other providers continue to use one saved key.
+
+### ElevenLabs account pool
+
+The pool lives in Voice Studio's private local settings on the Mac running the
+main Studio Hub. Remote Voice Studio Macs do not need ElevenLabs keys. Studio
+Hub routes ElevenLabs cloud jobs to this local Voice Studio gateway; remote Macs
+remain available for local TTS engines.
+
+Voice Studio selects an enabled account with a matching voice mapping, preferring
+the most known remaining credits. Exhausted or invalid accounts are skipped,
+temporary rate limits cool down automatically, and definite account-local
+failures move to the next mapped account. Keys created in the same ElevenLabs
+workspace share that workspace's quota, so use separate workspaces/accounts when
+you need genuinely separate plan balances.
+
+If a paid response connection drops, Voice Studio first recovers the exact
+result from ElevenLabs History. It only adopts one unambiguous text/model/voice
+match and never blindly resubmits an uncertain paid request. Connection failures
+that happen before submission retry automatically.
 
 ## Automatic updates (optional)
 
@@ -114,6 +136,13 @@ const { models, families } = await r.json();
 // Inspect all five cloud providers. Models appear after key + paid consent + enabled.
 const providers = await fetch("http://localhost:47870/api/providers").then(r => r.json());
 
+// Add a named ElevenLabs account (the response contains only masked key data).
+await fetch("http://localhost:47870/api/providers/elevenlabs/accounts", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ label: "ElevenLabs 2", api_key: "your-api-key" }),
+});
+
 // Start a download
 await fetch("http://localhost:47870/api/downloads", {
   method: "POST",
@@ -140,6 +169,12 @@ for m in r["models"]:
 providers = requests.get("http://localhost:47870/api/providers").json()
 print(providers)
 
+# Add another ElevenLabs account to the local gateway pool
+requests.post(
+    "http://localhost:47870/api/providers/elevenlabs/accounts",
+    json={"label": "ElevenLabs 2", "api_key": "your-api-key"},
+)
+
 # Start a download
 requests.post(
     "http://localhost:47870/api/downloads",
@@ -155,6 +190,12 @@ curl http://localhost:47870/api/catalog | jq .
 
 # Cloud provider status and current models
 curl http://localhost:47870/api/providers | jq .
+
+# Add an ElevenLabs account, then refresh all balances
+curl -X POST http://localhost:47870/api/providers/elevenlabs/accounts \
+  -H "content-type: application/json" \
+  -d '{"label":"ElevenLabs 2","api_key":"your-api-key"}'
+curl -X POST http://localhost:47870/api/providers/elevenlabs/accounts/refresh | jq .
 
 # Start a download
 curl -X POST http://localhost:47870/api/downloads \

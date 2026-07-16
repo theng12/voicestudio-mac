@@ -16,6 +16,7 @@ Serves:
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import socket
@@ -158,18 +159,56 @@ class ProviderTestBody(BaseModel):
     api_key: Optional[str] = None   # test a not-yet-saved key; falls back to saved
 
 
+class ProviderAccountCreateBody(BaseModel):
+    label: str
+    api_key: str
+
+
+class ProviderAccountUpdateBody(BaseModel):
+    label: Optional[str] = None
+    api_key: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
 class VoiceProviderTagBody(BaseModel):
     provider: str
     voice_id: str
+    account_id: Optional[str] = None
 
 
 class UpdateVoiceProvidersBody(BaseModel):
     providers: list[VoiceProviderTagBody] = Field(default_factory=list)
 
 
+def _validate_voice_provider_tags(tags: list[dict]) -> None:
+    unknown = sorted({tag["provider"] for tag in tags} - set(providers.PROVIDERS))
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown providers: {', '.join(unknown)}",
+        )
+    for tag in tags:
+        account_id = str(tag.get("account_id") or "").strip()
+        if not account_id:
+            continue
+        if tag["provider"] != "elevenlabs":
+            raise HTTPException(
+                status_code=400,
+                detail="Account-specific voice mappings are supported for ElevenLabs only.",
+            )
+        if providers.get_elevenlabs_account(account_id) is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown ElevenLabs account: {account_id}",
+            )
+
+
 class Txt2SpeechBody(BaseModel):
     repo: str
     text: str
+    # Optional caller idempotency key. Studio Hub sends one stable value per
+    # batch item so a lost submit response returns the original job.
+    client_request_id: Optional[str] = Field(default=None, max_length=200)
     # ── Kokoro fields ──
     voice: Optional[str] = None         # preset voice name (Kokoro)
     # ── language (also implicit for some engines) ──
@@ -674,6 +713,101 @@ def test_provider(key: str, body: ProviderTestBody) -> dict:
     return {"ok": ok, "message": message}
 
 
+def _require_account_pool(key: str) -> None:
+    if key != "elevenlabs":
+        raise HTTPException(
+            status_code=400,
+            detail="Multiple accounts are currently supported for ElevenLabs only.",
+        )
+
+
+@app.get("/api/providers/{key}/accounts")
+def provider_accounts(key: str) -> dict:
+    _require_account_pool(key)
+    return {"accounts": providers.public_elevenlabs_accounts()}
+
+
+@app.post("/api/providers/{key}/accounts")
+def add_provider_account(key: str, body: ProviderAccountCreateBody) -> dict:
+    _require_account_pool(key)
+    try:
+        account = providers.add_elevenlabs_account(body.label, body.api_key)
+        providers.refresh_elevenlabs_account(account["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return providers.serialize_provider(key)
+
+
+@app.post("/api/providers/{key}/accounts/refresh")
+def refresh_provider_accounts(key: str) -> dict:
+    _require_account_pool(key)
+    account_ids = [account["id"] for account in providers.elevenlabs_accounts()]
+    if account_ids:
+        with ThreadPoolExecutor(max_workers=min(4, len(account_ids))) as pool:
+            list(pool.map(providers.refresh_elevenlabs_account, account_ids))
+    return providers.serialize_provider(key)
+
+
+@app.patch("/api/providers/{key}/accounts/{account_id}")
+def update_provider_account(
+    key: str, account_id: str, body: ProviderAccountUpdateBody,
+) -> dict:
+    _require_account_pool(key)
+    try:
+        providers.update_elevenlabs_account(
+            account_id,
+            label=body.label,
+            api_key=body.api_key,
+            enabled=body.enabled,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return providers.serialize_provider(key)
+
+
+@app.delete("/api/providers/{key}/accounts/{account_id}")
+def delete_provider_account(key: str, account_id: str) -> dict:
+    _require_account_pool(key)
+    try:
+        deleted = providers.delete_elevenlabs_account(account_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    # A mapping belongs to this credential/workspace. Remove it with the
+    # account so future voice edits never retain an invisible stale account ID.
+    for voice in voice_library.list():
+        current = voice.providers or []
+        cleaned = [
+            tag for tag in current
+            if not (
+                tag.get("provider") == "elevenlabs"
+                and tag.get("account_id") == account_id
+            )
+        ]
+        if len(cleaned) != len(current):
+            voice_library.update(voice.id, providers=cleaned)
+    return providers.serialize_provider(key)
+
+
+@app.post("/api/providers/{key}/accounts/{account_id}/test")
+def test_provider_account(key: str, account_id: str) -> dict:
+    _require_account_pool(key)
+    if providers.get_elevenlabs_account(account_id) is None:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    providers.refresh_elevenlabs_account(account_id)
+    account = next(
+        item for item in providers.public_elevenlabs_accounts()
+        if item["id"] == account_id
+    )
+    return {
+        "ok": account["status"] in ("ready", "exhausted", "quota_unknown"),
+        "account": account,
+    }
+
+
 @app.get("/api/providers/{key}/models/live")
 def provider_models_live(key: str) -> dict:
     """Force a fresh live fetch of a provider's models (bypasses the TTL cache) —
@@ -686,11 +820,15 @@ def provider_models_live(key: str) -> dict:
 
 
 @app.get("/api/providers/{key}/voices/live")
-def provider_voices_live(key: str) -> dict:
+def provider_voices_live(key: str, account_id: Optional[str] = None) -> dict:
     """Provider-native voices for mapping a library voice to its cloud ID."""
     if key not in providers.PROVIDERS:
         raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
-    return {"voices": providers.voices_for_provider(key, force=True)}
+    if account_id and key == "elevenlabs" and providers.get_elevenlabs_account(account_id) is None:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    return {"voices": providers.voices_for_provider(
+        key, force=True, account_id=account_id
+    )}
 
 
 # ───────────── API: generation ─────────────
@@ -873,14 +1011,7 @@ def update_voice(voice_id: str, body: UpdateVoiceBody) -> dict:
     provider_tags = None
     if body.providers is not None:
         provider_tags = [tag.model_dump() for tag in body.providers]
-        unknown = sorted(
-            {tag["provider"] for tag in provider_tags} - set(providers.PROVIDERS)
-        )
-        if unknown:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown providers: {', '.join(unknown)}",
-            )
+        _validate_voice_provider_tags(provider_tags)
     try:
         updated = voice_library.update(
             voice_id,
@@ -904,13 +1035,12 @@ def update_voice(voice_id: str, body: UpdateVoiceBody) -> dict:
 def update_voice_providers(voice_id: str, body: UpdateVoiceProvidersBody) -> dict:
     """Replace a voice's provider mappings atomically.
 
-    One library voice may map to several cloud providers, but only once per
-    provider. Provider-native IDs are opaque and are never treated as paths.
+    One library voice may map to several cloud providers. ElevenLabs may have
+    one mapping per account; other providers have one mapping each.
+    Provider-native IDs are opaque and are never treated as paths.
     """
     tags = [tag.model_dump() for tag in body.providers]
-    unknown = sorted({tag["provider"] for tag in tags} - set(providers.PROVIDERS))
-    if unknown:
-        raise HTTPException(status_code=400, detail=f"Unknown providers: {', '.join(unknown)}")
+    _validate_voice_provider_tags(tags)
     try:
         updated = voice_library.update(voice_id, providers=tags)
     except ValueError as e:
@@ -974,10 +1104,10 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
     if providers.parse_id(body.repo):
         # ── Cloud provider model ── the worker validates key/paid/model; here we
         # just require a provider-native voice id (cloud TTS is voice-driven).
-        if not (body.voice or "").strip():
+        if not (body.voice or "").strip() and not (body.voice_library_id or "").strip():
             raise HTTPException(
                 status_code=400,
-                detail="A voice is required for cloud providers — pick a voice tagged for this provider.",
+                detail="A mapped library voice is required for cloud providers.",
             )
     else:
         # ── Local engine model ── needs the generation stack installed + cached.
@@ -1001,7 +1131,10 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
             )
 
     params = body.model_dump()
-    job = gen_manager.start_txt2speech(params)
+    try:
+        job = gen_manager.start_txt2speech(params)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return {"job": job.serialize()}
 
 

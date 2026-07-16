@@ -605,20 +605,28 @@ class VoiceLibrary:
         if not isinstance(tags, list):
             raise ValueError("providers must be a list")
         normalized: list[dict] = []
-        seen: set[str] = set()
+        seen: set[tuple[str, str]] = set()
         for raw in tags:
             if not isinstance(raw, dict):
                 raise ValueError("each provider tag must be an object")
             provider = str(raw.get("provider") or "").strip().lower()
             voice_id = str(raw.get("voice_id") or "").strip()
+            account_id = str(raw.get("account_id") or "").strip().lower()
             if not provider or not voice_id:
                 raise ValueError("provider and voice_id are required for every provider tag")
-            if len(provider) > 80 or len(voice_id) > 300:
+            if len(provider) > 80 or len(voice_id) > 300 or len(account_id) > 64:
                 raise ValueError("provider tag is too long")
-            if provider in seen:
-                raise ValueError(f"provider {provider!r} is tagged more than once")
-            seen.add(provider)
-            normalized.append({"provider": provider, "voice_id": voice_id})
+            if account_id and not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", account_id):
+                raise ValueError("provider account_id contains unsupported characters")
+            identity = (provider, account_id)
+            if identity in seen:
+                suffix = f" account {account_id!r}" if account_id else ""
+                raise ValueError(f"provider {provider!r}{suffix} is tagged more than once")
+            seen.add(identity)
+            tag = {"provider": provider, "voice_id": voice_id}
+            if account_id:
+                tag["account_id"] = account_id
+            normalized.append(tag)
         return normalized
 
     @staticmethod

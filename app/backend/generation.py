@@ -95,6 +95,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from packaging.version import InvalidVersion, Version
 
 from . import catalog, cache
@@ -729,6 +730,8 @@ class GenerationJob:
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     provider: Optional[str] = None          # cloud provider key (None = local engine)
+    client_request_params: Optional[dict] = None  # immutable idempotency comparison
+    provider_account_id: Optional[str] = None  # credential bound to this paid call
     provider_task_id: Optional[str] = None  # async provider task id — persisted so a
                                             # retry/restart RECALLS it instead of
                                             # re-submitting (never double-charge)
@@ -746,6 +749,7 @@ class GenerationJob:
             "mode": self.mode,
             "state": self.state,
             "provider": self.provider,
+            "provider_account_id": self.provider_account_id,
             "provider_task_id": self.provider_task_id,
             "progress": self.progress,
             "params": self.params,
@@ -914,13 +918,28 @@ class GenerationManager:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         from . import providers as _P
         parsed = _P.parse_id(params.get("repo", ""))
-        job = GenerationJob(
-            job_id=uuid.uuid4().hex[:12],
-            mode="txt2speech",
-            params=params,
-            provider=(parsed[0] if parsed else None),   # cloud provider key, else None
-        )
-        self._jobs[job.job_id] = job
+        request_id = str(params.get("client_request_id") or "").strip()
+        with self._lock:
+            if request_id:
+                existing = next((
+                    item for item in self._jobs.values()
+                    if str(item.params.get("client_request_id") or "").strip() == request_id
+                ), None)
+                if existing is not None:
+                    original = existing.client_request_params or existing.params
+                    if original != params:
+                        raise ValueError(
+                            "client_request_id was already used for a different request"
+                        )
+                    return existing
+            job = GenerationJob(
+                job_id=uuid.uuid4().hex[:12],
+                mode="txt2speech",
+                params=params,
+                provider=(parsed[0] if parsed else None),
+                client_request_params=dict(params) if request_id else None,
+            )
+            self._jobs[job.job_id] = job
         job.thread = threading.Thread(
             target=self._run_txt2speech,
             args=(job,),
@@ -1006,7 +1025,6 @@ class GenerationManager:
             raise RuntimeError(
                 f"{prov.name} isn't ready — add an API key and enable paid usage "
                 f"for it in Settings.")
-        api_key = P.get_api_key(prov.key)
         text = job.params.get("text", "")
         voice = job.params.get("voice") or job.params.get("voice_id") or ""
         # Cloud TTS bills per character — hard guardrail so a runaway caller
@@ -1019,7 +1037,11 @@ class GenerationManager:
         adapter = prov.adapter
         audio = None
         mime = None
-        if adapter.is_async:
+        if prov.key == "elevenlabs":
+            audio, mime = self._run_elevenlabs_pool(job, adapter, model, text, voice)
+        else:
+            api_key = P.get_api_key(prov.key)
+        if prov.key != "elevenlabs" and adapter.is_async:
             if not job.provider_task_id:
                 sub = adapter.submit(api_key, text, model, voice, job.params)
                 job.provider_task_id = sub.task_id
@@ -1045,7 +1067,7 @@ class GenerationManager:
                     audio, mime = res.audio, res.mime
                     break
                 time.sleep(2.0)
-        else:
+        elif prov.key != "elevenlabs":
             job.progress = 0.2
             audio, mime = adapter.synthesize(api_key, text, model, voice, job.params)
         if not audio:
@@ -1055,6 +1077,116 @@ class GenerationManager:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         out.write_bytes(audio)
         return out
+
+    def _run_elevenlabs_pool(self, job: "GenerationJob", adapter, model: str,
+                             text: str, direct_voice: str) -> tuple[bytes, str]:
+        """Choose one quota-ready account and its account-specific voice.
+
+        Definite pre-generation failures can fail over to another account.
+        A dropped response is first recovered from ElevenLabs History by the
+        adapter and is never blindly resubmitted, preventing duplicate charges.
+        """
+        from . import providers as P, voices as V
+
+        accounts = P.elevenlabs_accounts()
+        if not accounts:
+            raise RuntimeError("No ElevenLabs accounts are configured.")
+
+        library_id = str(job.params.get("voice_library_id") or "").strip()
+        voices_by_account: dict[str, str] = {}
+        allowed_ids: Optional[set[str]] = None
+        if library_id:
+            library_voice = V.library.get(library_id)
+            if library_voice is None:
+                raise ValueError(f"Voice {library_id} not found in the library.")
+            exact = {
+                str(tag.get("account_id") or "").strip(): str(tag.get("voice_id") or "").strip()
+                for tag in (library_voice.providers or [])
+                if tag.get("provider") == "elevenlabs" and tag.get("account_id")
+            }
+            legacy = next((
+                str(tag.get("voice_id") or "").strip()
+                for tag in (library_voice.providers or [])
+                if tag.get("provider") == "elevenlabs" and not tag.get("account_id")
+            ), "")
+            primary_id = accounts[0]["id"]
+            for account in accounts:
+                mapped = exact.get(account["id"])
+                if not mapped and legacy and (
+                    len(accounts) == 1 or account["id"] == primary_id
+                ):
+                    mapped = legacy
+                if mapped:
+                    voices_by_account[account["id"]] = mapped
+            allowed_ids = set(voices_by_account)
+            if not allowed_ids:
+                raise ValueError(
+                    f"Voice {library_voice.name!r} has no ElevenLabs mapping for "
+                    "an account in the pool. Edit the voice and map each account."
+                )
+        else:
+            if len(accounts) > 1:
+                raise ValueError(
+                    "Multiple ElevenLabs accounts are configured. Send voice_library_id "
+                    "so Voice Studio can choose the matching per-account voice ID."
+                )
+            if not direct_voice:
+                raise ValueError("ElevenLabs needs a mapped library voice.")
+            voices_by_account[accounts[0]["id"]] = direct_voice
+            allowed_ids = {accounts[0]["id"]}
+
+        candidates = P.elevenlabs_candidates(allowed_ids)
+        if not candidates:
+            raise RuntimeError(
+                "No enabled ElevenLabs account with available credits and a matching "
+                "voice mapping is ready. Refresh the account pool in Settings."
+            )
+
+        failures = []
+        for account in candidates:
+            account_id = account["id"]
+            voice_id = voices_by_account[account_id]
+            job.provider_account_id = account_id
+            job.params["provider_account_id"] = account_id
+            job.params["provider_account_label"] = account["label"]
+            job.params["voice"] = voice_id
+            self._persist()
+            for attempt in range(2):
+                try:
+                    job.progress = 0.2
+                    audio, mime = adapter.synthesize(
+                        account["api_key"], text, model, voice_id, job.params
+                    )
+                    P.record_elevenlabs_success(account_id, len(text))
+                    return audio, mime
+                except P.ProviderResultUncertain:
+                    raise
+                except P.ProviderRequestError as exc:
+                    P.report_elevenlabs_error(account_id, exc)
+                    failures.append(f"{account['label']}: {exc}")
+                    # Invalid auth, exhausted quota, rate/concurrency pressure,
+                    # and an account-local missing voice are safe to try on the
+                    # next mapped account. Invalid request bodies are not.
+                    if exc.status_code in (401, 402, 403, 404, 429):
+                        break
+                    if exc.status_code >= 500 and attempt == 0:
+                        time.sleep(2.0)
+                        continue
+                    if exc.status_code >= 500:
+                        break
+                    raise
+                except (httpx.ConnectError, httpx.ConnectTimeout,
+                        httpx.PoolTimeout) as exc:
+                    P.report_elevenlabs_error(account_id, exc)
+                    failures.append(f"{account['label']}: {type(exc).__name__}")
+                    if attempt == 0:
+                        time.sleep(2.0)
+                        continue
+                    break
+
+        raise RuntimeError(
+            "Every eligible ElevenLabs account failed: " + "; ".join(failures[-5:])
+        )
 
     def _dispatch_txt2speech(self, job: GenerationJob, output_path: Path) -> None:
         """Pick the right backend pipeline based on model family."""
@@ -1763,8 +1895,11 @@ class GenerationManager:
             recoverable = [
                 j for j in self._jobs.values()
                 if j.provider
-                and j.provider_task_id
                 and j.state in ("queued", "running")
+                and (
+                    j.provider_task_id
+                    or (j.provider == "elevenlabs" and j.provider_account_id)
+                )
             ]
             terminal = [j for j in self._jobs.values()
                         if j.state in ("done", "error", "cancelled")]
@@ -1799,13 +1934,13 @@ class GenerationManager:
         not resumed: only an existing provider task can be recalled without any
         risk of creating a second paid request.
         """
-        recoverable = [
+        async_jobs = [
             job for job in self._jobs.values()
             if job.provider
             and job.provider_task_id
             and job.state in ("queued", "running")
         ]
-        for job in recoverable:
+        for job in async_jobs:
             job.state = "queued"
             job.error = None
             job.finished_at = None
@@ -1816,11 +1951,71 @@ class GenerationManager:
                 daemon=True,
             )
             job.thread.start()
+        elevenlabs_jobs = [
+            job for job in self._jobs.values()
+            if job.provider == "elevenlabs"
+            and job.provider_account_id
+            and not job.provider_task_id
+            and job.state in ("queued", "running")
+        ]
+        for job in elevenlabs_jobs:
+            job.thread = threading.Thread(
+                target=self._recover_elevenlabs_after_restart,
+                args=(job,),
+                name=f"gen-recover-{job.job_id}",
+                daemon=True,
+            )
+            job.thread.start()
+        recoverable = async_jobs + elevenlabs_jobs
         if recoverable:
             print(
                 f"[gen] resumed {len(recoverable)} cloud provider task(s)",
                 flush=True,
             )
+
+    def _recover_elevenlabs_after_restart(self, job: GenerationJob) -> None:
+        """Recover a paid synchronous call after Voice Studio restarts.
+
+        The account binding is persisted immediately before submission. Startup
+        only searches History for that exact call; it never submits a new one.
+        """
+        from . import providers as P
+        try:
+            pair = P.adapter_for(job.params.get("repo", ""))
+            account = P.get_elevenlabs_account(job.provider_account_id or "")
+            if pair is None or account is None:
+                raise P.ProviderResultUncertain(
+                    "The bound ElevenLabs account is no longer available."
+                )
+            _provider, model = pair
+            recovered = pair[0].adapter.recover_recent(
+                account["api_key"],
+                text=str(job.params.get("text") or ""),
+                model=model,
+                voice=str(job.params.get("voice") or ""),
+                started_at=int(job.started_at or time.time()),
+            )
+            if recovered is None:
+                raise P.ProviderResultUncertain(
+                    "Voice Studio restarted during an ElevenLabs request and no "
+                    "unique History result could be recovered. The request was "
+                    "not resubmitted to avoid charging twice."
+                )
+            audio, mime = recovered
+            ext = "mp3" if ("mpeg" in (mime or "") or "mp3" in (mime or "")) else "wav"
+            output_path = OUTPUT_DIR / f"{job.job_id}.{ext}"
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(audio)
+            job.output_path = str(output_path.resolve())
+            job.progress = 1.0
+            job.state = "done"
+            job.error = None
+        except Exception as exc:
+            job.state = "error"
+            job.error = f"{type(exc).__name__}: {exc}"
+        finally:
+            job.finished_at = time.time()
+            self._persist()
 
     @staticmethod
     def _to_disk(job: GenerationJob) -> dict:
@@ -1829,6 +2024,8 @@ class GenerationManager:
             "mode": job.mode,
             "state": job.state,
             "provider": job.provider,
+            "client_request_params": job.client_request_params,
+            "provider_account_id": job.provider_account_id,
             "provider_task_id": job.provider_task_id,
             "provider_task_meta": job.provider_task_meta,
             "progress": job.progress,
@@ -1852,6 +2049,8 @@ class GenerationManager:
                 params=raw.get("params") or {},
                 state=raw.get("state", "done"),
                 provider=raw.get("provider"),
+                client_request_params=raw.get("client_request_params"),
+                provider_account_id=raw.get("provider_account_id"),
                 provider_task_id=raw.get("provider_task_id"),
                 provider_task_meta=raw.get("provider_task_meta") or {},
                 progress=raw.get("progress", 1.0),
