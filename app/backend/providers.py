@@ -631,6 +631,7 @@ class FishAudioAdapter(TTSAdapter):
 # ───────────────────────── fal.ai adapter ─────────────────────────
 
 _FAL_QUEUE_BASE = "https://queue.fal.run"
+_FAL_API_BASE = "https://api.fal.ai/v1"
 _FAL_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 _FAL_MODELS = (
     CloudModel(
@@ -759,9 +760,10 @@ class FalAudioAdapter(TTSAdapter):
             c.put(cancel_url, headers=self._headers(api_key))
 
     def test(self, api_key: str) -> tuple[bool, str]:
-        # GET the model endpoint: authentication is checked but generation only
-        # occurs on POST, so the Settings test can never create a paid request.
-        url = "https://fal.run/fal-ai/elevenlabs/tts/eleven-v3"
+        # fal.run model endpoints accept generation POSTs only. Use the
+        # documented authenticated model-list API instead, so Settings can
+        # validate an API-scope key without creating a billable request.
+        url = f"{_FAL_API_BASE}/models?limit=1"
         try:
             with httpx.Client(timeout=_FAL_TIMEOUT) as c:
                 r = c.get(url, headers=self._headers(api_key))
@@ -1486,6 +1488,11 @@ def serialize_provider(key: str, include_models: bool = True) -> dict:
         "paid": paid_enabled(key),
         "enabled": is_enabled(key),
         "live": is_live(key),
+        # Keep the generator catalog safely gated by consent below, while
+        # still telling Settings how many curated TTS choices will appear
+        # after the provider becomes live. This is static and never calls a
+        # provider with the user's key.
+        "available_model_count": len(prov.curated_models),
         "voice_mapping_supported": True,
         "account_pool_supported": key == "elevenlabs",
     }

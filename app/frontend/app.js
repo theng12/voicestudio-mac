@@ -1720,6 +1720,39 @@ function studio() {
       return this.providers.filter(provider => this.providerMatches(provider));
     },
 
+    providerState(provider) {
+      if (provider.live) return { label: "Ready", tone: "ok" };
+      if (!provider.has_key) return { label: "Key needed", tone: "warn" };
+      if (!provider.paid) return { label: "Key saved", tone: "idle" };
+      if (!provider.enabled) return { label: "Paused", tone: "warn" };
+      return { label: "Checking", tone: "idle" };
+    },
+
+    providerModelSummary(provider) {
+      const visible = (this.providerLiveModels[provider.key] || provider.models || []).length;
+      if (visible) return `${visible} models`;
+      const available = Number(provider.available_model_count || 0);
+      if (!available) return "No TTS models";
+      if (provider.has_key && !provider.paid) return `${available} after consent`;
+      if (provider.has_key && !provider.enabled) return `${available} paused`;
+      return `${available} TTS models`;
+    },
+
+    providerActivationStatus(provider) {
+      if (provider.live) return "Ready for generation";
+      if (!provider.has_key) return "API key needed";
+      if (!provider.paid) return "Key saved · enable paid usage";
+      if (!provider.enabled) return "Provider paused";
+      return "Checking provider";
+    },
+
+    providerActivationHint(provider) {
+      if (!provider.has_key) return "Save an API key, then enable paid usage and keep this provider enabled before its cloud TTS models appear.";
+      if (!provider.paid) return `Your key is saved. Enable paid usage below to reveal ${provider.available_model_count || 0} TTS models. No request is made until you generate audio.`;
+      if (!provider.enabled) return "Paid usage is enabled, but this provider is paused. Turn on Provider enabled to make its cloud TTS models available.";
+      return "Cloud TTS models are ready for generation.";
+    },
+
     get focusedProviderData() {
       return this.providers.find(provider => provider.key === this.focusedProvider) || null;
     },

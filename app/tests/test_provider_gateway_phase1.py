@@ -89,6 +89,16 @@ def test_provider_voice_catalog_is_normalized_and_cached(monkeypatch) -> None:
     assert providers.serialize_provider("elevenlabs", include_models=False)["voice_mapping_supported"] is True
 
 
+def test_provider_serialization_exposes_available_model_count_without_consent(monkeypatch) -> None:
+    monkeypatch.setattr(providers, "has_key", lambda key: True)
+    monkeypatch.setattr(providers, "paid_enabled", lambda key: False)
+    monkeypatch.setattr(providers, "is_enabled", lambda key: True)
+    data = providers.serialize_provider("fal")
+
+    assert data["models"] == []
+    assert data["available_model_count"] == len(providers.PROVIDERS["fal"].curated_models)
+
+
 def test_voice_update_rejects_unknown_provider() -> None:
     body = main.UpdateVoiceBody(providers=[
         main.VoiceProviderTagBody(provider="unknown-cloud", voice_id="voice-1"),

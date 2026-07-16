@@ -2243,11 +2243,11 @@
             <span class="provider-pick-top">
               <strong x-text="provider.name"></strong>
               <span class="provider-pick-state"
-                    :class="provider.live ? 'ok' : (provider.has_key ? 'idle' : 'warn')"
-                    x-text="provider.live ? 'Ready' : (provider.has_key ? 'Setup' : 'Key needed')"></span>
+                    :class="providerState(provider).tone"
+                    x-text="providerState(provider).label"></span>
             </span>
             <span class="provider-pick-meta">
-              <span x-text="(providerLiveModels[provider.key] || provider.models || []).length + ' models'"></span>
+              <span x-text="providerModelSummary(provider)"></span>
               <span x-text="provider.enabled ? 'Enabled' : 'Paused'"></span>
             </span>
           </button>
@@ -2263,11 +2263,9 @@
               <div class="provider-title-line">
                 <h3 x-text="provider.name"></h3>
                 <span class="provider-live-dot" :class="provider.live ? 'on' : ''"></span>
-                <span class="muted small" x-text="provider.live ? 'Ready for generation' : 'Not active yet'"></span>
+                <span class="muted small" x-text="providerActivationStatus(provider)"></span>
               </div>
-              <p class="muted small">
-                A key, paid-use consent, and the enabled switch are all required before cloud models appear.
-              </p>
+              <p class="muted small" x-text="providerActivationHint(provider)"></p>
             </div>
             <a class="provider-doc-link" :href="provider.docs_url" target="_blank" rel="noopener">Get a key ↗</a>
           </div>
@@ -2402,7 +2400,7 @@
               <span x-show="providerBusy[provider.key] === 'models'">Refreshing…</span>
             </button>
             <span class="muted small"
-                  x-text="(providerLiveModels[provider.key] || provider.models || []).length + ' models visible'"></span>
+                  x-text="(providerLiveModels[provider.key] || provider.models || []).length + ' models visible' + ((provider.has_key && !provider.paid) ? ' · enable paid usage to add them to TTS' : '')"></span>
           </div>
 
           <p class="provider-feedback"

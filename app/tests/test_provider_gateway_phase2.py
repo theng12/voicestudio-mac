@@ -227,7 +227,7 @@ def test_fal_audio_adapter_contract(monkeypatch) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append((request.method, str(request.url)))
-        if request.url.host in {"queue.fal.run", "fal.run"}:
+        if request.url.host in {"queue.fal.run", "api.fal.ai"}:
             assert request.headers["authorization"] == "Key fal-token"
         if request.method == "POST" and request.url.path.endswith(
             "/fal-ai/elevenlabs/tts/eleven-v3"
@@ -255,8 +255,9 @@ def test_fal_audio_adapter_contract(monkeypatch) -> None:
             )
         if request.url.path == "/tasks/fal-task-1/cancel":
             return httpx.Response(200, json={"ok": True})
-        if request.url.host == "fal.run":
-            return httpx.Response(200, json={"title": "ElevenLabs TTS"})
+        if request.url.host == "api.fal.ai" and request.url.path == "/v1/models":
+            assert request.url.params["limit"] == "1"
+            return httpx.Response(200, json={"models": []})
         return httpx.Response(404, json={"detail": "unexpected request"})
 
     transport = httpx.MockTransport(handler)
@@ -283,6 +284,7 @@ def test_fal_audio_adapter_contract(monkeypatch) -> None:
     adapter.cancel("fal-token", submitted.task_id, submitted.metadata)
     assert any(method == "PUT" and url.endswith("/cancel") for method, url in seen)
     assert adapter.test("fal-token") == (True, "Connected.")
+    assert ("GET", "https://api.fal.ai/v1/models?limit=1") in seen
 
 
 def test_kie_audio_adapter_contract(monkeypatch) -> None:

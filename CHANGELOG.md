@@ -10,6 +10,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.2] — 2026-07-16
+
+### Fixed
+
+- fal.ai key testing now uses fal's authenticated model-list API instead of
+  sending an unsupported `GET` request to a generation endpoint. Testing a
+  valid fal API key no longer fails with **HTTP 405: Method Not Allowed**.
+- Provider cards now say **Key saved** as soon as a key is stored, rather than
+  the ambiguous **Setup** label. The selected provider explains exactly which
+  action remains.
+- Settings now shows how many curated TTS models will become available after
+  paid-use consent, while keeping the actual generation catalog gated until
+  that explicit consent is enabled.
+
+### Verified
+
+- The fal adapter contract covers the documented non-billable validation
+  endpoint, and provider serialization verifies that no cloud models leak into
+  Story Studio before paid-use consent.
+
+---
+
 ## [1.20.1] — 2026-07-16
 
 ### Fixed
