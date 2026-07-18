@@ -84,6 +84,7 @@ from __future__ import annotations
 import importlib.util
 from importlib import metadata
 import json
+import math
 import os
 import platform
 import shutil
@@ -939,9 +940,42 @@ def _apply_qwen_output_speed(output_path: Path, speed: float) -> bool:
         ):
             raise RuntimeError("Qwen speed adjustment produced an invalid audio duration or format")
         os.replace(temporary, output_path)
-        return True
     finally:
         temporary.unlink(missing_ok=True)
+    return True
+
+
+def _requested_output_duration_limit(params: dict) -> Optional[float]:
+    raw = params.get("max_output_duration_s")
+    if raw is None:
+        return None
+    limit = float(raw)
+    if not math.isfinite(limit) or limit <= 0 or limit > 120:
+        raise ValueError("max_output_duration_s must be between 0 and 120 seconds")
+    return limit
+
+
+def _qwen_max_tokens_for_duration(limit_s: float, speed: float) -> int:
+    """Translate a final WAV ceiling into Qwen's 12.5-Hz audio-token limit."""
+    native_seconds = limit_s * speed
+    return max(1, min(1200, math.floor(native_seconds * 12.5)))
+
+
+def _enforce_output_duration_limit(output_path: Path, params: dict) -> None:
+    limit = _requested_output_duration_limit(params)
+    if limit is None:
+        return
+    import soundfile as sf
+
+    info = sf.info(str(output_path))
+    if info.samplerate <= 0 or info.frames <= 0:
+        raise RuntimeError("Generated audio has invalid duration metadata")
+    duration = info.frames / info.samplerate
+    if duration > limit + 0.001:
+        raise RuntimeError(
+            f"Generated audio is {duration:.3f}s, exceeding the requested "
+            f"{limit:.3f}s maximum"
+        )
 
 
 _PACKAGE_DISTRIBUTIONS = {
@@ -1443,6 +1477,7 @@ class GenerationManager:
                     else:
                         output_path = OUTPUT_DIR / f"{job.job_id}.wav"
                         self._dispatch_txt2speech(job, output_path)
+                    _enforce_output_duration_limit(output_path, job.params)
                     if job.cancel_event.is_set():
                         job.state = "cancelled"
                     else:
@@ -1845,6 +1880,12 @@ class GenerationManager:
         speed = max(0.5, min(speed, 2.0))
 
         gen_kwargs: dict = {"text": text}
+        output_duration_limit = _requested_output_duration_limit(params)
+        if family == "qwen3-tts" and output_duration_limit is not None:
+            gen_kwargs["max_tokens"] = _qwen_max_tokens_for_duration(
+                output_duration_limit,
+                speed,
+            )
         # VoxCPM2 has no numeric speed parameter; pace is controlled through
         # its natural-language instruction. Passing speed would be silently ignored.
         if family not in {"voxcpm-mlx", "bark"}:

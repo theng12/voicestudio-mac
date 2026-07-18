@@ -518,6 +518,39 @@ def test_qwen_speed_one_is_a_lossless_noop(tmp_path: Path) -> None:
     assert output.read_bytes() == payload
 
 
+def test_qwen_duration_ceiling_accounts_for_final_speed() -> None:
+    assert generation._qwen_max_tokens_for_duration(30.0, 1.0) == 375
+    assert generation._qwen_max_tokens_for_duration(30.0, 0.5) == 187
+    assert generation._qwen_max_tokens_for_duration(30.0, 2.0) == 750
+
+
+def test_requested_duration_ceiling_rejects_long_wav(tmp_path: Path) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    output = tmp_path / "too-long.wav"
+    sf.write(output, np.zeros(30_010, dtype=np.float32), 1000, subtype="PCM_16")
+
+    with pytest.raises(RuntimeError, match="exceeding the requested"):
+        generation._enforce_output_duration_limit(
+            output,
+            {"max_output_duration_s": 30.0},
+        )
+
+
+def test_requested_duration_ceiling_accepts_exact_limit(tmp_path: Path) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    output = tmp_path / "exact.wav"
+    sf.write(output, np.zeros(30_000, dtype=np.float32), 1000, subtype="PCM_16")
+
+    generation._enforce_output_duration_limit(
+        output,
+        {"max_output_duration_s": 30.0},
+    )
+
+
 def test_qwen_clone_speed_control_is_visible_and_truthful() -> None:
     markup = (Path(__file__).parents[1] / "frontend" / "index.html").read_text()
 

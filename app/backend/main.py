@@ -216,6 +216,9 @@ class Txt2SpeechBody(BaseModel):
     speed: float = 1.0
     temperature: float = 0.7
     seed: Optional[int] = None
+    # Optional caller-enforced output ceiling. GenStudio KH sends 30 seconds;
+    # VoiceStudio still supports longer standalone jobs when this is omitted.
+    max_output_duration_s: Optional[float] = Field(default=None, gt=0, le=120)
     # ── Qwen3-TTS CustomVoice (preset speakers + emotion) ──
     preset_speaker: Optional[str] = None    # e.g. "Ryan", "Vivian", "Sohee"
     instruct: Optional[str] = None          # emotion / tone tag, e.g. "Sad and crying, speaking slowly"

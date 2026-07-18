@@ -10,6 +10,18 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.12] — 2026-07-19
+
+### Fixed — caller-enforced audio duration ceiling
+
+- Added an optional `max_output_duration_s` generation guard without changing
+  standalone VoiceStudio's default support for longer audio.
+- Qwen jobs now translate that ceiling into the model's 12.5-Hz audio-token
+  budget, preventing a missing stop token from producing a 96-second artifact
+  for a caller that requested a 30-second maximum.
+- Every generated WAV is decoded and checked against the requested ceiling
+  before VoiceStudio publishes the job as successful.
+
 ## [1.20.11] — 2026-07-19
 
 ### Added — Qwen3-TTS 0.6B CustomVoice for 8 GB M1 workers
