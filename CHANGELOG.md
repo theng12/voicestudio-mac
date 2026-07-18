@@ -10,6 +10,31 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.7] — 2026-07-18
+
+### Added — proactive memory protection and recovery
+
+- Added a live unified-memory preflight before direct local generation. Jobs are
+  refused with an actionable message when the current free-memory headroom is
+  too small for the selected model and its inference buffers.
+- A confirmed MLX/MPS allocation failure now evicts cached engines and retries
+  the job once. Two consecutive allocation failures evict both engine caches
+  and restart the installed launchd service; launchd's existing `KeepAlive`
+  policy brings Voice Studio back automatically.
+- Foreground Pinokio runs remain alive after repeated memory failures, while
+  the new `/api/generate/memory` endpoint and generation diagnostics expose the
+  live memory snapshot and recovery state.
+- Added explicit `psutil` generation dependency for the live memory probe.
+
+### Verification
+
+- Python compilation, memory guard/recovery regression tests, and the existing
+  priority MLX/generation startup tests pass (41 tests).
+- Checked the existing launchd service logs and retained its watchdog behavior;
+  no launcher, model catalog, or cloud-provider behavior was changed.
+
+---
+
 ## [1.20.6] — 2026-07-18
 
 ### Fixed — automatic update settings no longer snap back

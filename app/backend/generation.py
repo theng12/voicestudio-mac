@@ -115,6 +115,45 @@ HISTORY_FILE = OUTPUT_DIR / ".history.json"
 HISTORY_MAX = 200
 _AUDIO_OUTPUT_SUFFIXES = {".wav", ".mp3", ".ogg", ".flac", ".m4a"}
 
+# Direct Voice Studio jobs need the same live-memory protection that Studio Hub
+# already applies before dispatching local work. These are intentionally
+# conservative: the model's on-disk size is only an approximation, so we keep
+# extra room for token buffers, audio activations, and the rest of macOS.
+MEMORY_HEADROOM_GB = 1.25
+MEMORY_RETRY_LIMIT = 1
+MEMORY_RESTART_FAILURES = 2
+
+
+class MemoryGuardError(RuntimeError):
+    """A job was refused before inference because the host had too little RAM."""
+
+
+def _memory_snapshot() -> Optional[dict]:
+    """Return live host memory, or None when the optional probe is unavailable."""
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        return {
+            "total_gb": round(vm.total / 1e9, 2),
+            "available_gb": round(vm.available / 1e9, 2),
+            "used_gb": round(vm.used / 1e9, 2),
+            "percent": float(vm.percent),
+        }
+    except Exception:
+        return None
+
+
+def _is_memory_failure(exc: BaseException) -> bool:
+    """Recognize allocation failures without treating ordinary model errors as OOM."""
+    if isinstance(exc, MemoryError):
+        return True
+    message = f"{type(exc).__name__}: {exc}".lower()
+    return any(marker in message for marker in (
+        "out of memory", "out-of-memory", "mps backend out of memory",
+        "metal allocation", "metal alloc", "allocation failed",
+        "alloc failed", "resource limit", "abort trap: 6",
+    ))
+
 
 # ───────────── lightweight dependency discovery ─────────────
 
@@ -1048,6 +1087,9 @@ class GenerationManager:
         # cold-start because the vocoder also loads from HF.
         self._f5_tts_model = None
         self._f5_tts_model_repo: Optional[str] = None
+        self._consecutive_memory_failures = 0
+        self._last_memory_event: Optional[dict] = None
+        self._restart_scheduled = False
         self._load_history()
         self._resume_cloud_jobs()
 
@@ -1139,6 +1181,16 @@ class GenerationManager:
                     pass
         return {"bytes": total, "count": count, "dir": str(OUTPUT_DIR.resolve())}
 
+    def memory_status(self) -> dict:
+        """Live memory and recovery state for the UI/Hub diagnostics panels."""
+        return {
+            "snapshot": _memory_snapshot(),
+            "consecutive_failures": self._consecutive_memory_failures,
+            "restart_scheduled": self._restart_scheduled,
+            "last_event": self._last_memory_event,
+            "service_supervised": self._service_installed(),
+        }
+
     def prune_outputs(self, keep_last: int = 0, older_than_days: float = 0.0) -> dict:
         """Delete generated audio files to reclaim disk. Exactly one mode:
           - keep_last > 0: keep the newest N, delete the rest.
@@ -1215,6 +1267,101 @@ class GenerationManager:
         job.thread.start()
         return job
 
+    @staticmethod
+    def _service_installed() -> bool:
+        root = Path(__file__).resolve().parents[2]
+        return (root / "service" / ".installed").is_file()
+
+    def _evict_loaded_models(self) -> None:
+        """Drop both cached engines before a memory retry or supervised restart."""
+        for attr in ("_mlx_audio_model", "_f5_tts_model"):
+            model = getattr(self, attr, None)
+            if model is not None:
+                try:
+                    del model
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+        self._mlx_audio_model_repo = None
+        self._f5_tts_model_repo = None
+        _release_device_memory("mps")
+
+    def _memory_preflight(self, model_entry) -> None:
+        """Refuse a job that cannot safely fit in currently available memory."""
+        snapshot = _memory_snapshot()
+        if snapshot is None:
+            print("[gen] memory guard unavailable; continuing without live RAM probe", flush=True)
+            return
+
+        cached = (
+            (model_entry.family in MLX_AUDIO_FAMILIES
+             and self._mlx_audio_model_repo == model_entry.repo
+             and self._mlx_audio_model is not None)
+            or (model_entry.family == "f5-tts"
+                and self._f5_tts_model_repo == model_entry.repo
+                and self._f5_tts_model is not None)
+        )
+        model_gb = max(0.5, float(model_entry.size_gb or 0.5))
+        required = (
+            max(1.5, model_gb * 0.45) + MEMORY_HEADROOM_GB
+            if cached
+            else model_gb + MEMORY_HEADROOM_GB
+        )
+        available = float(snapshot["available_gb"])
+        if available < required:
+            raise MemoryGuardError(
+                f"Memory guard paused this job: {required:.1f} GB free is needed, "
+                f"but only {available:.1f} GB is available. Close memory-heavy apps "
+                "or choose a smaller model; the job was not sent to the engine."
+            )
+        print(
+            f"[gen] memory guard: {available:.1f} GB free, "
+            f"{required:.1f} GB reserved ({'cached model' if cached else 'model load'})",
+            flush=True,
+        )
+
+    def _record_memory_failure(self, job: GenerationJob, exc: BaseException) -> None:
+        self._consecutive_memory_failures += 1
+        snapshot = _memory_snapshot()
+        self._last_memory_event = {
+            "time": time.time(),
+            "job_id": job.job_id,
+            "error": f"{type(exc).__name__}: {exc}",
+            "snapshot": snapshot,
+        }
+        self._evict_loaded_models()
+        print(
+            f"[gen] memory failure {self._consecutive_memory_failures}/"
+            f"{MEMORY_RESTART_FAILURES}; caches evicted",
+            file=sys.stderr,
+            flush=True,
+        )
+        if self._consecutive_memory_failures < MEMORY_RESTART_FAILURES:
+            return
+        if not self._service_installed():
+            print(
+                "[gen] repeated memory failures detected, but no supervised "
+                "startup service is installed; keeping this Pinokio process alive",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+        if self._restart_scheduled:
+            return
+        self._restart_scheduled = True
+        self._persist()
+
+        def _exit_for_launchd() -> None:
+            print(
+                "[gen] restarting Voice Studio after repeated memory failures; "
+                "launchd KeepAlive will bring it back",
+                file=sys.stderr,
+                flush=True,
+            )
+            os._exit(75)
+
+        threading.Timer(0.75, _exit_for_launchd).start()
+
     # ----- worker -----
 
     def _run_txt2speech(self, job: GenerationJob) -> None:
@@ -1245,35 +1392,63 @@ class GenerationManager:
                 return
 
             output_path: Optional[Path] = None
-            try:
-                if job.provider:
-                    output_path = self._run_cloud(job)
-                else:
-                    output_path = OUTPUT_DIR / f"{job.job_id}.wav"
-                    self._dispatch_txt2speech(job, output_path)
-                if job.cancel_event.is_set():
-                    job.state = "cancelled"
-                else:
-                    job.output_path = str(output_path.resolve())
-                    job.progress = 1.0
-                    job.state = "done"
-                    print(f"[gen] done {job.job_id} → {output_path}", flush=True)
-            except Exception as e:
-                if job.cancel_event.is_set():
-                    job.state = "cancelled"
-                else:
-                    job.state = "error"
-                    job.error = f"{type(e).__name__}: {e}"
-                    print(f"[gen] error {job.job_id}: {job.error}", file=sys.stderr, flush=True)
-                    traceback.print_exc()
-                if output_path is not None:
-                    try:
-                        output_path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
-            finally:
-                job.finished_at = time.time()
-                self._persist()
+            memory_retries = 0
+            while True:
+                try:
+                    if job.provider:
+                        output_path = self._run_cloud(job)
+                    else:
+                        output_path = OUTPUT_DIR / f"{job.job_id}.wav"
+                        self._dispatch_txt2speech(job, output_path)
+                    if job.cancel_event.is_set():
+                        job.state = "cancelled"
+                    else:
+                        job.output_path = str(output_path.resolve())
+                        job.progress = 1.0
+                        job.state = "done"
+                        if not job.provider:
+                            self._consecutive_memory_failures = 0
+                        print(f"[gen] done {job.job_id} → {output_path}", flush=True)
+                    break
+                except Exception as e:
+                    if output_path is not None:
+                        try:
+                            output_path.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                    if (
+                        not job.provider
+                        and _is_memory_failure(e)
+                        and memory_retries < MEMORY_RETRY_LIMIT
+                    ):
+                        memory_retries += 1
+                        print(
+                            f"[gen] memory failure on {job.job_id}; evicting models "
+                            f"and retrying once ({memory_retries}/{MEMORY_RETRY_LIMIT})",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        self._record_memory_failure(job, e)
+                        if self._restart_scheduled:
+                            job.state = "error"
+                            job.error = (
+                                "Generation hit repeated memory failures. Voice Studio "
+                                "is restarting automatically to recover."
+                            )
+                            break
+                        continue
+                    if job.cancel_event.is_set():
+                        job.state = "cancelled"
+                    else:
+                        job.state = "error"
+                        job.error = f"{type(e).__name__}: {e}"
+                        if not isinstance(e, MemoryGuardError) and _is_memory_failure(e):
+                            self._record_memory_failure(job, e)
+                        print(f"[gen] error {job.job_id}: {job.error}", file=sys.stderr, flush=True)
+                        traceback.print_exc()
+                    break
+            job.finished_at = time.time()
+            self._persist()
 
     def _run_cloud(self, job: "GenerationJob") -> Path:
         """Cloud-provider synthesis. Returns the written audio Path.
@@ -1465,6 +1640,7 @@ class GenerationManager:
             raise ValueError(f"Model {repo} is not fully cached locally — download it first")
 
         family = model.family
+        self._memory_preflight(model)
         if family == "f5-tts":
             if not _have_f5_tts():
                 raise RuntimeError(

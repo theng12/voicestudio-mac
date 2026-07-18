@@ -65,6 +65,37 @@ def test_mlx_cache_release_prefers_current_api() -> None:
     assert source.index('hasattr(mx, "clear_cache")') < source.index('hasattr(mx, "metal")')
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        MemoryError("unable to allocate Metal buffer"),
+        RuntimeError("MPS backend out of memory"),
+        RuntimeError("Abort trap: 6"),
+    ],
+)
+def test_memory_failure_classifier_catches_engine_allocation_failures(error) -> None:
+    assert generation._is_memory_failure(error)
+
+
+def test_memory_failure_classifier_does_not_catch_normal_model_errors() -> None:
+    assert not generation._is_memory_failure(RuntimeError("invalid speaker name"))
+
+
+def test_memory_preflight_refuses_when_live_headroom_is_too_low(monkeypatch) -> None:
+    manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_model = None
+    manager._mlx_audio_model_repo = None
+    manager._f5_tts_model = None
+    manager._f5_tts_model_repo = None
+    monkeypatch.setattr(
+        generation,
+        "_memory_snapshot",
+        lambda: {"total_gb": 8.0, "available_gb": 1.0, "used_gb": 7.0, "percent": 87.5},
+    )
+    with pytest.raises(generation.MemoryGuardError, match="Memory guard paused"):
+        manager._memory_preflight(SimpleNamespace(repo="repo", family="voxcpm-mlx", size_gb=2.3))
+
+
 def test_kokoro_catalog_is_single_mlx_multilingual_release() -> None:
     kokoro = [entry for entry in catalog.CATALOG if "kokoro" in entry.family]
     assert [entry.repo for entry in kokoro] == ["mlx-community/Kokoro-82M-bf16"]

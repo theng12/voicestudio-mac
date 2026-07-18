@@ -421,7 +421,9 @@ protobuf==7.35.1
     #   proto-plus
     #   wandb
 psutil==7.2.2
-    # via accelerate
+    # via
+    #   -r app/requirements-generation.txt
+    #   accelerate
 pyarrow==24.0.0
     # via datasets
 pyasn1==0.6.3

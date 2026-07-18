@@ -846,7 +846,14 @@ def generation_diagnostics() -> dict:
     extra round-trip."""
     data = gen_diagnostics()
     data["app_version"] = APP_VERSION
+    data["memory"] = gen_manager.memory_status()
     return data
+
+
+@app.get("/api/generate/memory")
+def generation_memory() -> dict:
+    """Live memory guard and self-healing state for operators and Studio Hub."""
+    return gen_manager.memory_status()
 
 
 # ───────────── API: voice library ─────────────

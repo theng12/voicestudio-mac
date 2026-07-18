@@ -61,6 +61,20 @@ result from ElevenLabs History. It only adopts one unambiguous text/model/voice
 match and never blindly resubmits an uncertain paid request. Connection failures
 that happen before submission retry automatically.
 
+### Local generation memory protection
+
+Direct local generation checks live free unified memory before loading or
+running a model. If the available headroom is too small, the job is stopped
+before inference with a clear message instead of pushing the Mac into swap or a
+Metal allocation failure. If MLX/MPS still reports an allocation failure, Voice
+Studio clears both engine caches and retries that job once. Two consecutive
+allocation failures restart Voice Studio automatically when the startup service
+is installed; launchd then brings it back. Normal Pinokio foreground runs stay
+open so they can be inspected or restarted manually.
+
+Operators can inspect the current state at `GET /api/generate/memory`, or find
+the same snapshot under `GET /api/generate/diagnostics` → `memory`.
+
 ## Automatic updates (optional)
 
 Open **Settings → Automatic updates** to choose:

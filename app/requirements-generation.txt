@@ -34,6 +34,8 @@ diffusers>=0.30
 accelerate>=0.30
 sentencepiece>=0.2
 soundfile>=0.12
+# Live unified-memory preflight and recovery telemetry for direct generation.
+psutil>=7.0
 
 # ─── numba / llvmlite / numpy — matched set (Python 3.12 / 3.13 safe) ───
 # librosa (pulled in by f5-tts) needs numba, and numba compiles
