@@ -709,7 +709,13 @@ def _qwen3_mode_from_repo(repo: str) -> str:
 # minute avoids the long-context pacing collapse while preserving the same
 # reference voice on every section.
 _QWEN_CLONE_CHUNK_CHARS = 360
-_QWEN_CLONE_JOIN_PAUSE_S = 0.12
+_CHATTERBOX_STANDARD_CHUNK_CHARS = 500
+_CHATTERBOX_TURBO_CHUNK_CHARS = 400
+# VoxCPM2's architectural output window is much larger, but real clone
+# fidelity starts drifting around the 30-second mark. Roughly 400 characters
+# keeps each independent synthesis pass inside that practical quality window.
+_VOXCPM_CHUNK_CHARS = 400
+_LONG_FORM_JOIN_PAUSE_S = 0.12
 _QWEN_SENTENCE_ENDINGS = frozenset(".!?。！？")
 _QWEN_TRAILING_CLOSERS = frozenset("\"'”’»）】〕〉")
 
@@ -723,8 +729,19 @@ def _qwen_clone_text_chunks(text: str, max_chars: int = _QWEN_CLONE_CHUNK_CHARS)
     paragraph pauses, and falls back to word (then character) boundaries for
     unusually long sentences.
     """
+    return _sentence_safe_text_chunks(text, max_chars=max_chars)
+
+
+def _sentence_safe_text_chunks(text: str, max_chars: int) -> list[str]:
+    """Split narration without dropping text or cutting ordinary words.
+
+    This is shared by local engines whose public request can be long while
+    their stable synthesis context is much shorter. Paragraph and sentence
+    boundaries win; an unusually long sentence falls back to punctuation,
+    whitespace, and only then an unavoidable character boundary.
+    """
     if max_chars < 40:
-        raise ValueError("Qwen clone chunk size must be at least 40 characters")
+        raise ValueError("Sentence-safe chunk size must be at least 40 characters")
     paragraphs = [
         " ".join(part.split())
         for part in text.strip().split("\n\n")
@@ -754,7 +771,7 @@ def _qwen_clone_text_chunks(text: str, max_chars: int = _QWEN_CLONE_CHUNK_CHARS)
 
         current = ""
         for sentence in sentences:
-            units = _qwen_clone_split_long_unit(sentence, max_chars)
+            units = _split_long_text_unit(sentence, max_chars)
             for unit in units:
                 if current and len(current) + 1 + len(unit) > max_chars:
                     chunks.append(current)
@@ -765,7 +782,7 @@ def _qwen_clone_text_chunks(text: str, max_chars: int = _QWEN_CLONE_CHUNK_CHARS)
     return chunks
 
 
-def _qwen_clone_split_long_unit(text: str, max_chars: int) -> list[str]:
+def _split_long_text_unit(text: str, max_chars: int) -> list[str]:
     """Break one overlong sentence without dropping or rewriting text."""
     pieces: list[str] = []
     remaining = text.strip()
@@ -790,32 +807,58 @@ def _qwen_clone_split_long_unit(text: str, max_chars: int) -> list[str]:
     return pieces
 
 
-def _join_qwen_clone_wavs(segment_paths: list[Path], output_path: Path,
-                          pause_s: float = _QWEN_CLONE_JOIN_PAUSE_S) -> None:
-    """Join independently cloned WAVs with a short clean narration pause."""
+def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
+    """Return safe independent synthesis sections for long-form local TTS."""
+    max_chars: Optional[int] = None
+    if family == "qwen3-tts" and _qwen3_mode_from_repo(repo) == "clone":
+        max_chars = _QWEN_CLONE_CHUNK_CHARS
+    elif family == "chatterbox-mlx":
+        max_chars = (
+            _CHATTERBOX_TURBO_CHUNK_CHARS
+            if "turbo" in repo.lower()
+            else _CHATTERBOX_STANDARD_CHUNK_CHARS
+        )
+    elif family == "voxcpm-mlx":
+        max_chars = _VOXCPM_CHUNK_CHARS
+    if max_chars is None:
+        return []
+    return _sentence_safe_text_chunks(text, max_chars=max_chars)
+
+
+def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,
+                         family: str, pause_s: float = _LONG_FORM_JOIN_PAUSE_S) -> None:
+    """Validate and join independently synthesized WAV sections."""
     if not segment_paths:
-        raise ValueError("No Qwen clone audio segments were generated")
+        raise ValueError(f"No {family} audio segments were generated")
     import numpy as np
     import soundfile as sf
 
     first_info = sf.info(str(segment_paths[0]))
     sample_rate = first_info.samplerate
     channels = first_info.channels
-    if sample_rate <= 0 or channels <= 0:
-        raise RuntimeError("Qwen clone returned audio with an invalid format")
+    if sample_rate <= 0 or channels <= 0 or first_info.frames <= 0:
+        raise RuntimeError(f"{family} returned an empty or invalid audio segment")
 
     joined: list = []
     pause = np.zeros((round(max(0.0, pause_s) * sample_rate), channels), dtype=np.float32)
     for index, path in enumerate(segment_paths):
         info = sf.info(str(path))
         if info.samplerate != sample_rate or info.channels != channels:
-            raise RuntimeError("Qwen clone segments returned incompatible audio formats")
+            raise RuntimeError(f"{family} segments returned incompatible audio formats")
+        if info.frames <= 0:
+            raise RuntimeError(f"{family} returned an empty audio segment: {path.name}")
         audio, _ = sf.read(str(path), dtype="float32", always_2d=True)
         joined.append(audio)
         if index < len(segment_paths) - 1 and len(pause):
             joined.append(pause)
     sf.write(str(output_path), np.concatenate(joined, axis=0), sample_rate,
              format="WAV", subtype=first_info.subtype)
+
+
+def _join_qwen_clone_wavs(segment_paths: list[Path], output_path: Path,
+                          pause_s: float = _LONG_FORM_JOIN_PAUSE_S) -> None:
+    """Compatibility wrapper for the established Qwen regression surface."""
+    _join_long_form_wavs(segment_paths, output_path, "qwen3-tts", pause_s)
 
 
 def _find_ffmpeg_executable() -> Optional[Path]:
@@ -1851,21 +1894,20 @@ class GenerationManager:
                 f"[gen] {family} {mode_label} ({len(text)} chars){extras}",
                 flush=True,
             )
-            qwen_clone_chunks = (
-                _qwen_clone_text_chunks(text)
-                if family == "qwen3-tts" and _qwen3_mode_from_repo(model_entry.repo) == "clone"
-                else []
+            internal_chunks = _internal_mlx_text_chunks(
+                family, model_entry.repo, text
             )
-            if len(qwen_clone_chunks) > 1:
-                self._generate_qwen_clone_long_form(
-                    job, model, gen_kwargs, qwen_clone_chunks, temp_dir,
+            if len(internal_chunks) > 1:
+                self._generate_mlx_long_form_sections(
+                    job, family, model, gen_kwargs, internal_chunks, temp_dir,
                     output_path, generate_audio,
                 )
-                if not job.cancel_event.is_set():
+                if not job.cancel_event.is_set() and family == "qwen3-tts":
                     if _apply_qwen_output_speed(output_path, speed):
                         print(f"[gen] qwen3-tts applied pitch-preserving {speed:.2f}x tempo", flush=True)
+                if not job.cancel_event.is_set():
                     print(
-                        f"[gen] qwen3-tts joined {len(qwen_clone_chunks)} clone sections: {output_path}",
+                        f"[gen] {family} joined {len(internal_chunks)} stable sections: {output_path}",
                         flush=True,
                     )
                 return
@@ -1917,10 +1959,10 @@ class GenerationManager:
             return candidates[0]
         raise RuntimeError(f"mlx-audio didn't produce a wav file. Temp dir: {output_dir}")
 
-    def _generate_qwen_clone_long_form(self, job: GenerationJob, model, gen_kwargs: dict,
-                                       chunks: list[str], temp_dir: Path, output_path: Path,
-                                       generate_audio) -> None:
-        """Render a Qwen Base clone in safe independent sections, then join it."""
+    def _generate_mlx_long_form_sections(self, job: GenerationJob, family: str, model,
+                                         gen_kwargs: dict, chunks: list[str], temp_dir: Path,
+                                         output_path: Path, generate_audio) -> None:
+        """Render independently verified sections, then join them into one WAV."""
         segment_paths: list[Path] = []
         job.chunk_total = len(chunks)
         job.chunk_index = 0
@@ -1931,7 +1973,10 @@ class GenerationManager:
             job.progress = max(job.progress, min(0.93, 0.08 + (index - 1) / len(chunks) * 0.85))
             segment_dir = temp_dir / f"section_{index:03d}"
             segment_dir.mkdir()
-            print(f"[gen] qwen3-tts clone section {index}/{len(chunks)} ({len(chunk)} chars)", flush=True)
+            print(
+                f"[gen] {family} stable section {index}/{len(chunks)} ({len(chunk)} chars)",
+                flush=True,
+            )
             generate_audio(
                 model=model,
                 output_path=str(segment_dir),
@@ -1942,7 +1987,16 @@ class GenerationManager:
                 return
             segment_paths.append(self._mlx_audio_output_file(segment_dir))
             job.progress = max(job.progress, min(0.95, 0.08 + index / len(chunks) * 0.85))
-        _join_qwen_clone_wavs(segment_paths, output_path)
+        _join_long_form_wavs(segment_paths, output_path, family)
+
+    def _generate_qwen_clone_long_form(self, job: GenerationJob, model, gen_kwargs: dict,
+                                       chunks: list[str], temp_dir: Path, output_path: Path,
+                                       generate_audio) -> None:
+        """Compatibility wrapper for Qwen-specific regression tests."""
+        self._generate_mlx_long_form_sections(
+            job, "qwen3-tts", model, gen_kwargs, chunks, temp_dir,
+            output_path, generate_audio,
+        )
 
     def _resolve_mlx_kwargs(self, mode: str, family: str, model_entry, params: dict,
                             gen_kwargs: dict) -> str:

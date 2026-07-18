@@ -10,6 +10,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.8] — 2026-07-19
+
+### Added — stable long-form Chatterbox and VoxCPM narration
+
+- Generalized Qwen Base's sentence-safe long-form renderer so Chatterbox and
+  VoxCPM can also accept chapter-scale requests without synthesizing one
+  unstable model context.
+- Chatterbox now renders independent 500-character sections (400 for Turbo),
+  while VoxCPM uses conservative 400-character sections and reinjects the
+  original voice reference for every pass.
+- Every internal WAV is required, non-empty, and format-compatible before
+  Voice Studio joins the sections. Missing or invalid audio fails the job
+  explicitly instead of returning a partial chapter.
+- Updated model guidance to show that these engines auto-split internally and
+  no longer require callers to submit manually shortened text.
+
+### Verification
+
+- Added regression coverage for sentence-safe text preservation, all internal
+  thresholds, catalog guidance, verified joins, and missing-section failures.
+
+---
+
 ## [1.20.7] — 2026-07-18
 
 ### Added — proactive memory protection and recovery

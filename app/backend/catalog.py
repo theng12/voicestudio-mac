@@ -107,17 +107,14 @@ FAMILIES: dict[str, Family] = {
             "the highest-fidelity continuation-cloning path. You can also combine "
             "the description + library voice for controlled cloning."
         ),
-        # Audit (v1.2.4): mlx_audio voxcpm/voxcpm.py:259 max_tokens=4096 @ 6.25 Hz ≈ 11 min ENGINE max.
-        # Hardware fix (v1.2.6 → 1.2.7): TWO ceilings hit on 16 GB Macs:
-        #   1) Metal per-buffer cap (~9.5 GB on M4): sequential voice-cloning jobs accumulated
-        #      activations across calls → OOM at 2nd call. Fixed by clearing MLX cache after
-        #      each job in _generate_mlx_audio (v1.2.7).
-        #   2) Quality cliff: user-reported voice drift / jibberish past ~30 sec audio per call.
-        # Cap now reflects the quality cliff (~60 sec @ ~13 chars/sec) with safety margin.
+        # VoxCPM publishes audio patch/context limits, not a word or character
+        # limit. Real clone fidelity can drift after roughly 30 seconds, so Voice
+        # Studio independently renders sentence-safe ~400-character sections and
+        # reuses the original reference for every section.
         text_guidance=TextGuidance(
-            soft_max_chars=800,
+            soft_max_chars=None,
             chunking="auto-split",
-            note="Best at ~800 chars (~60 sec audio) per call. Past ~30 sec, voice tends to drift / become jibberish — split into multiple shorter requests.",
+            note="Long scripts auto-split into sentence-safe ~400-character sections. Every section reuses the original reference, then Voice Studio verifies and joins the audio.",
         ),
     ),
     "qwen3-tts": Family(
@@ -182,12 +179,13 @@ FAMILIES: dict[str, Family] = {
             "(values above 0.7 get dramatic fast). Recommended over PyTorch "
             "Chatterbox on M-series Macs — same quality, smaller memory budget."
         ),
-        # Audit (v1.2.4): mlx_audio chatterbox_turbo.py:859 max_chars_per_chunk =
-        # (max_tokens // 8) * 4. Default max_tokens=1000 → 500. Turbo uses 800 → 400.
+        # Resemble publishes a 1,000 generated-speech-token default, not a word
+        # cap. Voice Studio converts that to conservative independent synthesis
+        # windows: 500 characters for standard, 400 for Turbo.
         text_guidance=TextGuidance(
-            soft_max_chars=500,
+            soft_max_chars=None,
             chunking="auto-split",
-            note="Best at ~500 chars (~40 sec) per call. Auto-chunks longer text; exaggeration may drift across chunks.",
+            note="Long scripts auto-split at sentence boundaries (about 500 chars standard / 400 Turbo), then Voice Studio verifies and joins every section.",
         ),
     ),
     "spark-tts-mlx": Family(

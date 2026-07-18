@@ -428,6 +428,37 @@ def test_qwen_clone_long_sentence_falls_back_to_word_boundaries() -> None:
     assert " ".join(chunks) == " ".join(text.split())
 
 
+@pytest.mark.parametrize(
+    ("family", "repo", "expected_limit"),
+    [
+        ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit", 360),
+        ("chatterbox-mlx", "mlx-community/chatterbox-8bit", 500),
+        ("chatterbox-mlx", "mlx-community/chatterbox-turbo-4bit", 400),
+        ("voxcpm-mlx", "mlx-community/VoxCPM2-4bit", 400),
+    ],
+)
+def test_long_form_local_engines_split_safely_without_losing_text(
+    family: str, repo: str, expected_limit: int
+) -> None:
+    text = " ".join(
+        f"Sentence {index} keeps every ordinary word at a natural boundary."
+        for index in range(1, 45)
+    )
+
+    chunks = generation._internal_mlx_text_chunks(family, repo, text)
+
+    assert len(chunks) > 1
+    assert all(len(chunk) <= expected_limit for chunk in chunks)
+    assert " ".join(chunks) == " ".join(text.split())
+
+
+def test_long_form_catalogs_do_not_ask_callers_to_manually_chunk() -> None:
+    for family in ("qwen3-tts", "chatterbox-mlx", "voxcpm-mlx"):
+        guidance = catalog.FAMILIES[family].text_guidance
+        assert guidance.soft_max_chars is None
+        assert guidance.chunking == "auto-split"
+
+
 def test_qwen_clone_join_preserves_segment_audio_and_pause(tmp_path: Path) -> None:
     import numpy as np
     import soundfile as sf
@@ -513,6 +544,35 @@ def test_qwen_clone_long_form_renders_each_section_and_reports_progress(tmp_path
     assert (job.chunk_index, job.chunk_total) == (2, 2)
     assert 0.92 < job.progress < 0.94
     assert output.exists()
+
+
+def test_shared_long_form_renderer_fails_when_any_section_is_missing(tmp_path: Path) -> None:
+    import soundfile as sf
+
+    calls = 0
+
+    def incomplete_generate_audio(*, model, output_path, join_audio, **kwargs) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            sf.write(Path(output_path) / "audio.wav", np.ones(10, dtype=np.float32), 1000)
+
+    manager = object.__new__(generation.GenerationManager)
+    job = generation.GenerationJob(job_id="missing-section", mode="txt2speech", params={})
+
+    with pytest.raises(RuntimeError, match="didn't produce a wav file"):
+        manager._generate_mlx_long_form_sections(
+            job,
+            "voxcpm-mlx",
+            "voxcpm-model",
+            {"text": "ignored", "ref_audio": "voice.wav"},
+            ["First section.", "Second section."],
+            tmp_path,
+            tmp_path / "output.wav",
+            incomplete_generate_audio,
+        )
+
+    assert not (tmp_path / "output.wav").exists()
 
 
 def test_chatterbox_controls_match_standard_and_turbo_engines(tmp_path: Path) -> None:
