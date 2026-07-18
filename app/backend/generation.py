@@ -222,6 +222,69 @@ LANG_NAMES = {
     "z": "Mandarin Chinese",
 }
 
+_GENERIC_ENGLISH_ALIASES = {"en", "eng", "english"}
+_AMERICAN_ENGLISH_ALIASES = {"en-us", "american-english"}
+_BRITISH_ENGLISH_ALIASES = {"en-gb", "en-uk", "british-english"}
+
+
+def _normalize_kokoro_language(requested_language: str, voice_language: str) -> str:
+    """Translate public English language names to Kokoro's one-letter codes.
+
+    Generic English follows the selected voice, so ``en`` works for either an
+    American or British preset without silently changing that preset's accent.
+    """
+    normalized = requested_language.strip().lower().replace("_", "-").replace(" ", "-")
+    if not normalized:
+        return voice_language
+    if normalized in _GENERIC_ENGLISH_ALIASES:
+        return voice_language if voice_language in {"a", "b"} else "a"
+    if normalized in _AMERICAN_ENGLISH_ALIASES:
+        return "a"
+    if normalized in _BRITISH_ENGLISH_ALIASES:
+        return "b"
+    return normalized
+
+
+def _backport_kokoro_sinegen_length_alignment(sinegen_class=None, mx_module=None) -> bool:
+    """Backport upstream mlx-audio cc30ce27f6 without advancing 52 commits.
+
+    The pinned mlx-audio can resample a sine tensor a few hundred frames past
+    the matching F0 tensor. Its next multiply then fails with
+    ``broadcast_shapes`` and the caller only sees "didn't produce a wav".
+    Upstream now trims or pads the sine tensor to the F0 length. Wrapping the
+    private sine builder applies the same behavior while retaining the fleet's
+    otherwise verified dependency set.
+    """
+    if sinegen_class is None or mx_module is None:
+        import mlx.core as mx
+        from mlx_audio.tts.models.kokoro.istftnet import SineGen
+
+        sinegen_class = SineGen
+        mx_module = mx
+
+    if hasattr(sinegen_class, "_match_f0_length"):
+        return False
+    if getattr(sinegen_class, "_voicestudio_length_alignment", False):
+        return False
+
+    original_f02sine = sinegen_class._f02sine
+
+    def _aligned_f02sine(instance, f0_values):
+        sine_waves = original_f02sine(instance, f0_values)
+        target_len = f0_values.shape[1]
+        if sine_waves.shape[1] > target_len:
+            return sine_waves[:, :target_len, :]
+        if sine_waves.shape[1] < target_len:
+            return mx_module.pad(
+                sine_waves,
+                ((0, 0), (0, target_len - sine_waves.shape[1]), (0, 0)),
+            )
+        return sine_waves
+
+    sinegen_class._f02sine = _aligned_f02sine
+    sinegen_class._voicestudio_length_alignment = True
+    return True
+
 
 def availability() -> dict:
     """Per-engine availability + the static config the frontend needs."""
@@ -1498,6 +1561,8 @@ class GenerationManager:
         audio_config_cls = None
         original_audio_config_init = None
         entry = catalog.get_model(repo)
+        if entry is not None and entry.family == "kokoro-mlx":
+            _backport_kokoro_sinegen_length_alignment()
         if entry is not None and entry.family == "voxtral-tts":
             try:
                 import inspect
@@ -1879,8 +1944,8 @@ class GenerationManager:
                     "Choose a second voice in the same language as the first."
                 )
             voice_language = next(iter(languages))
-            requested_language = (params.get("language") or "").strip().lower()
-            lang_code = requested_language or voice_language
+            requested_language = params.get("language") or ""
+            lang_code = _normalize_kokoro_language(requested_language, voice_language)
             if lang_code not in LANG_NAMES:
                 raise ValueError(f"Unsupported Kokoro language code: {lang_code}")
             if lang_code != voice_language:

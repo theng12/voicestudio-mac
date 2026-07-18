@@ -10,6 +10,32 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.5] — 2026-07-18
+
+### Fixed — reliable Kokoro generation and English API aliases
+
+- Backported mlx-audio's focused SineGen length-alignment fix from upstream
+  commit `cc30ce27f6`. Kokoro now trims or pads the generated sine tensor to
+  the F0 tensor before multiplication, preventing intermittent
+  `broadcast_shapes` failures that surfaced as "didn't produce a wav file."
+- Kept the fleet's verified mlx-audio pin instead of advancing 52 unrelated
+  upstream commits.
+- Kokoro requests now accept public language values such as `en`, `English`,
+  `en-US`, and `en-GB`, while still passing the engine's required `a` or `b`
+  code and preserving the selected voice's accent.
+
+### Verified
+
+- Regression coverage checks overlong and short sine tensors, repeated patch
+  installation, compatibility with a future upstream fix, English aliases,
+  and the existing cross-language voice safeguards without loading a model.
+- The complete 88-test VoiceStudio suite passes in the isolated worktree.
+- Three guarded Kokoro BF16 samples generated valid mono 24 kHz WAV files after
+  Studio Hub drained the local M4 from live scheduling. The 158-character cold
+  sample produced 11.075 seconds of audio; two warm samples produced 3.375 and
+  6.075 seconds. M1 and human listening qualification remain required before
+  GenStudio catalog approval.
+
 ## [1.20.4] — 2026-07-16
 
 ### Added — truthful Qwen3-TTS speed control

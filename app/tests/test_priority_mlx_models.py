@@ -4,6 +4,7 @@ from pathlib import Path
 import inspect
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from backend import catalog, generation
@@ -91,6 +92,63 @@ def test_kokoro_voice_picker_sets_language_and_validates_blends() -> None:
         assert "same language" in str(exc)
     else:
         raise AssertionError("cross-language Kokoro blend should fail")
+
+
+@pytest.mark.parametrize(
+    ("voice", "language", "expected"),
+    [
+        ("af_heart", "en", "a"),
+        ("bf_emma", "English", "b"),
+        ("af_heart", "en_US", "a"),
+        ("bf_emma", "en-GB", "b"),
+    ],
+)
+def test_kokoro_voice_picker_accepts_public_english_aliases(
+    voice: str, language: str, expected: str
+) -> None:
+    manager = object.__new__(generation.GenerationManager)
+    kwargs: dict = {}
+
+    manager._mlx_kwargs_voice_picker(
+        "kokoro-mlx",
+        {"voice": voice, "language": language},
+        kwargs,
+    )
+
+    assert kwargs["lang_code"] == expected
+
+
+def test_kokoro_sinegen_backport_trims_and_pads_to_f0_length() -> None:
+    class LongSineGen:
+        def _f02sine(self, _f0_values):
+            return np.ones((1, 7, 3), dtype=np.float32)
+
+    class ShortSineGen:
+        def _f02sine(self, _f0_values):
+            return np.ones((1, 3, 3), dtype=np.float32)
+
+    assert generation._backport_kokoro_sinegen_length_alignment(LongSineGen, np)
+    assert generation._backport_kokoro_sinegen_length_alignment(ShortSineGen, np)
+
+    target = np.zeros((1, 5, 3), dtype=np.float32)
+    trimmed = LongSineGen()._f02sine(target)
+    padded = ShortSineGen()._f02sine(target)
+
+    assert trimmed.shape == (1, 5, 3)
+    assert padded.shape == (1, 5, 3)
+    assert np.all(padded[:, :3, :] == 1)
+    assert np.all(padded[:, 3:, :] == 0)
+    assert not generation._backport_kokoro_sinegen_length_alignment(LongSineGen, np)
+
+
+def test_kokoro_sinegen_backport_defers_to_newer_upstream() -> None:
+    class UpstreamSineGen:
+        def _match_f0_length(self, sine_waves, _f0):
+            return sine_waves
+
+    assert not generation._backport_kokoro_sinegen_length_alignment(
+        UpstreamSineGen, np
+    )
 
 
 def test_kokoro_language_dependencies_are_explicit() -> None:
