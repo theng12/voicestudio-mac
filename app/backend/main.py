@@ -447,6 +447,14 @@ def get_cache(repo: str) -> dict:
     return _cache_with_companions(repo)
 
 
+@app.delete("/api/cache-maintenance/stale-incomplete/{repo:path}")
+def prune_stale_cache_files(repo: str) -> dict:
+    if catalog.get_model(repo) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown repo: {repo}")
+    removed = cache.prune_stale_incomplete(repo)
+    return {**removed, "cache": _cache_with_companions(repo)}
+
+
 # ───────────── API: downloads ─────────────
 
 @app.get("/api/downloads")

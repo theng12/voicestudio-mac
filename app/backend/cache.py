@@ -35,17 +35,32 @@ def repo_cache_dir(repo: str) -> Path:
     return hub_dir() / safe
 
 
-def has_incomplete(repo: str) -> bool:
+def _unresolved_incomplete_entries(repo: str) -> list[Path]:
+    """Return partial blobs that do not already have a completed sibling.
+
+    Hugging Face resumes downloads as ``<blob>.incomplete``. If an interrupted
+    downloader leaves that file behind after another attempt completes the
+    same ``<blob>``, the partial is stale and must not make a usable snapshot
+    look incomplete.
+    """
     blobs = repo_cache_dir(repo) / "blobs"
     if not blobs.exists():
-        return False
+        return []
+    unresolved: list[Path] = []
     try:
         for entry in blobs.iterdir():
-            if entry.name.endswith(".incomplete"):
-                return True
+            if not entry.name.endswith(".incomplete"):
+                continue
+            completed = entry.with_name(entry.name.removesuffix(".incomplete"))
+            if not completed.exists():
+                unresolved.append(entry)
     except FileNotFoundError:
-        return False
-    return False
+        return []
+    return unresolved
+
+
+def has_incomplete(repo: str) -> bool:
+    return bool(_unresolved_incomplete_entries(repo))
 
 
 def has_any_snapshot(repo: str) -> bool:
@@ -133,22 +148,41 @@ def disk_bytes(repo: str) -> int:
 
 
 def incomplete_bytes(repo: str) -> int:
-    """Total bytes currently held by .incomplete partial files."""
-    blobs = repo_cache_dir(repo) / "blobs"
-    if not blobs.exists():
-        return 0
+    """Total bytes still needed by unresolved partial blobs."""
     total = 0
-    try:
-        for entry in blobs.iterdir():
-            if not entry.name.endswith(".incomplete"):
-                continue
-            try:
-                total += entry.stat().st_size
-            except (FileNotFoundError, PermissionError):
-                continue
-    except FileNotFoundError:
-        return 0
+    for entry in _unresolved_incomplete_entries(repo):
+        try:
+            total += entry.stat().st_size
+        except (FileNotFoundError, PermissionError):
+            continue
     return total
+
+
+def prune_stale_incomplete(repo: str) -> dict[str, int]:
+    """Delete only partial blobs whose exact completed sibling exists."""
+    blobs = repo_cache_dir(repo) / "blobs"
+    removed_files = 0
+    removed_bytes = 0
+    if not blobs.exists():
+        return {"removed_files": 0, "removed_bytes": 0}
+    try:
+        entries = list(blobs.iterdir())
+    except FileNotFoundError:
+        return {"removed_files": 0, "removed_bytes": 0}
+    for entry in entries:
+        if not entry.name.endswith(".incomplete"):
+            continue
+        completed = entry.with_name(entry.name.removesuffix(".incomplete"))
+        if not completed.exists():
+            continue
+        try:
+            size = entry.stat().st_size
+            entry.unlink()
+        except (FileNotFoundError, PermissionError):
+            continue
+        removed_files += 1
+        removed_bytes += size
+    return {"removed_files": removed_files, "removed_bytes": removed_bytes}
 
 
 def status_snapshot(repo: str) -> dict:

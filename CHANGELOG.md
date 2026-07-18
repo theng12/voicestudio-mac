@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.9] — 2026-07-19
+
+### Fixed — completed downloads blocked by stale partial duplicates
+
+- Hugging Face transfers can leave a `<blob>.incomplete` file behind after a
+  resumed attempt has already completed the exact `<blob>`. Voice Studio now
+  ignores only those stale duplicates while unresolved partial files still
+  keep the model in the `partial` state.
+- Added a narrow cache-maintenance endpoint that removes only stale partial
+  files with an exact completed sibling. It never removes unresolved partials
+  or completed model blobs.
+- Added regression coverage for both the safe cleanup and the unresolved
+  download behavior.
+
 ## [1.20.8] — 2026-07-19
 
 ### Added — stable long-form Chatterbox and VoxCPM narration
