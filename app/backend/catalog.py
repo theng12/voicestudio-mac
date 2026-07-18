@@ -508,6 +508,33 @@ CATALOG: tuple[ModelEntry, ...] = (
         ),
     ),
     ModelEntry(
+        repo="mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+        label="Qwen3-TTS 0.6B CustomVoice — M1 preset speakers (MLX 8-bit)",
+        family="qwen3-tts",
+        size_gb=1.9,
+        gated=False,
+        min_unified_memory_gb=8,
+        recommended_hardware=(
+            "Any Apple Silicon Mac with 8 GB. The smaller preset-voice tier "
+            "for memory-constrained M1 workers."
+        ),
+        capabilities=("tts", "multilingual", "expressive"),
+        best_for=(
+            "Ryan, Aiden, and the other nine Qwen preset speakers on 8 GB M1 "
+            "workers. Prefer the 1.7B CustomVoice model on 16 GB machines when "
+            "maximum prosody quality matters more than capacity."
+        ),
+        sample_rate_hz=24000,
+        languages=("en", "zh", "ja", "ko", "fr", "de", "es", "it", "pt", "ru"),
+        use_cases=(
+            ("good", "Smallest Qwen preset-speaker model for 8 GB Apple Silicon"),
+            ("good", "Ryan and Aiden English voices with natural-language style control"),
+            ("good", "MLX 8-bit runtime is about 1 GB smaller than the 1.7B tier"),
+            ("weak", "Less prosodic depth than 1.7B CustomVoice"),
+            ("avoid", "Voice cloning — use either Base variant for that"),
+        ),
+    ),
+    ModelEntry(
         repo="mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
         label="Qwen3-TTS 1.7B Base — quality voice cloning (MLX 8-bit)",
         family="qwen3-tts",

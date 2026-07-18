@@ -32,8 +32,8 @@ def _repos(family: str) -> list[str]:
 def test_priority_catalog_is_focused_and_clone_capable() -> None:
     qwen = _repos("qwen3-tts")
     assert "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit" in qwen
-    assert "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit" not in qwen
-    assert len(qwen) == 4
+    assert "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit" in qwen
+    assert len(qwen) == 5
 
     chatterbox = _repos("chatterbox-mlx")
     assert len(chatterbox) == 3
@@ -402,6 +402,12 @@ def test_qwen_17b_base_uses_clone_mode() -> None:
     assert generation._qwen3_mode_from_repo(
         "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
     ) == "clone"
+
+
+def test_qwen_06b_custom_voice_uses_preset_speaker_mode() -> None:
+    assert generation._qwen3_mode_from_repo(
+        "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+    ) == "custom"
 
 
 def test_qwen_clone_long_form_chunks_at_sentences_without_losing_text() -> None:

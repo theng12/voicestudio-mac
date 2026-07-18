@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.11] — 2026-07-19
+
+### Added — Qwen3-TTS 0.6B CustomVoice for 8 GB M1 workers
+
+- Added the official Apache-2.0 MLX 8-bit conversion of Qwen3-TTS 0.6B
+  CustomVoice as the memory-conscious preset-speaker tier.
+- The model uses the existing verified nine-speaker roster, including Ryan and
+  Aiden, and the existing CustomVoice generation path and style controls.
+- Kept 1.7B CustomVoice as the higher-quality tier for workers with more memory;
+  Qwen Base models remain the separate voice-cloning path.
+
 ## [1.20.10] — 2026-07-19
 
 ### Fixed — abandoned partials from older repository revisions
