@@ -10,6 +10,25 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.6] — 2026-07-18
+
+### Fixed — automatic update settings no longer snap back
+
+- Kept unsaved automatic-update choices in a separate form draft so the
+  five-second status refresh cannot replace a newly selected mode, schedule,
+  maintenance time, or idle-only preference with the last saved values.
+- Saving now submits that draft and synchronizes the controls only after the
+  server validates and persists the schedule.
+- Reworked the Settings panel with clear mode cards, grouped schedule controls,
+  an unsaved-changes indicator, and update actions that appear only when useful.
+
+### Verification
+
+- Verified that unsaved mode and maintenance-time changes survive multiple
+  status polls at desktop and compact widths.
+- JavaScript syntax, Python compilation, updater tests, dependency checks, and
+  the full Voice Studio test suite pass. No launcher or engine changes.
+
 ## [1.20.5] — 2026-07-18
 
 ### Fixed — reliable Kokoro generation and English API aliases

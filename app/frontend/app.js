@@ -287,6 +287,8 @@ function studio() {
       scheduler: { installed: false },
       release_notes_url: "",
       settings: { mode: "off", frequency: "daily", maintenance_hour: 2, idle_only: true },
+      draft: { mode: "off", frequency: "daily", maintenance_hour: 2, idle_only: true },
+      dirty: false,
     },
 
     // Cloud audio providers. `supported === false` is the graceful fallback
@@ -1520,13 +1522,30 @@ function studio() {
         const r = await fetch("/api/auto-update/status", { cache: "no-store" });
         const data = await r.json();
         if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
-        Object.assign(this.autoUpdate, data, { loaded: true });
+        this.applyAutoUpdateStatus(data);
       } catch (e) {
         if (!silent) {
           this.autoUpdate.message = String(e.message || e);
           this.autoUpdate.messageKind = "error";
         }
       }
+    },
+
+    applyAutoUpdateStatus(data, forceDraft = false) {
+      const savedSettings = data.settings ? { ...data.settings } : null;
+      Object.assign(this.autoUpdate, data, { loaded: true });
+      // Settings status refreshes every five seconds. Preserve a user's
+      // in-progress form draft instead of replacing it with persisted values.
+      if (savedSettings && (forceDraft || !this.autoUpdate.dirty)) {
+        this.autoUpdate.draft = savedSettings;
+        this.autoUpdate.dirty = false;
+      }
+    },
+
+    markAutoUpdateDirty() {
+      this.autoUpdate.dirty = true;
+      this.autoUpdate.message = "";
+      this.autoUpdate.messageKind = "info";
     },
 
     autoUpdateTime(value) {
@@ -1542,11 +1561,11 @@ function studio() {
       try {
         const r = await fetch("/api/auto-update/settings", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify(this.autoUpdate.settings),
+          body: JSON.stringify(this.autoUpdate.draft),
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
-        Object.assign(this.autoUpdate, data, { loaded: true });
+        this.applyAutoUpdateStatus(data, true);
         this.autoUpdate.message = data.settings.mode === "off"
           ? "Saved. Automatic updates are off and the schedule is unloaded."
           : "Saved. The updater schedule is installed and verified.";
@@ -1569,7 +1588,7 @@ function studio() {
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
-        Object.assign(this.autoUpdate, data, { loaded: true });
+        this.applyAutoUpdateStatus(data);
         this.autoUpdate.message = body.after_current
           ? "Queued. The updater will retry automatically when Voice Studio is idle."
           : (action === "check" ? "Check started. Status will refresh automatically." : "Update started. This page may reconnect during restart.");
