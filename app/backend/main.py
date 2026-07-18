@@ -451,7 +451,10 @@ def get_cache(repo: str) -> dict:
 def prune_stale_cache_files(repo: str) -> dict:
     if catalog.get_model(repo) is None:
         raise HTTPException(status_code=404, detail=f"Unknown repo: {repo}")
-    removed = cache.prune_stale_incomplete(repo)
+    try:
+        removed = manager.prune_stale_incomplete(repo)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {**removed, "cache": _cache_with_companions(repo)}
 
 

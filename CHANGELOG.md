@@ -10,6 +10,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.10] — 2026-07-19
+
+### Fixed — abandoned partials from older repository revisions
+
+- Cache maintenance now compares completed blob bytes with Hugging Face's
+  current official repository manifest before removing an incomplete blob
+  that has no exact completed sibling.
+- Resumable partials remain untouched when the manifest is unavailable, the
+  completed snapshot is missing files, or another download is active.
+
 ## [1.20.9] — 2026-07-19
 
 ### Fixed — completed downloads blocked by stale partial duplicates

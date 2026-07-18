@@ -158,8 +158,15 @@ def incomplete_bytes(repo: str) -> int:
     return total
 
 
-def prune_stale_incomplete(repo: str) -> dict[str, int]:
-    """Delete only partial blobs whose exact completed sibling exists."""
+def prune_stale_incomplete(
+    repo: str, *, complete_snapshot_verified: bool = False
+) -> dict[str, int]:
+    """Delete stale partial blobs without discarding resumable downloads.
+
+    Exact completed siblings are always safe to remove. Other partials are
+    removed only after the caller independently verifies that the completed
+    blob bytes equal the repository's current official manifest.
+    """
     blobs = repo_cache_dir(repo) / "blobs"
     removed_files = 0
     removed_bytes = 0
@@ -173,7 +180,7 @@ def prune_stale_incomplete(repo: str) -> dict[str, int]:
         if not entry.name.endswith(".incomplete"):
             continue
         completed = entry.with_name(entry.name.removesuffix(".incomplete"))
-        if not completed.exists():
+        if not completed.exists() and not complete_snapshot_verified:
             continue
         try:
             size = entry.stat().st_size

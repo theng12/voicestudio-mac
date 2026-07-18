@@ -196,6 +196,30 @@ class DownloadManager:
         with self._lock:
             return self._active_for_repo_locked(repo)
 
+    def prune_stale_incomplete(self, repo: str) -> dict[str, int | bool]:
+        """Prune stale partials while excluding concurrent download starts."""
+        expected_bytes = self._resolve_total_bytes(repo, None)
+        with self._lock:
+            if self._active_for_repo_locked(repo) is not None:
+                raise RuntimeError("a model download is active")
+            complete_bytes = cache.disk_bytes(repo)
+            complete_snapshot_verified = bool(
+                expected_bytes > 0
+                and complete_bytes == expected_bytes
+                and cache.has_any_snapshot(repo)
+                and cache.has_weight_files(repo)
+            )
+            removed = cache.prune_stale_incomplete(
+                repo,
+                complete_snapshot_verified=complete_snapshot_verified,
+            )
+        return {
+            **removed,
+            "expected_bytes": expected_bytes,
+            "complete_bytes": complete_bytes,
+            "complete_snapshot_verified": complete_snapshot_verified,
+        }
+
     # ---------- internals ----------
 
     def _active_for_repo_locked(self, repo: str) -> Optional[DownloadJob]:

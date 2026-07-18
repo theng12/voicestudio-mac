@@ -47,3 +47,22 @@ def test_unresolved_incomplete_remains_partial_and_is_not_pruned(
         "removed_bytes": 0,
     }
     assert partial.read_bytes() == b"needed"
+
+
+def test_orphan_incomplete_is_pruned_only_after_complete_snapshot_verification(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = _repo(tmp_path, monkeypatch)
+    orphan = root / "blobs" / "old-revision.incomplete"
+    orphan.write_bytes(b"obsolete")
+
+    assert cache.prune_stale_incomplete(REPO) == {
+        "removed_files": 0,
+        "removed_bytes": 0,
+    }
+    assert orphan.exists()
+
+    assert cache.prune_stale_incomplete(
+        REPO, complete_snapshot_verified=True
+    ) == {"removed_files": 1, "removed_bytes": 8}
+    assert not orphan.exists()
