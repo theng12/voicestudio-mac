@@ -79,6 +79,22 @@ open so they can be inspected or restarted manually.
 Operators can inspect the current state at `GET /api/generate/memory`, or find
 the same snapshot under `GET /api/generate/diagnostics` → `memory`.
 
+### Local output retention
+
+Generated speech files are temporary local backups. Automatic cleanup is
+enabled by default, keeps completed files for three days, and enforces an 80 GB
+hard cap by deleting the oldest completed outputs first. Shared voice masters,
+clone references and transcripts, active jobs, uploads, model caches,
+credentials, and settings are never eligible.
+
+The Generate page exposes the same policy used by Studio Hub:
+
+```text
+GET  /api/storage-policy
+PUT  /api/storage-policy          # { enabled, retention_days, max_gb }
+POST /api/storage-policy/cleanup  # optional { target_bytes }
+```
+
 ## Automatic updates (optional)
 
 Open **Settings → Automatic updates** to choose:

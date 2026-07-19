@@ -10,6 +10,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.15] — 2026-07-19
+
+### Added — automatic local output protection
+
+- Added enabled-by-default three-day retention and an 80 GB hard cap for
+  completed generated audio. Cleanup runs hourly and evicts oldest-first when
+  the cap is reached.
+- Added a modern Generate-page policy card with usage, retention, capacity,
+  Save policy, and Clean now controls, backed by the authenticated fleet API.
+- Restricted cleanup to audio files in `app/output`. Shared voice masters,
+  cloning references and transcripts, uploads, models, credentials, settings,
+  and active generations are never eligible.
+
+### Verification
+
+- Added tests covering age expiry, hard-cap eviction, fleet API persistence,
+  active-job safety, and shared-voice preservation. The full test suite,
+  Python compilation, and JavaScript syntax checks pass. Launchers and model
+  dependencies were left unchanged.
+
+---
+
 ## [1.20.14] — 2026-07-19
 
 ### Improved — persistent generation maintenance and release notes

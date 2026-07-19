@@ -368,6 +368,7 @@ function studio() {
       this.startJobStream();
       this.startGenStream();
       this.refreshOutputStats();
+      this.refreshStoragePolicy();
       // The catalog needs to reflect cache state changes during downloads,
       // so we re-poll it on a slower cadence than the per-job stream.
       this._refreshHandle = setInterval(() => this.refreshCatalog(), 4000);
@@ -3636,6 +3637,10 @@ function studio() {
 
     // ──────── outputs folder disk usage ────────
     outputStats: { bytes: 0, count: 0, loaded: false },
+    storagePolicy: {
+      enabled: true, retention_days: 3, max_gb: 80, used_bytes: 0,
+      over_limit: false, loaded: false, busy: false, message: "",
+    },
     async refreshOutputStats() {
       try {
         const r = await fetch("/api/output/stats");
@@ -3643,6 +3648,58 @@ function studio() {
         const d = await r.json();
         this.outputStats = { bytes: d.bytes || 0, count: d.count || 0, loaded: true };
       } catch { /* keep last */ }
+    },
+    async refreshStoragePolicy() {
+      try {
+        const r = await fetch("/api/storage-policy");
+        if (!r.ok) return;
+        const d = await r.json();
+        this.storagePolicy = { ...this.storagePolicy, ...d, loaded: true, busy: false };
+      } catch { /* keep last */ }
+    },
+    async saveStoragePolicy() {
+      this.storagePolicy.busy = true;
+      this.storagePolicy.message = "Saving policy…";
+      try {
+        const r = await fetch("/api/storage-policy", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            enabled: !!this.storagePolicy.enabled,
+            retention_days: Number(this.storagePolicy.retention_days),
+            max_gb: Number(this.storagePolicy.max_gb),
+          }),
+        });
+        if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
+        const d = await r.json();
+        this.storagePolicy = { ...this.storagePolicy, ...d, loaded: true, busy: false,
+          message: "Saved. This Mac will enforce the policy automatically." };
+        this.pushToast({ kind: "info", icon: "✓", title: "Storage policy saved",
+          body: `${d.retention_days} days · ${d.max_gb} GB hard cap` });
+      } catch (e) {
+        this.storagePolicy.busy = false;
+        this.storagePolicy.message = String(e);
+        this.pushToast({ kind: "error", icon: "✗", title: "Couldn't save storage policy", body: String(e) });
+      }
+    },
+    async cleanStoragePolicyNow() {
+      this.storagePolicy.busy = true;
+      this.storagePolicy.message = "Checking completed outputs…";
+      try {
+        const r = await fetch("/api/storage-policy/cleanup", {
+          method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+        });
+        if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
+        const d = await r.json();
+        this.storagePolicy = { ...this.storagePolicy, ...d, loaded: true, busy: false,
+          message: `Cleanup complete · ${d.deleted || 0} removed · ${humanBytes(d.freed_bytes || 0)} freed.` };
+        await this.refreshOutputStats();
+        this.pushToast({ kind: "info", icon: "🧹", title: "Cleanup complete",
+          body: `${d.deleted || 0} file${d.deleted === 1 ? "" : "s"} removed · ${humanBytes(d.freed_bytes || 0)} freed` });
+      } catch (e) {
+        this.storagePolicy.busy = false;
+        this.storagePolicy.message = String(e);
+        this.pushToast({ kind: "error", icon: "✗", title: "Couldn't clean outputs", body: String(e) });
+      }
     },
     /** mode: "keep50" keeps the newest 50; "old30" deletes files older than 30 days. */
     async pruneOutputs(mode) {
