@@ -19,7 +19,8 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   OmniVoice expose their native cloning and quality controls. Kokoro keeps one
   full-quality MLX model with all 54 voices, nine language variants, speed, and
   equal voice blending. VoxCPM2 keeps a fast 4-bit tier and a bf16 final-render
-  tier, both with voice design and transcript-aware cloning. Bark uses its current
+  tier, both with voice design, transcript-aware cloning, sentence-safe long-form
+  rendering, and exact pitch-preserving final tempo control. Bark uses its current
   native MLX conversion with all 130 multilingual presets and complete sampling controls.
 - **Smart downloads** — filters out redundant duplicate weight formats automatically. F5-TTS goes from 6.3 GB → 1.3 GB, Bark avoids more than 4 GB of duplicate preset files, and Chatterbox goes from 11 GB → 3 GB.
 - **Resume on retry** — partial downloads pick up where they left off.

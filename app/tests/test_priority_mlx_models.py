@@ -518,6 +518,85 @@ def test_qwen_speed_one_is_a_lossless_noop(tmp_path: Path) -> None:
     assert output.read_bytes() == payload
 
 
+def test_voxcpm_speed_uses_shared_pitch_preserving_postprocess(tmp_path: Path) -> None:
+    import soundfile as sf
+
+    if generation._find_ffmpeg_executable() is None:
+        pytest.skip("FFmpeg is unavailable in this test environment")
+    sample_rate = 48000
+    original = np.zeros(sample_rate * 2, dtype=np.float32)
+    output = tmp_path / "voxcpm.wav"
+    sf.write(output, original, sample_rate, subtype="PCM_16")
+
+    assert generation._apply_mlx_output_speed(output, 0.95, "voxcpm-mlx") is True
+    adjusted = sf.info(output)
+
+    assert adjusted.samplerate == sample_rate
+    assert adjusted.frames == pytest.approx(len(original) / 0.95, rel=0.03)
+
+
+def test_voxcpm_long_form_speed_runs_once_after_join(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import importlib
+    import soundfile as sf
+
+    generate_module = importlib.import_module("mlx_audio.tts.generate")
+    generated_sections: list[str] = []
+    tempo_calls: list[tuple[Path, float, str]] = []
+
+    def fake_generate_audio(*, model, output_path, join_audio, **kwargs) -> None:
+        assert model == "voxcpm-model"
+        assert join_audio is True
+        generated_sections.append(kwargs["text"])
+        sf.write(
+            Path(output_path) / "audio.wav",
+            np.ones(480, dtype=np.float32),
+            48000,
+            subtype="PCM_16",
+        )
+
+    def fake_apply_speed(path: Path, speed: float, family: str) -> bool:
+        assert path.exists()
+        tempo_calls.append((path, speed, family))
+        return True
+
+    monkeypatch.setattr(generate_module, "generate_audio", fake_generate_audio)
+    monkeypatch.setattr(generation, "_apply_mlx_output_speed", fake_apply_speed)
+    monkeypatch.setattr(generation, "_release_device_memory", lambda device: None)
+
+    manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_get_model = lambda repo: "voxcpm-model"
+    manager._resolve_mlx_kwargs = (
+        lambda mode, family, model_entry, params, gen_kwargs: "zero-shot"
+    )
+    text = " ".join(
+        f"Sentence {index} stays safely inside the VoxCPM long-form renderer."
+        for index in range(1, 25)
+    )
+    job = generation.GenerationJob(
+        job_id="voxcpm-long-speed",
+        mode="txt2speech",
+        params={"text": text, "speed": 0.93, "seed": 7},
+    )
+    output = tmp_path / "voxcpm-long.wav"
+
+    manager._generate_mlx_audio(
+        job,
+        SimpleNamespace(
+            repo="mlx-community/VoxCPM2-4bit",
+            family="voxcpm-mlx",
+            sample_rate_hz=48000,
+        ),
+        output,
+    )
+
+    assert len(generated_sections) > 1
+    assert " ".join(generated_sections) == " ".join(text.split())
+    assert tempo_calls == [(output, 0.93, "voxcpm-mlx")]
+    assert sf.info(output).frames > 480
+
+
 def test_qwen_duration_ceiling_accounts_for_final_speed() -> None:
     assert generation._qwen_max_tokens_for_duration(30.0, 1.0) == 375
     assert generation._qwen_max_tokens_for_duration(30.0, 0.5) == 187
@@ -551,11 +630,13 @@ def test_requested_duration_ceiling_accepts_exact_limit(tmp_path: Path) -> None:
     )
 
 
-def test_qwen_clone_speed_control_is_visible_and_truthful() -> None:
+def test_qwen_and_voxcpm_speed_control_is_visible_and_truthful() -> None:
     markup = (Path(__file__).parents[1] / "frontend" / "index.html").read_text()
 
     assert "qwen3Mode(gen.repo) !== 'clone'" not in markup
-    assert "Qwen preserves pitch by adjusting the finished WAV" in markup
+    assert "!isVoxCPMMlx(gen.repo)" not in markup
+    assert "Qwen and VoxCPM2 preserve pitch" in markup
+    assert "after all sections are joined" in markup
 
 
 def test_qwen_clone_long_form_renders_each_section_and_reports_progress(tmp_path: Path) -> None:

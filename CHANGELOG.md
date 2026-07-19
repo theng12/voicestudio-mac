@@ -10,6 +10,25 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.1] — 2026-07-20
+
+### Added — exact VoxCPM2 speed control
+
+- Added the existing `0.50x`–`2.00x` speed control to VoxCPM2 generation.
+- VoxCPM2 still renders each sentence-safe section at its native pace, preserving
+  reference voice and delivery instructions, then Voice Studio applies one
+  pitch-preserving FFmpeg tempo adjustment after the final WAV is stitched.
+- Short and long-form VoxCPM2 jobs now share the same atomic, format-validated
+  post-processing path as Qwen without passing an ignored speed argument into
+  the model.
+
+### Verification
+
+- Added duration, post-processing-order, and WebUI visibility regression tests.
+- No dependency or launcher change is required. **Just run Update.**
+
+---
+
 ## [1.21.0] — 2026-07-20
 
 ### Added — opt-in voice model memory controls

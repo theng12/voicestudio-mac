@@ -883,21 +883,31 @@ def _find_ffmpeg_executable() -> Optional[Path]:
     return None
 
 
-def _apply_qwen_output_speed(output_path: Path, speed: float) -> bool:
-    """Apply pitch-preserving tempo to a finished Qwen WAV atomically.
+_POSTPROCESSED_SPEED_FAMILIES = {
+    "qwen3-tts": "Qwen",
+    "voxcpm-mlx": "VoxCPM2",
+}
 
-    The current MLX Qwen implementation accepts ``speed`` but explicitly does
-    not use it. FFmpeg's ``atempo`` changes duration while preserving pitch,
-    so cloned identity is retained and both short and joined long-form output
-    obey the same public speed control. Returns False for the 1.0 no-op.
+
+def _apply_mlx_output_speed(output_path: Path, speed: float, family: str) -> bool:
+    """Apply pitch-preserving tempo to a finished MLX-family WAV atomically.
+
+    Qwen's current MLX implementation accepts ``speed`` without applying it,
+    while VoxCPM2 has no numeric speed parameter at all. FFmpeg's ``atempo``
+    changes duration while preserving pitch, so speaker identity survives and
+    both short and already-joined long-form output obey one exact public speed
+    control. Returns False for the 1.0 no-op.
     """
+    engine = _POSTPROCESSED_SPEED_FAMILIES.get(family)
+    if engine is None:
+        raise ValueError(f"Pitch-preserving output speed is not configured for {family}")
     speed = max(0.5, min(float(speed), 2.0))
     if abs(speed - 1.0) < 1e-6:
         return False
     ffmpeg = _find_ffmpeg_executable()
     if ffmpeg is None:
         raise RuntimeError(
-            f"Qwen speed {speed:.2f}x needs FFmpeg for pitch-preserving tempo, "
+            f"{engine} speed {speed:.2f}x needs FFmpeg for pitch-preserving tempo, "
             "but Voice Studio could not find FFmpeg. Run Update or reinstall Voice Studio."
         )
 
@@ -905,7 +915,7 @@ def _apply_qwen_output_speed(output_path: Path, speed: float) -> bool:
 
     source = sf.info(str(output_path))
     if source.frames <= 0 or source.samplerate <= 0 or source.channels <= 0:
-        raise RuntimeError("Qwen produced an invalid WAV before speed adjustment")
+        raise RuntimeError(f"{engine} produced an invalid WAV before speed adjustment")
     codec = {
         "PCM_16": "pcm_s16le",
         "PCM_24": "pcm_s24le",
@@ -928,7 +938,7 @@ def _apply_qwen_output_speed(output_path: Path, speed: float) -> bool:
         )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "unknown FFmpeg error").strip()
-            raise RuntimeError(f"Qwen speed adjustment failed: {detail[-800:]}")
+            raise RuntimeError(f"{engine} speed adjustment failed: {detail[-800:]}")
         adjusted = sf.info(str(temporary))
         expected_frames = source.frames / speed
         tolerance = max(source.samplerate * 0.20, expected_frames * 0.08)
@@ -938,11 +948,18 @@ def _apply_qwen_output_speed(output_path: Path, speed: float) -> bool:
             or adjusted.channels != source.channels
             or abs(adjusted.frames - expected_frames) > tolerance
         ):
-            raise RuntimeError("Qwen speed adjustment produced an invalid audio duration or format")
+            raise RuntimeError(
+                f"{engine} speed adjustment produced an invalid audio duration or format"
+            )
         os.replace(temporary, output_path)
     finally:
         temporary.unlink(missing_ok=True)
     return True
+
+
+def _apply_qwen_output_speed(output_path: Path, speed: float) -> bool:
+    """Compatibility wrapper for the established Qwen regression surface."""
+    return _apply_mlx_output_speed(output_path, speed, "qwen3-tts")
 
 
 def _requested_output_duration_limit(params: dict) -> Optional[float]:
@@ -1948,8 +1965,9 @@ class GenerationManager:
                 output_duration_limit,
                 speed,
             )
-        # VoxCPM2 has no numeric speed parameter; pace is controlled through
-        # its natural-language instruction. Passing speed would be silently ignored.
+        # VoxCPM2 has no numeric speed parameter; its natural-language prompt
+        # can shape delivery, while exact requested tempo is applied to the
+        # finished WAV below. Passing speed upstream would be silently ignored.
         if family not in {"voxcpm-mlx", "bark"}:
             # Qwen accepts this argument but does not apply it upstream. Keep
             # native generation at 1.0 and adjust the finished WAV below.
@@ -2005,38 +2023,39 @@ class GenerationManager:
                     job, family, model, gen_kwargs, internal_chunks, temp_dir,
                     output_path, generate_audio,
                 )
-                if not job.cancel_event.is_set() and family == "qwen3-tts":
-                    if _apply_qwen_output_speed(output_path, speed):
-                        print(f"[gen] qwen3-tts applied pitch-preserving {speed:.2f}x tempo", flush=True)
                 if not job.cancel_event.is_set():
                     print(
                         f"[gen] {family} joined {len(internal_chunks)} stable sections: {output_path}",
                         flush=True,
                     )
-                return
-            generate_audio(
-                model=model,
-                output_path=str(temp_dir),
-                join_audio=True,
-                **gen_kwargs,
-            )
+            else:
+                generate_audio(
+                    model=model,
+                    output_path=str(temp_dir),
+                    join_audio=True,
+                    **gen_kwargs,
+                )
 
-            produced = temp_dir / "audio.wav"
-            if not produced.exists():
-                # mlx-audio sometimes uses a different naming scheme — find any wav.
-                candidates = sorted(temp_dir.glob("*.wav"))
-                if not candidates:
-                    raise RuntimeError(
-                        f"mlx-audio didn't produce a wav file. Temp dir: {temp_dir}"
+                produced = temp_dir / "audio.wav"
+                if not produced.exists():
+                    # mlx-audio sometimes uses a different naming scheme — find any wav.
+                    candidates = sorted(temp_dir.glob("*.wav"))
+                    if not candidates:
+                        raise RuntimeError(
+                            f"mlx-audio didn't produce a wav file. Temp dir: {temp_dir}"
+                        )
+                    produced = candidates[0]
+
+                shutil.move(str(produced), str(output_path))
+                sr = model_entry.sample_rate_hz or family_config["default_sample_rate"]
+                print(f"[gen] {family} saved WAV at {sr} Hz: {output_path}", flush=True)
+
+            if not job.cancel_event.is_set() and family in _POSTPROCESSED_SPEED_FAMILIES:
+                if _apply_mlx_output_speed(output_path, speed, family):
+                    print(
+                        f"[gen] {family} applied pitch-preserving {speed:.2f}x tempo",
+                        flush=True,
                     )
-                produced = candidates[0]
-
-            shutil.move(str(produced), str(output_path))
-            if family == "qwen3-tts" and not job.cancel_event.is_set():
-                if _apply_qwen_output_speed(output_path, speed):
-                    print(f"[gen] qwen3-tts applied pitch-preserving {speed:.2f}x tempo", flush=True)
-            sr = model_entry.sample_rate_hz or family_config["default_sample_rate"]
-            print(f"[gen] {family} saved WAV at {sr} Hz: {output_path}", flush=True)
         finally:
             try:
                 shutil.rmtree(temp_dir, ignore_errors=True)
