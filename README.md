@@ -79,6 +79,15 @@ open so they can be inspected or restarted manually.
 Operators can inspect the current state at `GET /api/generate/memory`, or find
 the same snapshot under `GET /api/generate/diagnostics` → `memory`.
 
+Settings now also provides model-memory modes. **Performance** is the default
+and preserves loaded local TTS and Whisper models for faster repeat work.
+Balanced unloads after 10 idle minutes, Memory Saver after 2 minutes, and
+Immediate after each completed local task. **Release Memory / Unload Model**
+manually releases both caches when no generation or transcription is active.
+Weights, shared voices, clone references, and outputs remain on disk. The same
+controls are available through `GET/PUT /api/memory-policy` and
+`POST /api/memory/release`.
+
 ### Local output retention
 
 Generated speech files are temporary local backups. Automatic cleanup is

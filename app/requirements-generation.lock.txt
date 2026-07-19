@@ -550,6 +550,7 @@ segments==2.4.0
 semantic-version==2.10.0
     # via gradio
 sentencepiece==0.2.1
+setproctitle==1.3.7
     # via
     #   -r app/requirements-generation.txt
     #   mlx-lm

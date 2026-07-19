@@ -293,6 +293,14 @@ function studio() {
       draft: { mode: "off", frequency: "daily", maintenance_hour: 2, idle_only: true },
       dirty: false,
     },
+    memoryPolicy: {
+      mode: "performance", default_mode: "performance", idle_seconds: null,
+      loaded_models: [], model_idle_seconds: null, next_release_at: null,
+      last_release_at: null, last_release_reason: null, release_count: 0,
+      process_title: "Voice Studio Mac", process_title_applied: false,
+      loaded: false, busy: false, message: "", messageKind: "info",
+      draft: { mode: "performance" }, dirty: false,
+    },
 
     // Cloud audio providers. `supported === false` is the graceful fallback
     // for a frontend updated before its backend has restarted.
@@ -382,6 +390,7 @@ function studio() {
         if (this.tab === "settings" || ["checking", "updating", "restarting", "deferred"].includes(this.autoUpdate.state)) {
           this.refreshAutoUpdate(true);
         }
+        if (this.tab === "settings") this.refreshMemoryPolicy(true);
       }, 5000);
       // Route via hash so the sidebar buttons in pinokio.js can deep-link.
       const applyHash = () => {
@@ -1533,6 +1542,7 @@ function studio() {
       // Connectivity panel is on the same tab — refresh it at the same time.
       await this.refreshConnectivity();
       await this.refreshAutoUpdate(true);
+      await this.refreshMemoryPolicy(true);
     },
 
     async refreshAutoUpdate(silent = false) {
@@ -1616,6 +1626,89 @@ function studio() {
         this.autoUpdate.messageKind = "error";
       } finally {
         this.autoUpdate.busy = false;
+      }
+    },
+
+    async refreshMemoryPolicy(silent = false, forceDraft = false) {
+      try {
+        const r = await fetch("/api/memory-policy", { cache: "no-store" });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
+        const saved = data.mode;
+        Object.assign(this.memoryPolicy, data, { loaded: true });
+        if (forceDraft || !this.memoryPolicy.dirty) {
+          this.memoryPolicy.draft = { mode: saved };
+          this.memoryPolicy.dirty = false;
+        }
+      } catch (e) {
+        if (!silent) {
+          this.memoryPolicy.message = String(e.message || e);
+          this.memoryPolicy.messageKind = "error";
+        }
+      }
+    },
+
+    markMemoryPolicyDirty() {
+      this.memoryPolicy.dirty = true;
+      this.memoryPolicy.message = "";
+      this.memoryPolicy.messageKind = "info";
+    },
+
+    memoryPolicyTime(value) {
+      if (!value) return "Not scheduled";
+      const n = Number(value);
+      const date = new Date(n < 1e12 ? n * 1000 : n);
+      return Number.isNaN(date.getTime()) ? "Not scheduled" : date.toLocaleString();
+    },
+
+    memoryModelsLabel() {
+      const values = this.memoryPolicy.loaded_models || [];
+      if (!values.length) return "None loaded";
+      return values.map((item) => `${String(item[0]).split("/").pop()} · ${item[1]}`).join(" + ");
+    },
+
+    async saveMemoryPolicy() {
+      this.memoryPolicy.busy = true;
+      this.memoryPolicy.message = "Saving memory mode…";
+      this.memoryPolicy.messageKind = "info";
+      try {
+        const r = await fetch("/api/memory-policy", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify(this.memoryPolicy.draft),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
+        Object.assign(this.memoryPolicy, data, {
+          loaded: true, draft: { mode: data.mode }, dirty: false,
+          message: "Memory mode saved.", messageKind: "success",
+        });
+      } catch (e) {
+        this.memoryPolicy.message = String(e.message || e);
+        this.memoryPolicy.messageKind = "error";
+      } finally {
+        this.memoryPolicy.busy = false;
+      }
+    },
+
+    async releaseMemory() {
+      this.memoryPolicy.busy = true;
+      this.memoryPolicy.message = "Releasing local voice and transcription memory…";
+      this.memoryPolicy.messageKind = "info";
+      try {
+        const r = await fetch("/api/memory/release", { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
+        const message = data.last_release_details?.released
+          ? "TTS and transcription models unloaded; accelerator caches cleared."
+          : "Allocator caches cleared; no local voice model was loaded.";
+        Object.assign(this.memoryPolicy, data, { loaded: true, message, messageKind: "success" });
+        this.pushToast({ kind: "success", icon: "✓", title: "Memory released", body: message });
+      } catch (e) {
+        this.memoryPolicy.message = String(e.message || e);
+        this.memoryPolicy.messageKind = "error";
+        this.pushToast({ kind: "error", icon: "✗", title: "Couldn't release memory", body: this.memoryPolicy.message });
+      } finally {
+        this.memoryPolicy.busy = false;
       }
     },
 

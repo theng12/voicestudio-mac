@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.0] — 2026-07-20
+
+### Added — opt-in voice model memory controls
+
+- Added Performance (default), Balanced (10 minutes), Memory Saver (2 minutes),
+  and Immediate modes for local TTS and Whisper transcription models.
+- Added **Release Memory / Unload Model**, which releases both TTS and STT
+  caches together under their shared GPU lock, clears Python, PyTorch, MLX,
+  and Metal allocator caches, and never deletes weights, shared voices,
+  cloning references, or generated audio.
+- Added the friendly **Voice Studio Mac** process title for Activity Monitor.
+  Active generation or transcription is never interrupted.
+
+### Verification
+
+- Added default-mode, idle timing, dual-cache release, active-work protection,
+  API, UI, and process-title coverage. The full suite, backend compilation,
+  frontend syntax, dependency, and responsive WebUI checks pass.
+
+---
+
 ## [1.20.16] — 2026-07-19
 
 ### Fixed — release notes are available inside the WebUI

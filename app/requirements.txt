@@ -5,3 +5,4 @@ sse-starlette>=2.1
 python-multipart>=0.0.9
 httpx>=0.27
 packaging>=24
+setproctitle>=1.3.7

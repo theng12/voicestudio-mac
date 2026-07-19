@@ -225,6 +225,40 @@ def segments_to_vtt(segments: list[dict]) -> str:
 class TranscriptionManager:
     _model: object = field(default=None, repr=False)
     _model_repo: Optional[str] = None
+    _active: bool = field(default=False, repr=False)
+    _last_model_activity_at: Optional[float] = field(default=None, repr=False)
+
+    def is_active(self) -> bool:
+        return self._active
+
+    def loaded_model_key(self) -> Optional[tuple[str, str]]:
+        if self._model is not None and self._model_repo:
+            return (self._model_repo, "whisper-stt")
+        return None
+
+    def last_activity_at(self) -> Optional[float]:
+        return self._last_model_activity_at
+
+    def _evict_loaded_model(self, reason: str) -> dict:
+        key = self.loaded_model_key()
+        actions: list[str] = []
+        if self._model is not None:
+            self._model = None
+            actions.append("cleared whisper transcription model")
+        self._model_repo = None
+        _release_device_memory("mps")
+        actions.append("cleared transcription MLX and Metal allocator caches")
+        return {
+            "released": key is not None,
+            "models": [list(key)] if key else [],
+            "actions": actions,
+            "reason": reason,
+        }
+
+    def release_memory_locked(self, reason: str = "manual") -> dict:
+        if self._active:
+            raise RuntimeError("transcription is running")
+        return self._evict_loaded_model(reason)
 
     def _snapshot_path(self, repo: str) -> Path:
         """Resolve the on-disk snapshot dir for a cached repo. Mirrors
@@ -274,6 +308,7 @@ class TranscriptionManager:
 
         self._model = model
         self._model_repo = repo
+        self._last_model_activity_at = time.time()
         return model
 
     def _attach_processor(self, model, repo: str) -> None:
@@ -361,22 +396,31 @@ class TranscriptionManager:
         started = time.time()
         # Hold the SAME lock TTS generation uses — one GPU job at a time.
         with _GEN_LOCK:
-            model = self._get_model(repo)
-            lang = (language or "").strip() or None
-            print(
-                f"[stt] transcribing {p.name} with {repo} "
-                f"(lang={lang or 'auto'}, word_ts={word_timestamps})",
-                flush=True,
-            )
-            result = model.generate(
-                str(p),
-                language=lang,
-                word_timestamps=word_timestamps,
-                return_timestamps=True,
-            )
-            # Release per-transcription activation buffers (v1.2.7 pattern) so
-            # a following TTS/STT job starts from a clean Metal baseline.
-            _release_device_memory("mps")
+            self._active = True
+            self._last_model_activity_at = time.time()
+            try:
+                model = self._get_model(repo)
+                lang = (language or "").strip() or None
+                print(
+                    f"[stt] transcribing {p.name} with {repo} "
+                    f"(lang={lang or 'auto'}, word_ts={word_timestamps})",
+                    flush=True,
+                )
+                result = model.generate(
+                    str(p),
+                    language=lang,
+                    word_timestamps=word_timestamps,
+                    return_timestamps=True,
+                )
+            except Exception:
+                self._evict_loaded_model("failed-transcription")
+                raise
+            finally:
+                # Release per-transcription activation buffers while preserving
+                # the model in Performance mode for a faster repeat request.
+                _release_device_memory("mps")
+                self._active = False
+                self._last_model_activity_at = time.time()
 
         # mlx-audio returns an STTOutput dataclass (or dict-ish) with .text,
         # .segments (list of dicts), .language. Be defensive about shape.

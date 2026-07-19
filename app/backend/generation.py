@@ -1171,6 +1171,7 @@ class GenerationManager:
         self._consecutive_memory_failures = 0
         self._last_memory_event: Optional[dict] = None
         self._restart_scheduled = False
+        self._last_model_activity_at: Optional[float] = None
         self._load_history()
         self._resume_cloud_jobs()
 
@@ -1182,6 +1183,25 @@ class GenerationManager:
 
     def get(self, job_id: str) -> Optional[GenerationJob]:
         return self._jobs.get(job_id)
+
+    def has_active_jobs(self) -> bool:
+        return any(job.state in ("queued", "running", "cancelling") for job in self._jobs.values())
+
+    def loaded_model_keys(self) -> list[tuple[str, str]]:
+        loaded: list[tuple[str, str]] = []
+        if self._mlx_audio_model is not None and self._mlx_audio_model_repo:
+            loaded.append((self._mlx_audio_model_repo, "tts-mlx"))
+        if self._f5_tts_model is not None and self._f5_tts_model_repo:
+            loaded.append((self._f5_tts_model_repo, "f5-tts"))
+        return loaded
+
+    def last_activity_at(self) -> Optional[float]:
+        return self._last_model_activity_at
+
+    def release_memory_locked(self, reason: str = "manual") -> dict:
+        if self.has_active_jobs():
+            raise RuntimeError("voice generation is queued or running")
+        return self._evict_loaded_models(reason=reason)
 
     def cancel(self, job_id: str) -> bool:
         """
@@ -1353,19 +1373,21 @@ class GenerationManager:
         root = Path(__file__).resolve().parents[2]
         return (root / "service" / ".installed").is_file()
 
-    def _evict_loaded_models(self) -> None:
+    def _evict_loaded_models(self, reason: str = "memory-recovery") -> dict:
         """Drop both cached engines before a memory retry or supervised restart."""
+        loaded = [list(item) for item in self.loaded_model_keys()]
+        actions: list[str] = []
         for attr in ("_mlx_audio_model", "_f5_tts_model"):
             model = getattr(self, attr, None)
             if model is not None:
-                try:
-                    del model
-                except Exception:
-                    pass
                 setattr(self, attr, None)
+                actions.append(f"cleared {attr.removeprefix('_')}")
+            model = None
         self._mlx_audio_model_repo = None
         self._f5_tts_model_repo = None
         _release_device_memory("mps")
+        actions.append("cleared Python, PyTorch, MLX and Metal allocator caches")
+        return {"released": bool(loaded), "models": loaded, "actions": actions, "reason": reason}
 
     def _memory_preflight(self, model_entry) -> None:
         """Refuse a job that cannot safely fit in currently available memory."""
@@ -1462,6 +1484,8 @@ class GenerationManager:
 
             job.state = "running"
             job.started_at = time.time()
+            if not job.provider:
+                self._last_model_activity_at = job.started_at
             job.progress = 0.05          # move the bar off zero the moment work starts
             print(f"[gen] starting {job.job_id}: {job.params}", flush=True)
 
@@ -1531,6 +1555,10 @@ class GenerationManager:
                         traceback.print_exc()
                     break
             job.finished_at = time.time()
+            if not job.provider:
+                self._last_model_activity_at = job.finished_at
+                if job.state != "done":
+                    self._evict_loaded_models("failed-or-cancelled-generation")
             self._persist()
 
     @staticmethod
@@ -1881,6 +1909,7 @@ class GenerationManager:
                 mx.eval(sr_boundaries)
         self._mlx_audio_model = model
         self._mlx_audio_model_repo = repo
+        self._last_model_activity_at = time.time()
         return model
 
     def _generate_mlx_audio(self, job: GenerationJob, model_entry, output_path: Path) -> None:
@@ -2436,6 +2465,7 @@ class GenerationManager:
         )
         self._f5_tts_model = model
         self._f5_tts_model_repo = repo
+        self._last_model_activity_at = time.time()
         return model
 
     def _generate_f5_tts(self, job: GenerationJob, model_entry, output_path: Path) -> None:

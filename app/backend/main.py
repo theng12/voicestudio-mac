@@ -33,7 +33,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import cache, catalog, providers, settings as app_settings, storage_policy
+from . import cache, catalog, memory_policy, providers, settings as app_settings, storage_policy
 from .generation import (
     manager as gen_manager,
     OUTPUT_DIR,
@@ -51,6 +51,10 @@ from .transcription import (
 )
 from .auto_update import UpdateError
 from .auto_update_config import create_updater
+from .process_title import PROCESS_TITLE, apply_process_title
+
+
+PROCESS_TITLE_APPLIED = apply_process_title()
 
 
 # ───────────── App release version ─────────────
@@ -107,6 +111,7 @@ app.add_middleware(NoCacheStaticMiddleware)
 FLEET_TOKEN = load_fleet_token()
 app.middleware("http")(fleet_middleware(FLEET_TOKEN))
 storage_policy.start_background(gen_manager, OUTPUT_DIR)
+memory_policy.start_background(gen_manager, stt_manager, _GEN_LOCK)
 
 
 # ───────────── request models ─────────────
@@ -144,6 +149,10 @@ class AutoUpdateSettingsBody(BaseModel):
 
 class AutoUpdateRequestBody(BaseModel):
     after_current: bool = False
+
+
+class MemoryPolicyBody(BaseModel):
+    mode: str
 
 
 class TokenTestBody(BaseModel):
@@ -1278,6 +1287,30 @@ def cleanup_storage_policy(body: dict | None = None) -> dict:
     if target is not None and (not isinstance(target, int) or target < 0):
         raise HTTPException(400, "target_bytes must be a non-negative integer")
     return storage_policy.enforce(gen_manager, OUTPUT_DIR, target)
+
+
+@app.get("/api/memory-policy")
+def get_memory_policy() -> dict:
+    return {
+        **memory_policy.status(),
+        "process_title": PROCESS_TITLE,
+        "process_title_applied": PROCESS_TITLE_APPLIED,
+    }
+
+
+@app.put("/api/memory-policy")
+def put_memory_policy(body: MemoryPolicyBody) -> dict:
+    memory_policy.save(body.mode)
+    return get_memory_policy()
+
+
+@app.post("/api/memory/release")
+def release_memory() -> dict:
+    return {
+        **memory_policy.release_now(),
+        "process_title": PROCESS_TITLE,
+        "process_title_applied": PROCESS_TITLE_APPLIED,
+    }
 
 
 # ──── Transcription / subtitles (Whisper STT) ────
