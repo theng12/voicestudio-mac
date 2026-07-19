@@ -17,6 +17,20 @@ module.exports = {
     // background service. When the service IS installed we return a dedicated
     // "service mode" menu below instead.
     const serviceItem = { icon: "fa-solid fa-heart-pulse", text: "Install as Startup Service", href: "service.js" }
+    // These two maintenance actions stay visible in every launcher state.
+    // install_generation.js already owns the safe stop/install/restart flow for
+    // both regular start.js and the launchd service, so the menu must not make
+    // users stop either server by hand first.
+    const generationItem = {
+      icon: "fa-solid fa-wand-magic-sparkles",
+      text: generationInstalled ? "Reinstall Generation" : "Install Generation",
+      href: "install_generation.js"
+    }
+    const whatsNewItem = {
+      icon: "fa-solid fa-bullhorn",
+      text: "What's New",
+      href: "whats_new.js"
+    }
     const running = {
       install: info.running("install.js"),
       install_generation: info.running("install_generation.js"),
@@ -27,23 +41,41 @@ module.exports = {
     }
 
     if (running.install) {
-      return [{ default: true, icon: "fa-solid fa-plug", text: "Installing", href: "install.js" }]
+      return [
+        { default: true, icon: "fa-solid fa-plug", text: "Installing", href: "install.js" },
+        whatsNewItem
+      ]
     }
     if (running.install_generation) {
-      return [{ default: true, icon: "fa-solid fa-wand-magic-sparkles", text: "Installing Generation", href: "install_generation.js" }]
+      return [
+        { default: true, icon: "fa-solid fa-wand-magic-sparkles", text: "Installing Generation", href: "install_generation.js" },
+        whatsNewItem
+      ]
     }
     if (running.update) {
-      return [{ default: true, icon: "fa-solid fa-rotate", text: "Updating", href: "update.js" }]
+      return [
+        { default: true, icon: "fa-solid fa-rotate", text: "Updating", href: "update.js" },
+        whatsNewItem
+      ]
     }
     if (running.updateRestart) {
-      return [{ default: true, icon: "fa-solid fa-rotate", text: "Updating & Restarting", href: "update_and_restart.js" }]
+      return [
+        { default: true, icon: "fa-solid fa-rotate", text: "Updating & Restarting", href: "update_and_restart.js" },
+        whatsNewItem
+      ]
     }
     if (running.reset) {
-      return [{ default: true, icon: "fa-solid fa-broom", text: "Resetting", href: "reset.js" }]
+      return [
+        { default: true, icon: "fa-solid fa-broom", text: "Resetting", href: "reset.js" },
+        whatsNewItem
+      ]
     }
 
     if (!installed) {
-      return [{ default: true, icon: "fa-solid fa-plug", text: "Install", href: "install.js" }]
+      return [
+        { default: true, icon: "fa-solid fa-plug", text: "Install", href: "install.js" },
+        whatsNewItem
+      ]
     }
 
     // ── Service mode ──
@@ -66,7 +98,9 @@ module.exports = {
         { icon: "fa-solid fa-microphone-lines", text: "Outputs", href: "app/output?fs=true" },
         { icon: "fa-solid fa-folder-tree", text: "HF Cache", href: "cache/HF_HOME/hub?fs=true" },
         { icon: "fa-regular fa-circle-xmark", text: "Uninstall Startup Service", href: "unservice.js" },
-        { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" }
+        generationItem,
+        { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
+        whatsNewItem
       ]
     }
 
@@ -101,26 +135,28 @@ module.exports = {
           { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
           { icon: "fa-solid fa-folder-tree", text: "HF Cache", href: "cache/HF_HOME/hub?fs=true" },
           { icon: "fa-solid fa-microphone-lines", text: "Outputs", href: "app/output?fs=true" },
-          { icon: "fa-solid fa-wand-magic-sparkles",
-            text: generationInstalled ? "Reinstall Generation" : "Install Generation",
-            href: "install_generation.js" },
-          serviceItem
+          generationItem,
+          serviceItem,
+          whatsNewItem
         ]
       }
-      return [{ default: true, icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" }]
+      return [
+        { default: true, icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" },
+        generationItem,
+        whatsNewItem
+      ]
     }
 
     return [
       { default: true, icon: "fa-solid fa-power-off", text: "Start", href: "start.js" },
       { icon: "fa-solid fa-folder-tree", text: "HF Cache", href: "cache/HF_HOME/hub?fs=true" },
       { icon: "fa-solid fa-microphone-lines", text: "Outputs", href: "app/output?fs=true" },
-      { icon: "fa-solid fa-wand-magic-sparkles",
-        text: generationInstalled ? "Reinstall Generation" : "Install Generation",
-        href: "install_generation.js" },
+      generationItem,
       serviceItem,
       { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
       { icon: "fa-solid fa-plug", text: "Reinstall", href: "install.js" },
-      { icon: "fa-regular fa-circle-xmark", text: "Reset", href: "reset.js" }
+      { icon: "fa-regular fa-circle-xmark", text: "Reset", href: "reset.js" },
+      whatsNewItem
     ]
   }
 }

@@ -37,6 +37,10 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 2. Start: click **Start** (runs uvicorn on port 47870 across all interfaces).
 3. Click **Open UI** to see the catalog. Pick models from **Models** → **Download**.
 4. **Install Generation** (the ✨ wand sidebar item) to use local models. Cloud models do not require the local generation engine.
+   The same action stays visible as **Reinstall Generation** while Voice Studio
+   is running, including startup-service mode; it stops/restarts the appropriate
+   server automatically. **What's New** is also always available in the sidebar
+   and displays the installed checkout's complete release notes offline.
 5. For cloud speech, open **Settings → Cloud audio providers**. For ElevenLabs,
    add each account to the pool on the main Hub Mac, check balances, and enable
    paid usage. Then use **Voices → Edit** to map that same voice separately for

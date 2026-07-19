@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.14] — 2026-07-19
+
+### Improved — persistent generation maintenance and release notes
+
+- Kept **Install Generation / Reinstall Generation** visible while the regular
+  Pinokio server is running, while it is still starting, and in startup-service
+  mode. The existing installer continues to stop and restart the appropriate
+  server automatically, so no manual shutdown is required.
+- Added an always-visible **What's New** launcher action in every menu state.
+  It displays the installed checkout's complete `CHANGELOG.md` locally, so
+  release details remain available even without opening GitHub.
+- Added dynamic-menu regression coverage for regular, startup-service,
+  starting, stopped, updating, and first-install states.
+
 ## [1.20.13] — 2026-07-19
 
 ### Added — immutable Qwen worker revision evidence
