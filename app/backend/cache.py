@@ -35,6 +35,27 @@ def repo_cache_dir(repo: str) -> Path:
     return hub_dir() / safe
 
 
+def snapshot_revision(repo: str) -> str | None:
+    """Return the immutable revision of the locally selected HF snapshot."""
+    repo_dir = repo_cache_dir(repo)
+    main_ref = repo_dir / "refs" / "main"
+    try:
+        revision = main_ref.read_text().strip()
+    except (FileNotFoundError, OSError):
+        revision = ""
+    if revision and (repo_dir / "snapshots" / revision).is_dir():
+        return revision
+    snapshots = repo_dir / "snapshots"
+    try:
+        candidates = sorted(
+            path.name for path in snapshots.iterdir()
+            if path.is_dir() and len(path.name) == 40
+        )
+    except (FileNotFoundError, OSError):
+        return None
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _unresolved_incomplete_entries(repo: str) -> list[Path]:
     """Return partial blobs that do not already have a completed sibling.
 

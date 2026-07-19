@@ -1107,6 +1107,8 @@ class GenerationJob:
     error: Optional[str] = None
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
+    model_revision: Optional[str] = None
+    voice_revision: Optional[str] = None
     provider: Optional[str] = None          # cloud provider key (None = local engine)
     client_request_params: Optional[dict] = None  # immutable idempotency comparison
     provider_account_id: Optional[str] = None  # credential bound to this paid call
@@ -1141,6 +1143,8 @@ class GenerationJob:
             "error": self.error,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "model_revision": self.model_revision,
+            "voice_revision": self.voice_revision,
             "duration_seconds": duration,
         }
 
@@ -1478,6 +1482,7 @@ class GenerationManager:
                         output_path = OUTPUT_DIR / f"{job.job_id}.wav"
                         self._dispatch_txt2speech(job, output_path)
                     _enforce_output_duration_limit(output_path, job.params)
+                    self._record_qwen_revision_evidence(job)
                     if job.cancel_event.is_set():
                         job.state = "cancelled"
                     else:
@@ -1527,6 +1532,34 @@ class GenerationManager:
                     break
             job.finished_at = time.time()
             self._persist()
+
+    @staticmethod
+    def _record_qwen_revision_evidence(job: GenerationJob) -> None:
+        """Fence Qwen output to the exact cached weights and voice bytes."""
+        if job.provider:
+            return
+        repo = str(job.params.get("repo") or "").strip()
+        if "qwen3-tts" not in repo.lower():
+            return
+        revision = cache.snapshot_revision(repo)
+        if not revision:
+            raise RuntimeError("Qwen3-TTS model revision evidence is unavailable")
+        job.model_revision = revision
+        mode = _qwen3_mode_from_repo(repo)
+        if mode == "custom":
+            speaker = str(job.params.get("preset_speaker") or "").strip().lower()
+            if not speaker:
+                raise RuntimeError("Qwen3-TTS preset voice evidence is unavailable")
+            job.voice_revision = f"{revision}:preset:{speaker}"
+            return
+        if mode == "clone":
+            from . import voices as voices_module
+
+            voice_id = str(job.params.get("voice_library_id") or "").strip()
+            voice = voices_module.library.get(voice_id)
+            if voice is None or not voice.audio_sha256:
+                raise RuntimeError("Qwen3-TTS cloned voice revision evidence is unavailable")
+            job.voice_revision = voice.audio_sha256.lower()
 
     def _run_cloud(self, job: "GenerationJob") -> Path:
         """Cloud-provider synthesis. Returns the written audio Path.
@@ -2636,6 +2669,8 @@ class GenerationManager:
             "error": job.error,
             "started_at": job.started_at,
             "finished_at": job.finished_at,
+            "model_revision": job.model_revision,
+            "voice_revision": job.voice_revision,
         }
 
     @staticmethod
@@ -2662,6 +2697,8 @@ class GenerationManager:
                 error=raw.get("error"),
                 started_at=raw.get("started_at"),
                 finished_at=raw.get("finished_at"),
+                model_revision=raw.get("model_revision"),
+                voice_revision=raw.get("voice_revision"),
             )
         except Exception:
             return None

@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.13] — 2026-07-19
+
+### Added — immutable Qwen worker revision evidence
+
+- Successful Qwen jobs now report the exact locally cached Hugging Face model
+  snapshot revision.
+- CustomVoice jobs report a deterministic preset revision; Base cloning jobs
+  report the synchronized reference audio SHA-256 as the voice revision.
+- Revision evidence is persisted in job history so Studio Hub can safely
+  reconcile an already-completed generation after a network interruption.
+
 ## [1.20.12] — 2026-07-19
 
 ### Fixed — caller-enforced audio duration ceiling
