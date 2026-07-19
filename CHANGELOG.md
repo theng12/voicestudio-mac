@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.20.16] — 2026-07-19
+
+### Fixed — release notes are available inside the WebUI
+
+- Added a **What's New** action beside the running version in the Voice Studio
+  header. It opens a responsive in-app modal and closes by button, backdrop, or
+  Escape without navigating away from active work.
+- Release entries are read from the installed `CHANGELOG.md` through a public,
+  read-only API, so every future release appears automatically and always
+  matches the version actually installed on that Mac.
+
+### Verification
+
+- Added API and frontend-contract regression coverage, ran the full Python test
+  suite, compiled the backend, and syntax-checked the frontend JavaScript.
+  Generation, downloads, dependencies, and launcher behavior were checked and
+  deliberately left unchanged because the omission was isolated to the WebUI.
+
 ## [1.20.15] — 2026-07-19
 
 ### Added — automatic local output protection

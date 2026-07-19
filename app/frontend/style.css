@@ -154,6 +154,8 @@ input {
 }
 
 .status { margin-left: auto; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.whats-new-button { padding: 4px 8px; font-size: 11px; color: var(--accent); background: transparent; border-color: var(--border); white-space: nowrap; }
+.whats-new-button:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .dot.ok { background: var(--ok); }
 .dot.bad { background: var(--bad); }
@@ -916,6 +918,16 @@ input.num-input-wide { width: 130px; }
 .modal h2 { margin: 0 0 8px; }
 .modal .facts { padding-left: 18px; margin: 8px 0; color: var(--muted); }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.modal.release-dialog { max-width: 720px; max-height: min(780px, 90vh); overflow-y: auto; padding: 22px; }
+.release-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.release-dialog-head h2 { margin: 3px 0 0; font-size: 24px; }
+.release-dialog-head p { margin: 4px 0 0; }
+.release-empty { color: var(--muted); padding: 24px 0 8px; }
+.release-entry { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.release-entry:last-child { border-bottom: 0; }
+.release-entry h3 { margin: 0 0 8px; font-size: 14px; color: var(--accent); }
+.release-entry ul { margin: 0; padding-left: 20px; color: var(--muted); }
+.release-entry li { margin: 6px 0; }
 
 /* ──────── Dependency diagnostics block ──────── */
 .diag {

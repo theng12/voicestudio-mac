@@ -133,6 +133,8 @@ Voice Studio KH uses [Semantic Versioning](https://semver.org/) with this projec
 
 Current version is stored at the project root in [`VERSION`](VERSION). The full release history with what changed in each version lives in [`CHANGELOG.md`](CHANGELOG.md).
 
+The WebUI version area includes **What's New**, which opens the installed release history in a modal without leaving Voice Studio.
+
 The WebUI footer shows the running version. The same value is also surfaced at:
 
 - `GET /api/version` → `{"app_version": "1.0.0", "title": "Voice Studio KH"}`

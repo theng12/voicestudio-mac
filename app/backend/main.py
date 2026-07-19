@@ -19,6 +19,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -355,6 +356,43 @@ def app_release_version() -> dict:
         "app_version": APP_VERSION,
         "title": app.title,
     }
+
+
+@app.get("/api/release-notes")
+def release_notes() -> dict:
+    """Return recent installed release notes from the checked-out changelog."""
+    try:
+        changelog = Path(__file__).resolve().parent.parent.parent / "CHANGELOG.md"
+        text = changelog.read_text(encoding="utf-8")
+    except OSError:
+        return {"current_version": APP_VERSION, "releases": []}
+
+    releases = []
+    for section in re.split(r"(?m)^##\s+", text)[1:]:
+        lines = section.splitlines()
+        if not lines:
+            continue
+        heading = lines[0].strip()
+        match = re.search(r"\d+\.\d+\.\d+", heading)
+        if not match:
+            continue
+        details = []
+        for line in lines[1:]:
+            value = line.strip()
+            if value.startswith("- "):
+                details.append(re.sub(r"[`*]", "", value[2:].strip()))
+            elif value.startswith("### "):
+                details.append(re.sub(r"[`*]", "", value[4:].strip()))
+            if len(details) >= 12:
+                break
+        releases.append({
+            "version": match.group(0),
+            "heading": heading,
+            "details": details,
+        })
+        if len(releases) >= 8:
+            break
+    return {"current_version": APP_VERSION, "releases": releases}
 
 
 @app.get("/api/auto-update/status")

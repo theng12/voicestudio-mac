@@ -9,6 +9,9 @@ function studio() {
     // don't muddle together with the speech-to-text downloads.
     modelsSubtab: "generator",
     health: { ok: false },
+    showWhatsNew: false,
+    releaseNotesCurrent: "",
+    releaseNotes: [],
     // Hardware snapshot from /api/system — populated once on init().
     // Used by the Models tab to render per-card fit chips comparing each
     // model's memory floor against the user's actual RAM.
@@ -336,6 +339,7 @@ function studio() {
     },
 
         async init() {
+      await this.refreshReleaseNotes();
       await this.refreshHealth();
       await this.refreshSystem();
       // Seed the RAM-slider budget from detected RAM (or a saved override)
@@ -400,7 +404,8 @@ function studio() {
           e.preventDefault();
           this.safeSubmit();
         } else if (e.key === "Escape") {
-          if (this.pendingDownload) this.pendingDownload = null;
+          if (this.showWhatsNew) this.showWhatsNew = false;
+          else if (this.pendingDownload) this.pendingDownload = null;
         }
       });
 
@@ -1387,6 +1392,18 @@ function studio() {
         this.health = await r.json();
       } catch {
         this.health = { ok: false };
+      }
+    },
+
+    async refreshReleaseNotes() {
+      try {
+        const r = await fetch("/api/release-notes", { cache: "no-store" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        this.releaseNotesCurrent = data.current_version || this.health.app_version || "unknown";
+        this.releaseNotes = Array.isArray(data.releases) ? data.releases : [];
+      } catch {
+        this.releaseNotes = [];
       }
     },
 

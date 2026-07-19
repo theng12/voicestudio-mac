@@ -47,6 +47,7 @@
     </nav>
     <div class="status">
       <span class="version-badge" x-text="'v' + health.app_version" x-show="health.app_version" x-cloak></span>
+      <button class="whats-new-button" @click="showWhatsNew=true; if(!releaseNotes.length) refreshReleaseNotes()" title="View release notes">What's New</button>
       <span class="dot" :class="health.ok ? 'ok' : 'bad'"></span>
       <span x-text="health.ok ? 'online' : 'offline'"></span>
     </div>
@@ -2653,6 +2654,23 @@
         </div>
       </div>
     </template>
+  </div>
+
+  <!-- Release notes follow the installed CHANGELOG instead of a hardcoded frontend list. -->
+  <div class="modal-backdrop" x-show="showWhatsNew" x-cloak @click.self="showWhatsNew=false" role="dialog" aria-modal="true" aria-labelledby="whats-new-title">
+    <section class="modal release-dialog">
+      <div class="release-dialog-head">
+        <div><span class="models-eyebrow">Release notes</span><h2 id="whats-new-title">What's New</h2><p class="muted" x-text="releaseNotes.length ? 'Installed version: v' + releaseNotesCurrent : 'Loading release notes…'"></p></div>
+        <button class="ghost" @click="showWhatsNew=false" aria-label="Close release notes">Close</button>
+      </div>
+      <template x-if="!releaseNotes.length"><p class="release-empty">Release details are loading. If this stays empty, the installed changelog is unavailable.</p></template>
+      <template x-for="release in releaseNotes" :key="release.version + release.heading">
+        <article class="release-entry">
+          <h3 x-text="'v' + release.version + ' · ' + release.heading.replace(/^\[[^\]]+\]\s*—?\s*/, '')"></h3>
+          <ul><template x-for="detail in release.details" :key="detail"><li x-text="detail"></li></template></ul>
+        </article>
+      </template>
+    </section>
   </div>
 
   <!-- ─────────── IN-APP CONFIRM MODAL (webview-safe replacement for confirm()) ─────────── -->

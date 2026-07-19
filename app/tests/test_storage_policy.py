@@ -1,10 +1,11 @@
 import os
+from pathlib import Path
 import time
 
 from fastapi.testclient import TestClient
 
 from backend import storage_policy
-from backend.main import FLEET_TOKEN, app
+from backend.main import APP_VERSION, FLEET_TOKEN, app
 
 
 class Job:
@@ -81,3 +82,22 @@ def test_policy_api_round_trip(tmp_path, monkeypatch):
     })
     assert response.status_code == 200
     assert response.json()["retention_days"] == 3
+
+
+def test_release_notes_follow_installed_changelog():
+    client = TestClient(app)
+    response = client.get("/api/release-notes")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current_version"] == APP_VERSION
+    assert data["releases"][0]["version"] == APP_VERSION
+    assert data["releases"][0]["details"]
+
+
+def test_webui_exposes_whats_new_modal_next_to_version():
+    root = Path(__file__).parents[1]
+    html = (root / "frontend" / "index.html").read_text(encoding="utf-8")
+    script = (root / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert 'class="whats-new-button"' in html
+    assert 'aria-labelledby="whats-new-title"' in html
+    assert 'fetch("/api/release-notes"' in script

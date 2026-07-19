@@ -15,7 +15,7 @@ API_ROOT = LAUNCHER_ROOT.parent
 HUB_TOKEN_FILE = API_ROOT / "studiohub-mac" / ".fleet_token"
 SHARED_TOKEN_FILE = API_ROOT / ".kh_studio_token"
 COOKIE_NAME = "kh_studio_token"
-PUBLIC_PATHS = {"/", "/api/health", "/api/version", "/api/capabilities", "/api/update-status"}
+PUBLIC_PATHS = {"/", "/api/health", "/api/version", "/api/release-notes", "/api/capabilities", "/api/update-status"}
 
 
 def _read_private(path: Path) -> str | None:
