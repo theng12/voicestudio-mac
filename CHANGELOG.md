@@ -10,6 +10,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.5] — 2026-07-20
+
+### Fixed — release guard now requires a real version increase
+
+- Tightened `release_metadata_check.py`: touching `VERSION` is no longer
+  enough. Any shipped change must move the semantic version numerically forward
+  from its Git baseline as well as provide the matching **What's New** entry.
+
+### Verification
+
+- Added version-increase regression coverage and ran the release checker and
+  full Voice Studio suite. **Just run Update.**
+
 ## [1.21.4] — 2026-07-20
 
 ### Added — enforced release notes for every shipped change

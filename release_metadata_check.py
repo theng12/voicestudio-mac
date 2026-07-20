@@ -36,6 +36,24 @@ def current_version() -> str:
     return version
 
 
+def version_key(version: str) -> tuple[int, int, int]:
+    """Return a SemVer core suitable for the project's numeric release policy."""
+    if not VERSION_RE.fullmatch(version):
+        raise ReleaseMetadataError(f"Version must be semantic version X.Y.Z, got {version!r}.")
+    return tuple(int(part) for part in version.split("."))  # type: ignore[return-value]
+
+
+def version_at_revision(revision: str) -> str:
+    try:
+        version = subprocess.check_output(
+            ["git", "show", f"{revision}:VERSION"], cwd=ROOT, text=True, stderr=subprocess.PIPE
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ReleaseMetadataError(f"Could not read VERSION at {revision}: {exc}") from exc
+    version_key(version)
+    return version
+
+
 def current_release_section(version: str) -> str:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     releases = list(RELEASE_RE.finditer(changelog))
@@ -100,7 +118,9 @@ def is_shipped_path(path: str) -> bool:
     }
 
 
-def validate_change_set(paths: set[str]) -> None:
+def validate_change_set(
+    paths: set[str], *, baseline_version: str | None = None, release_version: str | None = None
+) -> None:
     """Require release files whenever changed paths alter the shipped product."""
     shipped = sorted(path for path in paths if is_shipped_path(path))
     if not shipped:
@@ -111,6 +131,23 @@ def validate_change_set(paths: set[str]) -> None:
             "Shipped changes require a VERSION bump and a clear CHANGELOG.md entry; "
             f"missing: {', '.join(sorted(missing))}. Changed product files: {', '.join(shipped)}"
         )
+    if baseline_version is not None and release_version is not None:
+        if version_key(release_version) <= version_key(baseline_version):
+            raise ReleaseMetadataError(
+                f"Shipped changes require VERSION to increase: {baseline_version} → {release_version}."
+            )
+
+
+def range_endpoints(revision_range: str | None) -> tuple[str, str]:
+    """Return the before/after revisions for a simple A..B comparison."""
+    if not revision_range:
+        return ("HEAD", "WORKTREE")
+    if ".." not in revision_range:
+        raise ReleaseMetadataError("--range must be a simple A..B range, for example HEAD~1..HEAD.")
+    before, after = revision_range.split("..", 1)
+    if not before or not after or ".." in after:
+        raise ReleaseMetadataError("--range must be a simple A..B range, for example HEAD~1..HEAD.")
+    return before, after
 
 
 def main() -> int:
@@ -120,7 +157,10 @@ def main() -> int:
     try:
         validate_current_release()
         paths = changed_paths(args.range)
-        validate_change_set(paths)
+        before, after = range_endpoints(args.range)
+        baseline = version_at_revision(before)
+        release = current_version() if after == "WORKTREE" else version_at_revision(after)
+        validate_change_set(paths, baseline_version=baseline, release_version=release)
     except ReleaseMetadataError as exc:
         print(f"release metadata check failed: {exc}", file=sys.stderr)
         return 1

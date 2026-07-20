@@ -154,7 +154,7 @@ Every shipped app, catalog, launcher, dependency, service, or worker-contract
 change must increase `VERSION` and add a clear top changelog entry. Run
 `python3 release_metadata_check.py` before committing: it verifies that the
 installed version and **What's New** entry agree, and that product changes have
-both release files. Use a patch bump for compatible fixes/small changes, a
+both release files and a numerically higher semantic version. Use a patch bump for compatible fixes/small changes, a
 minor bump for features, engines, or model families, and a major bump for a
 breaking or reinstall-required change.
 
