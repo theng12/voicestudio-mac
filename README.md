@@ -11,12 +11,13 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   Orpheus, KittenTTS, VibeVoice, Voxtral, and Marvis.
 - **Apple Silicon first** — the priority families use curated MLX tiers instead
   of presenting every redundant precision. Qwen3 includes 0.6B and 1.7B Base
-  voice cloning, with long cloned scripts automatically rendered in short
-  sentence-aware sections and joined into one chapter file. Because the current
+  voice cloning, preset speakers, and VoiceDesign. Long Qwen scripts are
+  automatically rendered in short sentence-aware sections and joined into one
+  chapter file entirely inside Voice Studio. Because the current
   MLX Qwen engine ignores its native speed argument, Voice Studio applies the
   selected pace to the finished WAV with pitch-preserving tempo adjustment.
-  Qwen3 also includes 1.7B preset voices and 1.7B VoiceDesign. Chatterbox and
-  OmniVoice expose their native cloning and quality controls. Kokoro keeps one
+  The 1.7B Qwen tiers require a 16 GB Mac; 0.6B remains the qualified 8 GB tier.
+  Chatterbox and OmniVoice expose their native cloning and quality controls. Kokoro keeps one
   full-quality MLX model with all 54 voices, nine language variants, speed, and
   equal voice blending. VoxCPM2 keeps a fast 4-bit tier and a bf16 final-render
   tier, both with voice design, transcript-aware cloning, sentence-safe long-form
@@ -79,6 +80,12 @@ open so they can be inspected or restarted manually.
 
 Operators can inspect the current state at `GET /api/generate/memory`, or find
 the same snapshot under `GET /api/generate/diagnostics` → `memory`.
+
+`GET /api/health` reports whether Voice Studio is busy, the exact loaded model
+and runtime slot, and live host memory. Every local `/api/catalog` row reports
+dependency readiness, downloaded availability, loaded state, the cold/loaded
+free-memory requirements, the minimum total unified memory, and whether the
+model is eligible on the current machine at that moment.
 
 Settings now also provides model-memory modes. **Performance** is the default
 and preserves loaded local TTS and Whisper models for faster repeat work.
@@ -270,6 +277,23 @@ transcribe shared voices in Hub rather than calling these directly:
 
 Remote calls require the fleet's `X-Studio-Token`. Provider-specific voice IDs
 and generated embeddings are intentionally not distributed.
+
+### Final TTS artifact contract
+
+Qwen3-TTS (preset, clone, and VoiceDesign) and VoxCPM2 accept one logical
+long-form request. Voice Studio alone splits it at sentence-safe boundaries,
+renders private temporary sections, joins every section into one WAV, then
+applies a requested pitch-preserving speed adjustment once to that joined WAV.
+Temporary section files never have an API route and are deleted before the job
+becomes terminal.
+
+`GET /api/generate/jobs/{id}` exposes `output_url` only after the final WAV has
+passed validation and been atomically published. Successful local Qwen/VoxCPM2
+jobs include the internal model repository, immutable cached runtime revision,
+applicable voice-library ID and audio-hash voice revision, runtime, decoded
+duration, sample rate, channels, byte size, SHA-256, media type, and format.
+Studio Hub supplies the assigned worker identity and independently verifies the
+same final bytes; GenStudio verifies them again before durable publication.
 
 ## Folder layout
 

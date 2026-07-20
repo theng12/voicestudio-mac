@@ -81,6 +81,7 @@ survive server restarts.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 from importlib import metadata
 import json
@@ -142,6 +143,17 @@ def _memory_snapshot() -> Optional[dict]:
         }
     except Exception:
         return None
+
+
+def _required_free_memory_gb(model_entry, *, loaded: bool) -> float:
+    """Use the exact same RAM estimate for inventory and admission."""
+    model_gb = max(0.5, float(model_entry.size_gb or 0.5))
+    required = (
+        max(1.5, model_gb * 0.45) + MEMORY_HEADROOM_GB
+        if loaded
+        else model_gb + MEMORY_HEADROOM_GB
+    )
+    return round(required, 2)
 
 
 def _is_memory_failure(exc: BaseException) -> bool:
@@ -811,7 +823,7 @@ def _split_long_text_unit(text: str, max_chars: int) -> list[str]:
 def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
     """Return safe independent synthesis sections for long-form local TTS."""
     max_chars: Optional[int] = None
-    if family == "qwen3-tts" and _qwen3_mode_from_repo(repo) == "clone":
+    if family == "qwen3-tts":
         max_chars = _QWEN_CLONE_CHUNK_CHARS
     elif family == "chatterbox-mlx":
         max_chars = (
@@ -1126,6 +1138,14 @@ class GenerationJob:
     finished_at: Optional[float] = None
     model_revision: Optional[str] = None
     voice_revision: Optional[str] = None
+    media_type: Optional[str] = None
+    format: Optional[str] = None
+    bytes: Optional[int] = None
+    sha256: Optional[str] = None
+    audio_duration_s: Optional[float] = None
+    audio_duration_ms: Optional[int] = None
+    sample_rate_hz: Optional[int] = None
+    channels: Optional[int] = None
     provider: Optional[str] = None          # cloud provider key (None = local engine)
     client_request_params: Optional[dict] = None  # immutable idempotency comparison
     provider_account_id: Optional[str] = None  # credential bound to this paid call
@@ -1161,8 +1181,22 @@ class GenerationJob:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "model_revision": self.model_revision,
+            # Explicit alias used by GenStudio: this is the immutable cached
+            # model snapshot, not a mutable branch name or display version.
+            "runtime_revision": self.model_revision,
+            "internal_model_id": self.params.get("repo"),
+            "voice_library_id": self.params.get("voice_library_id"),
             "voice_revision": self.voice_revision,
             "duration_seconds": duration,
+            "runtime_s": duration,
+            "media_type": self.media_type,
+            "format": self.format,
+            "bytes": self.bytes,
+            "sha256": self.sha256,
+            "audio_duration_s": self.audio_duration_s,
+            "audio_duration_ms": self.audio_duration_ms,
+            "sample_rate_hz": self.sample_rate_hz,
+            "channels": self.channels,
         }
 
 
@@ -1211,6 +1245,37 @@ class GenerationManager:
         if self._f5_tts_model is not None and self._f5_tts_model_repo:
             loaded.append((self._f5_tts_model_repo, "f5-tts"))
         return loaded
+
+    @staticmethod
+    def runtime_ready_for_family(family: str) -> bool:
+        if family in MLX_AUDIO_FAMILIES:
+            return _have_mlx_audio()
+        if family == "f5-tts":
+            return _have_f5_tts()
+        return False
+
+    def model_runtime_status(self, model_entry) -> dict:
+        """Truthful per-model load, dependency, and live-memory inventory."""
+        loaded_repos = {repo for repo, _runtime in self.loaded_model_keys()}
+        loaded = model_entry.repo in loaded_repos
+        cold_required = _required_free_memory_gb(model_entry, loaded=False)
+        loaded_required = _required_free_memory_gb(model_entry, loaded=True)
+        required = loaded_required if loaded else cold_required
+        snapshot = _memory_snapshot()
+        memory_eligible = None
+        if snapshot is not None:
+            memory_eligible = (
+                float(snapshot["total_gb"]) >= float(model_entry.min_unified_memory_gb)
+                and float(snapshot["available_gb"]) >= required
+            )
+        return {
+            "loaded": loaded,
+            "runtime_ready": self.runtime_ready_for_family(model_entry.family),
+            "cold_load_required_free_memory_gb": cold_required,
+            "loaded_required_free_memory_gb": loaded_required,
+            "required_free_memory_gb": required,
+            "memory_eligible": memory_eligible,
+        }
 
     def last_activity_at(self) -> Optional[float]:
         return self._last_model_activity_at
@@ -1290,7 +1355,11 @@ class GenerationManager:
         count = 0
         if OUTPUT_DIR.exists():
             for p in OUTPUT_DIR.iterdir():
-                if not p.is_file() or p.suffix.lower() not in _AUDIO_OUTPUT_SUFFIXES:
+                if (
+                    p.name.startswith(".")
+                    or not p.is_file()
+                    or p.suffix.lower() not in _AUDIO_OUTPUT_SUFFIXES
+                ):
                     continue
                 try:
                     total += p.stat().st_size
@@ -1413,6 +1482,15 @@ class GenerationManager:
             print("[gen] memory guard unavailable; continuing without live RAM probe", flush=True)
             return
 
+        minimum_total = float(getattr(model_entry, "min_unified_memory_gb", 0) or 0)
+        total = float(snapshot["total_gb"])
+        if total < minimum_total:
+            raise MemoryGuardError(
+                f"Memory guard paused this job: {model_entry.repo} requires at least "
+                f"{minimum_total:g} GB unified memory, but this Mac reports {total:.1f} GB. "
+                "Choose a smaller model or route the job to a larger Mac."
+            )
+
         cached = (
             (model_entry.family in MLX_AUDIO_FAMILIES
              and self._mlx_audio_model_repo == model_entry.repo
@@ -1421,12 +1499,7 @@ class GenerationManager:
                 and self._f5_tts_model_repo == model_entry.repo
                 and self._f5_tts_model is not None)
         )
-        model_gb = max(0.5, float(model_entry.size_gb or 0.5))
-        required = (
-            max(1.5, model_gb * 0.45) + MEMORY_HEADROOM_GB
-            if cached
-            else model_gb + MEMORY_HEADROOM_GB
-        )
+        required = _required_free_memory_gb(model_entry, loaded=cached)
         available = float(snapshot["available_gb"])
         if available < required:
             raise MemoryGuardError(
@@ -1519,12 +1592,20 @@ class GenerationManager:
                 try:
                     if job.provider:
                         output_path = self._run_cloud(job)
+                        _enforce_output_duration_limit(output_path, job.params)
                     else:
-                        output_path = OUTPUT_DIR / f"{job.job_id}.wav"
+                        final_output_path = OUTPUT_DIR / f"{job.job_id}.wav"
+                        output_path = OUTPUT_DIR / f".{job.job_id}.{uuid.uuid4().hex}.partial.wav"
                         self._dispatch_txt2speech(job, output_path)
-                    _enforce_output_duration_limit(output_path, job.params)
-                    self._record_qwen_revision_evidence(job)
+                        _enforce_output_duration_limit(output_path, job.params)
+                        self._record_local_revision_evidence(job)
+                        self._record_final_audio_evidence(job, output_path)
+                        if not job.cancel_event.is_set():
+                            os.replace(output_path, final_output_path)
+                            output_path = final_output_path
                     if job.cancel_event.is_set():
+                        if output_path is not None:
+                            output_path.unlink(missing_ok=True)
                         job.state = "cancelled"
                     else:
                         job.output_path = str(output_path.resolve())
@@ -1579,32 +1660,66 @@ class GenerationManager:
             self._persist()
 
     @staticmethod
-    def _record_qwen_revision_evidence(job: GenerationJob) -> None:
-        """Fence Qwen output to the exact cached weights and voice bytes."""
+    def _record_local_revision_evidence(job: GenerationJob) -> None:
+        """Fence Qwen/VoxCPM output to exact cached weights and voice bytes."""
         if job.provider:
             return
         repo = str(job.params.get("repo") or "").strip()
-        if "qwen3-tts" not in repo.lower():
+        normalized_repo = repo.lower()
+        is_qwen = "qwen3-tts" in normalized_repo
+        is_voxcpm = "voxcpm2" in normalized_repo
+        if not (is_qwen or is_voxcpm):
             return
         revision = cache.snapshot_revision(repo)
         if not revision:
-            raise RuntimeError("Qwen3-TTS model revision evidence is unavailable")
+            raise RuntimeError("Local TTS model revision evidence is unavailable")
         job.model_revision = revision
-        mode = _qwen3_mode_from_repo(repo)
-        if mode == "custom":
+        mode = _qwen3_mode_from_repo(repo) if is_qwen else "voxcpm"
+        if is_qwen and mode == "custom":
             speaker = str(job.params.get("preset_speaker") or "").strip().lower()
             if not speaker:
                 raise RuntimeError("Qwen3-TTS preset voice evidence is unavailable")
             job.voice_revision = f"{revision}:preset:{speaker}"
             return
-        if mode == "clone":
+        voice_id = str(job.params.get("voice_library_id") or "").strip()
+        if (is_qwen and mode == "clone") or (is_voxcpm and voice_id):
             from . import voices as voices_module
 
-            voice_id = str(job.params.get("voice_library_id") or "").strip()
             voice = voices_module.library.get(voice_id)
             if voice is None or not voice.audio_sha256:
-                raise RuntimeError("Qwen3-TTS cloned voice revision evidence is unavailable")
+                raise RuntimeError("Cloned voice revision evidence is unavailable")
             job.voice_revision = voice.audio_sha256.lower()
+
+    @staticmethod
+    def _record_qwen_revision_evidence(job: GenerationJob) -> None:
+        """Compatibility wrapper retained for existing Qwen callers/tests."""
+        GenerationManager._record_local_revision_evidence(job)
+
+    @staticmethod
+    def _record_final_audio_evidence(job: GenerationJob, output_path: Path) -> None:
+        """Derive immutable media facts from the one final local WAV."""
+        import soundfile as sf
+
+        info = sf.info(str(output_path))
+        if (
+            info.format != "WAV"
+            or info.frames <= 0
+            or info.samplerate <= 0
+            or info.channels not in (1, 2)
+        ):
+            raise RuntimeError("Generated audio is not a valid mono/stereo WAV")
+        payload = output_path.read_bytes()
+        if not payload.startswith(b"RIFF") or payload[8:12] != b"WAVE":
+            raise RuntimeError("Generated audio has an invalid WAV container")
+        duration_s = info.frames / info.samplerate
+        job.media_type = "audio/wav"
+        job.format = "wav"
+        job.bytes = len(payload)
+        job.sha256 = hashlib.sha256(payload).hexdigest()
+        job.audio_duration_s = round(duration_s, 6)
+        job.audio_duration_ms = round(duration_s * 1000)
+        job.sample_rate_hz = info.samplerate
+        job.channels = info.channels
 
     def _run_cloud(self, job: "GenerationJob") -> Path:
         """Cloud-provider synthesis. Returns the written audio Path.
@@ -2720,6 +2835,14 @@ class GenerationManager:
             "finished_at": job.finished_at,
             "model_revision": job.model_revision,
             "voice_revision": job.voice_revision,
+            "media_type": job.media_type,
+            "format": job.format,
+            "bytes": job.bytes,
+            "sha256": job.sha256,
+            "audio_duration_s": job.audio_duration_s,
+            "audio_duration_ms": job.audio_duration_ms,
+            "sample_rate_hz": job.sample_rate_hz,
+            "channels": job.channels,
         }
 
     @staticmethod
@@ -2748,6 +2871,14 @@ class GenerationManager:
                 finished_at=raw.get("finished_at"),
                 model_revision=raw.get("model_revision"),
                 voice_revision=raw.get("voice_revision"),
+                media_type=raw.get("media_type"),
+                format=raw.get("format"),
+                bytes=raw.get("bytes"),
+                sha256=raw.get("sha256"),
+                audio_duration_s=raw.get("audio_duration_s"),
+                audio_duration_ms=raw.get("audio_duration_ms"),
+                sample_rate_hz=raw.get("sample_rate_hz"),
+                channels=raw.get("channels"),
             )
         except Exception:
             return None

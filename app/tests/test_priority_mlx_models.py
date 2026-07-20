@@ -96,6 +96,26 @@ def test_memory_preflight_refuses_when_live_headroom_is_too_low(monkeypatch) -> 
         manager._memory_preflight(SimpleNamespace(repo="repo", family="voxcpm-mlx", size_gb=2.3))
 
 
+def test_qwen_17b_requires_a_16gb_machine_even_when_free_memory_looks_sufficient(
+    monkeypatch,
+) -> None:
+    manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_model = None
+    manager._mlx_audio_model_repo = None
+    manager._f5_tts_model = None
+    manager._f5_tts_model_repo = None
+    model = catalog.get_model("mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit")
+    assert model is not None and model.min_unified_memory_gb == 16
+    monkeypatch.setattr(
+        generation,
+        "_memory_snapshot",
+        lambda: {"total_gb": 8.0, "available_gb": 6.0, "used_gb": 2.0, "percent": 25.0},
+    )
+
+    with pytest.raises(generation.MemoryGuardError, match="16 GB unified memory"):
+        manager._memory_preflight(model)
+
+
 def test_kokoro_catalog_is_single_mlx_multilingual_release() -> None:
     kokoro = [entry for entry in catalog.CATALOG if "kokoro" in entry.family]
     assert [entry.repo for entry in kokoro] == ["mlx-community/Kokoro-82M-bf16"]
@@ -438,6 +458,7 @@ def test_qwen_clone_long_sentence_falls_back_to_word_boundaries() -> None:
     ("family", "repo", "expected_limit"),
     [
         ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit", 360),
+        ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit", 360),
         ("chatterbox-mlx", "mlx-community/chatterbox-8bit", 500),
         ("chatterbox-mlx", "mlx-community/chatterbox-turbo-4bit", 400),
         ("voxcpm-mlx", "mlx-community/VoxCPM2-4bit", 400),
@@ -595,6 +616,68 @@ def test_voxcpm_long_form_speed_runs_once_after_join(
     assert " ".join(generated_sections) == " ".join(text.split())
     assert tempo_calls == [(output, 0.93, "voxcpm-mlx")]
     assert sf.info(output).frames > 480
+
+
+def test_qwen_regular_long_form_speed_runs_once_after_join(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import importlib
+    import soundfile as sf
+
+    generate_module = importlib.import_module("mlx_audio.tts.generate")
+    generated_sections: list[str] = []
+    tempo_calls: list[tuple[Path, float, str]] = []
+
+    def fake_generate_audio(*, model, output_path, join_audio, **kwargs) -> None:
+        assert model == "qwen-regular-model"
+        assert join_audio is True
+        generated_sections.append(kwargs["text"])
+        sf.write(
+            Path(output_path) / "audio.wav",
+            np.ones(240, dtype=np.float32),
+            24000,
+            subtype="PCM_16",
+        )
+
+    def fake_apply_speed(path: Path, speed: float, family: str) -> bool:
+        assert path.exists()
+        tempo_calls.append((path, speed, family))
+        return True
+
+    monkeypatch.setattr(generate_module, "generate_audio", fake_generate_audio)
+    monkeypatch.setattr(generation, "_apply_mlx_output_speed", fake_apply_speed)
+    monkeypatch.setattr(generation, "_release_device_memory", lambda device: None)
+
+    manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_get_model = lambda repo: "qwen-regular-model"
+    manager._resolve_mlx_kwargs = (
+        lambda mode, family, model_entry, params, gen_kwargs: "custom (speaker=Ryan)"
+    )
+    text = " ".join(
+        f"Sentence {index} stays safely inside the Qwen preset long-form renderer."
+        for index in range(1, 25)
+    )
+    job = generation.GenerationJob(
+        job_id="qwen-regular-long-speed",
+        mode="txt2speech",
+        params={"text": text, "speed": 0.95, "seed": 11, "preset_speaker": "Ryan"},
+    )
+    output = tmp_path / "qwen-regular-long.wav"
+
+    manager._generate_mlx_audio(
+        job,
+        SimpleNamespace(
+            repo="mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+            family="qwen3-tts",
+            sample_rate_hz=24000,
+        ),
+        output,
+    )
+
+    assert len(generated_sections) > 1
+    assert " ".join(generated_sections) == " ".join(text.split())
+    assert tempo_calls == [(output, 0.95, "qwen3-tts")]
+    assert sf.info(output).frames > 240
 
 
 def test_qwen_duration_ceiling_accounts_for_final_speed() -> None:

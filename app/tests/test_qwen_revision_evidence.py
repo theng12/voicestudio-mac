@@ -44,3 +44,35 @@ def test_qwen_clone_records_reference_audio_digest(monkeypatch):
 
     assert job.model_revision == revision
     assert job.voice_revision == digest
+
+
+def test_voxcpm_clone_records_model_and_reference_revisions(monkeypatch):
+    revision = "3" * 40
+    digest = "b" * 64
+    monkeypatch.setattr(cache, "snapshot_revision", lambda _repo: revision)
+    monkeypatch.setattr(
+        voices.library,
+        "get",
+        lambda voice_id: (
+            SimpleNamespace(audio_sha256=digest)
+            if voice_id == "voice-library-1"
+            else None
+        ),
+    )
+    job = generation.GenerationJob(
+        job_id="voxcpm-proof",
+        mode="txt2speech",
+        params={
+            "repo": "mlx-community/VoxCPM2-4bit",
+            "voice_library_id": "voice-library-1",
+        },
+    )
+
+    generation.GenerationManager._record_local_revision_evidence(job)
+
+    result = job.serialize()
+    assert job.model_revision == revision
+    assert job.voice_revision == digest
+    assert result["internal_model_id"] == "mlx-community/VoxCPM2-4bit"
+    assert result["runtime_revision"] == revision
+    assert result["voice_library_id"] == "voice-library-1"

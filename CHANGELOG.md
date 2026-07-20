@@ -10,6 +10,38 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.2] — 2026-07-20
+
+### Fixed — GenStudio long-form and immutable audio evidence
+
+- Extended Voice Studio's sentence-safe Qwen chunking to preset regular voices
+  and VoiceDesign as well as cloned voices. Qwen and VoxCPM2 still join every
+  private section into one WAV and apply pitch-preserving speed exactly once
+  after the join.
+- Added atomic final publication: local generation writes to a hidden staging
+  WAV, validates every section, joins, adjusts speed, derives final media facts,
+  and only then exposes the final job artifact. A failed or cancelled section
+  cannot leave a successful-looking partial file.
+- Added immutable model snapshot evidence for VoxCPM2 and immutable reference
+  audio evidence for VoxCPM2 library clones, matching the existing Qwen fences.
+- Added final WAV duration, sample rate, channels, byte size, SHA-256, media
+  type, and format to the worker result, plus explicit internal model,
+  runtime-revision, and voice-library identities.
+- Made health and catalog inventory report busy/load state, runtime readiness,
+  current availability, and exact cold/loaded free-memory admission floors.
+  Qwen 1.7B tiers now truthfully require 16 GB total unified memory; 0.6B
+  remains the supported 8 GB tier.
+
+### Verification
+
+- Added independent Qwen regular, Qwen clone, and VoxCPM2 chunking, joining,
+  speed-order, revision, atomic-failure, media-evidence, and inventory tests.
+- Confirmed Studio Hub only adopts the final worker artifact and validates its
+  bytes before terminal publication. GenStudio independently validates those
+  bytes and now preserves the exact clone-library identity with its immutable
+  voice revision.
+- No dependency or launcher change is required. **Just run Update.**
+
 ## [1.21.1] — 2026-07-20
 
 ### Added — exact VoxCPM2 speed control

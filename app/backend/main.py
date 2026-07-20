@@ -291,6 +291,9 @@ def health() -> dict:
         "app_version": APP_VERSION,
         "hf_home": str(cache.hf_home()),
         "hub_dir": str(cache.hub_dir()),
+        "busy": gen_manager.has_active_jobs() or _GEN_LOCK.locked(),
+        "loaded_models": [list(item) for item in gen_manager.loaded_model_keys()],
+        "memory": gen_manager.memory_status().get("snapshot"),
     }
 
 
@@ -482,6 +485,11 @@ def get_catalog() -> dict:
     for m in catalog.CATALOG:
         d = catalog.serialize_model(m)
         d["cache"] = _cache_with_companions(m.repo)
+        runtime = gen_manager.model_runtime_status(m)
+        d.update(runtime)
+        d["available"] = bool(
+            runtime["runtime_ready"] and d["cache"].get("state") == "cached"
+        )
         active = manager.active_for_repo(m.repo)
         d["active_download"] = active.serialize() if active else None
         d["kind"] = "local"
@@ -1231,10 +1239,13 @@ def get_generation_audio(job_id: str) -> FileResponse:
     job = gen_manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
-    if not job.output_path:
+    if job.state != "done" or not job.output_path:
         raise HTTPException(status_code=425, detail="audio not ready yet")
-    mt = "audio/mpeg" if str(job.output_path).lower().endswith(".mp3") else "audio/wav"
-    return FileResponse(job.output_path, media_type=mt)
+    mt = job.media_type or (
+        "audio/mpeg" if str(job.output_path).lower().endswith(".mp3") else "audio/wav"
+    )
+    headers = {"X-Content-SHA256": job.sha256} if job.sha256 else None
+    return FileResponse(job.output_path, media_type=mt, headers=headers)
 
 
 @app.delete("/api/generate/jobs/{job_id}")
