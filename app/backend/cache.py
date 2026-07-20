@@ -218,6 +218,10 @@ def status_snapshot(repo: str) -> dict:
     return {
         "repo": repo,
         "state": state,
+        # Advertise the exact cached Hugging Face snapshot before dispatch so
+        # Studio Hub can match a GenStudio-pinned request to the right worker.
+        # Mutable refs such as ``main`` are never returned here.
+        "snapshot_revision": snapshot_revision(repo),
         "path": str(repo_cache_dir(repo)) if state != "absent" else None,
         "bytes_complete": disk_bytes(repo),
         "bytes_incomplete": incomplete_bytes(repo),

@@ -10,10 +10,21 @@ def _repo(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
     root = cache.repo_cache_dir(REPO)
     (root / "blobs").mkdir(parents=True)
-    snapshot = root / "snapshots" / "revision"
+    snapshot = root / "snapshots" / ("a" * 40)
     snapshot.mkdir(parents=True)
     (snapshot / "model.safetensors").write_bytes(b"weights")
     return root
+
+
+def test_status_snapshot_advertises_only_the_immutable_cached_revision(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _repo(tmp_path, monkeypatch)
+
+    status = cache.status_snapshot(REPO)
+
+    assert status["state"] == "cached"
+    assert status["snapshot_revision"] == "a" * 40
 
 
 def test_stale_duplicate_incomplete_does_not_block_cached_model(

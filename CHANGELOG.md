@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.6] — 2026-07-20
+
+### Fixed — immutable model revision is advertised before dispatch
+
+- Voice Studio's authenticated model catalog now includes the exact immutable
+  Hugging Face snapshot revision for every locally cached model. Mutable refs
+  such as `main` are never substituted.
+- Studio Hub can therefore prove that a worker has the exact model revision
+  requested by GenStudio before assigning customer work, instead of discovering
+  a mismatch only after generation completes.
+
+### Verification
+
+- Added cache-catalog regression coverage and ran the full Voice Studio suite
+  plus the release guard. **Just run Update.**
+
 ## [1.21.5] — 2026-07-20
 
 ### Fixed — release guard now requires a real version increase
