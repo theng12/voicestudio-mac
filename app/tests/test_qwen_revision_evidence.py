@@ -76,3 +76,51 @@ def test_voxcpm_clone_records_model_and_reference_revisions(monkeypatch):
     assert result["internal_model_id"] == "mlx-community/VoxCPM2-4bit"
     assert result["runtime_revision"] == revision
     assert result["voice_library_id"] == "voice-library-1"
+
+
+def test_kokoro_preset_records_model_and_voice_revision(monkeypatch):
+    revision = "4" * 40
+    monkeypatch.setattr(cache, "snapshot_revision", lambda _repo: revision)
+    job = generation.GenerationJob(
+        job_id="kokoro-proof",
+        mode="txt2speech",
+        params={
+            "repo": "mlx-community/Kokoro-82M-bf16",
+            "voice": "AF_Heart",
+        },
+    )
+
+    generation.GenerationManager._record_local_revision_evidence(job)
+
+    result = job.serialize()
+    assert result["runtime_revision"] == revision
+    assert result["voice_revision"] == f"{revision}:preset:af_heart"
+
+
+def test_chatterbox_clone_records_model_and_reference_revisions(monkeypatch):
+    revision = "5" * 40
+    digest = "c" * 64
+    monkeypatch.setattr(cache, "snapshot_revision", lambda _repo: revision)
+    monkeypatch.setattr(
+        voices.library,
+        "get",
+        lambda voice_id: (
+            SimpleNamespace(audio_sha256=digest)
+            if voice_id == "accountvoice1"
+            else None
+        ),
+    )
+    job = generation.GenerationJob(
+        job_id="chatterbox-proof",
+        mode="txt2speech",
+        params={
+            "repo": "mlx-community/chatterbox-4bit",
+            "voice_library_id": "accountvoice1",
+        },
+    )
+
+    generation.GenerationManager._record_local_revision_evidence(job)
+
+    result = job.serialize()
+    assert result["runtime_revision"] == revision
+    assert result["voice_revision"] == digest

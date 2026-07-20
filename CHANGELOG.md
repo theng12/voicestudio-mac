@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.8] — 2026-07-21
+
+### Fixed — Kokoro and Chatterbox completion evidence
+
+- Completed Kokoro jobs now report the exact immutable cached model revision
+  and a preset voice revision derived from that snapshot and the selected
+  Kokoro voice key.
+- Completed Chatterbox jobs now report the exact immutable cached model
+  revision and the digest of the account-private reference audio actually used.
+- GenStudio can therefore reject stale or mismatched Kokoro and Chatterbox
+  results before publishing a customer asset or qualifying an 8 GB worker.
+
+### Verification
+
+- Added regression coverage for Kokoro preset evidence and Chatterbox cloned
+  voice evidence. **Just run Update.**
+
 ## [1.21.7] — 2026-07-20
 
 ### Fixed — pinned downloads repair mutable imported caches

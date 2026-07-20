@@ -1664,19 +1664,33 @@ class GenerationManager:
 
     @staticmethod
     def _record_local_revision_evidence(job: GenerationJob) -> None:
-        """Fence Qwen/VoxCPM output to exact cached weights and voice bytes."""
+        """Fence supported local output to exact cached weights and voice bytes.
+
+        GenStudio validates this evidence before publishing the final asset. A
+        preset voice is versioned by the immutable model snapshot plus its
+        engine-owned preset key; a cloned voice is versioned by the digest of
+        the exact reference audio Voice Studio used.
+        """
         if job.provider:
             return
         repo = str(job.params.get("repo") or "").strip()
         normalized_repo = repo.lower()
         is_qwen = "qwen3-tts" in normalized_repo
         is_voxcpm = "voxcpm2" in normalized_repo
-        if not (is_qwen or is_voxcpm):
+        is_kokoro = "kokoro" in normalized_repo
+        is_chatterbox = "chatterbox" in normalized_repo
+        if not (is_qwen or is_voxcpm or is_kokoro or is_chatterbox):
             return
         revision = cache.snapshot_revision(repo)
         if not revision:
             raise RuntimeError("Local TTS model revision evidence is unavailable")
         job.model_revision = revision
+        if is_kokoro:
+            voice = str(job.params.get("voice") or "").strip().lower()
+            if not voice:
+                raise RuntimeError("Kokoro preset voice evidence is unavailable")
+            job.voice_revision = f"{revision}:preset:{voice}"
+            return
         mode = _qwen3_mode_from_repo(repo) if is_qwen else "voxcpm"
         if is_qwen and mode == "custom":
             speaker = str(job.params.get("preset_speaker") or "").strip().lower()
@@ -1685,9 +1699,11 @@ class GenerationManager:
             job.voice_revision = f"{revision}:preset:{speaker}"
             return
         voice_id = str(job.params.get("voice_library_id") or "").strip()
-        if (is_qwen and mode == "clone") or (is_voxcpm and voice_id):
+        if (is_qwen and mode == "clone") or (is_voxcpm and voice_id) or is_chatterbox:
             from . import voices as voices_module
 
+            if not voice_id:
+                raise RuntimeError("Cloned voice revision evidence is unavailable")
             voice = voices_module.library.get(voice_id)
             if voice is None or not voice.audio_sha256:
                 raise RuntimeError("Cloned voice revision evidence is unavailable")
