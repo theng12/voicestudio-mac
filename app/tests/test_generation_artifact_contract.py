@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from backend import cache, generation, main
+from backend import cache, generation, main, voicestudio_genstudio_integration
 
 
 def test_final_wav_evidence_is_derived_from_published_bytes(tmp_path: Path) -> None:
@@ -22,6 +22,9 @@ def test_final_wav_evidence_is_derived_from_published_bytes(tmp_path: Path) -> N
     generation.GenerationManager._record_final_audio_evidence(job, output)
 
     result = job.serialize()
+    assert result["integration_name"] == "voicestudio_genstudio_integration"
+    assert result["integration_version"] == "1.0"
+    assert set(voicestudio_genstudio_integration.FINAL_TTS_RESULT_FIELDS) <= set(result)
     assert result["media_type"] == "audio/wav"
     assert result["format"] == "wav"
     assert result["bytes"] == output.stat().st_size

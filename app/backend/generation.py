@@ -103,6 +103,7 @@ import httpx
 from packaging.version import InvalidVersion, Version
 
 from . import catalog, cache
+from .voicestudio_genstudio_integration import final_tts_result
 
 
 # ───────────── module-level state ─────────────
@@ -1163,7 +1164,7 @@ class GenerationJob:
         if self.started_at is not None:
             end = self.finished_at if self.finished_at is not None else time.time()
             duration = max(0.0, end - self.started_at)
-        return {
+        result = {
             "id": self.job_id,
             "mode": self.mode,
             "state": self.state,
@@ -1180,23 +1181,25 @@ class GenerationJob:
             "error": self.error,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
-            "model_revision": self.model_revision,
-            # Explicit alias used by GenStudio: this is the immutable cached
-            # model snapshot, not a mutable branch name or display version.
-            "runtime_revision": self.model_revision,
-            "internal_model_id": self.params.get("repo"),
-            "voice_library_id": self.params.get("voice_library_id"),
-            "voice_revision": self.voice_revision,
             "duration_seconds": duration,
-            "runtime_s": duration,
-            "media_type": self.media_type,
-            "format": self.format,
-            "bytes": self.bytes,
-            "sha256": self.sha256,
-            "audio_duration_s": self.audio_duration_s,
-            "audio_duration_ms": self.audio_duration_ms,
-            "sample_rate_hz": self.sample_rate_hz,
-            "channels": self.channels,
+        }
+        return {
+            **result,
+            **final_tts_result(
+                internal_model_id=self.params.get("repo"),
+                model_revision=self.model_revision,
+                voice_library_id=self.params.get("voice_library_id"),
+                voice_revision=self.voice_revision,
+                runtime_s=duration,
+                media_type=self.media_type,
+                format=self.format,
+                byte_size=self.bytes,
+                sha256=self.sha256,
+                audio_duration_s=self.audio_duration_s,
+                audio_duration_ms=self.audio_duration_ms,
+                sample_rate_hz=self.sample_rate_hz,
+                channels=self.channels,
+            ),
         }
 
 

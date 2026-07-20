@@ -294,6 +294,9 @@ applicable voice-library ID and audio-hash voice revision, runtime, decoded
 duration, sample rate, channels, byte size, SHA-256, media type, and format.
 Studio Hub supplies the assigned worker identity and independently verifies the
 same final bytes; GenStudio verifies them again before durable publication.
+The worker-owned part of this boundary lives in
+`app/backend/voicestudio_genstudio_integration.py`; add future VoiceStudio
+evidence fields there with a regression test.
 
 ## Folder layout
 

@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.3] — 2026-07-20
+
+### Added — maintained VoiceStudio ↔ GenStudio integration boundary
+
+- Added `app/backend/voicestudio_genstudio_integration.py` as the single,
+  versioned owner of VoiceStudio's final TTS evidence envelope for GenStudio.
+  Future worker-owned integration fields now have one explicit extension point.
+- `GenerationJob.serialize()` now uses that module directly. Studio Hub remains
+  authoritative for worker assignment and routing; GenStudio remains
+  authoritative for customers, billing, job ownership, and publication.
+
+### Verification
+
+- Added integration-envelope regression coverage and ran the focused VoiceStudio
+  generation suite plus backend compilation. **Just run Update.**
+
 ## [1.21.2] — 2026-07-20
 
 ### Fixed — GenStudio long-form and immutable audio evidence
