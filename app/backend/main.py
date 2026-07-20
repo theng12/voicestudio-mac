@@ -119,6 +119,7 @@ memory_policy.start_background(gen_manager, stt_manager, _GEN_LOCK)
 class StartDownloadBody(BaseModel):
     repo: str
     token: Optional[str] = None
+    revision: Optional[str] = None
 
 
 class ImportBody(BaseModel):
@@ -534,7 +535,9 @@ def clear_downloads() -> dict:
 def start_download(body: StartDownloadBody) -> dict:
     if not body.repo or "/" not in body.repo:
         raise HTTPException(status_code=400, detail="repo must be 'owner/name'")
-    job = manager.start(body.repo, token=body.token)
+    if body.revision and not re.fullmatch(r"[0-9a-fA-F]{40,64}", body.revision):
+        raise HTTPException(status_code=400, detail="revision must be an immutable commit hash")
+    job = manager.start(body.repo, token=body.token, revision=body.revision)
     return {"job": job.serialize()}
 
 

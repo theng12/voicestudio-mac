@@ -9,8 +9,12 @@ Pure-ish functions that look at the on-disk Hugging Face cache and answer:
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Optional
+
+
+_IMMUTABLE_REVISION = re.compile(r"^[0-9a-fA-F]{40,64}$")
 
 
 def hf_home() -> Path:
@@ -43,13 +47,16 @@ def snapshot_revision(repo: str) -> str | None:
         revision = main_ref.read_text().strip()
     except (FileNotFoundError, OSError):
         revision = ""
-    if revision and (repo_dir / "snapshots" / revision).is_dir():
-        return revision
+    if (
+        _IMMUTABLE_REVISION.fullmatch(revision)
+        and (repo_dir / "snapshots" / revision).is_dir()
+    ):
+        return revision.lower()
     snapshots = repo_dir / "snapshots"
     try:
         candidates = sorted(
             path.name for path in snapshots.iterdir()
-            if path.is_dir() and len(path.name) == 40
+            if path.is_dir() and _IMMUTABLE_REVISION.fullmatch(path.name)
         )
     except (FileNotFoundError, OSError):
         return None

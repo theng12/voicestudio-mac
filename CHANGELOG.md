@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.7] — 2026-07-20
+
+### Fixed — pinned downloads repair mutable imported caches
+
+- Cache revision detection now rejects mutable snapshot folder names such as
+  `main` and falls back only to an immutable 40–64 character commit snapshot.
+- The authenticated download API accepts an optional immutable revision hash
+  and passes it through to Hugging Face, allowing a drained worker to repair an
+  imported cache to the exact GenStudio-approved model revision.
+
+### Verification
+
+- Added mutable-cache and pinned-download regression coverage and ran the full
+  Voice Studio suite plus the release guard. **Just run Update.**
+
 ## [1.21.6] — 2026-07-20
 
 ### Fixed — immutable model revision is advertised before dispatch

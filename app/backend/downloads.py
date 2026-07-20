@@ -51,6 +51,7 @@ def _matches_any(path: str, patterns: tuple[str, ...]) -> bool:
 class DownloadJob:
     job_id: str
     repo: str
+    revision: Optional[str] = None
     token: Optional[str] = None
     state: str = "queued"           # queued | running | paused | done | error | cancelled
     error: Optional[str] = None
@@ -121,6 +122,7 @@ class DownloadJob:
         return {
             "id": self.job_id,
             "repo": self.repo,
+            "requested_revision": self.revision,
             "state": self.state,
             "error": self.error,
             "bytes_done": bytes_done,
@@ -145,12 +147,22 @@ class DownloadManager:
 
     # ---------- public API ----------
 
-    def start(self, repo: str, token: Optional[str] = None) -> DownloadJob:
+    def start(
+        self,
+        repo: str,
+        token: Optional[str] = None,
+        revision: Optional[str] = None,
+    ) -> DownloadJob:
         with self._lock:
             existing = self._active_for_repo_locked(repo)
             if existing is not None:
                 return existing
-            job = DownloadJob(job_id=uuid.uuid4().hex[:12], repo=repo, token=token or None)
+            job = DownloadJob(
+                job_id=uuid.uuid4().hex[:12],
+                repo=repo,
+                revision=revision or None,
+                token=token or None,
+            )
             self._jobs[job.job_id] = job
             self._active_by_repo[repo] = job.job_id
 
@@ -236,10 +248,17 @@ class DownloadManager:
             return None
         return job
 
-    def _resolve_total_bytes(self, repo: str, token: Optional[str]) -> int:
+    def _resolve_total_bytes(
+        self, repo: str, token: Optional[str], revision: Optional[str] = None
+    ) -> int:
         effective = token or settings.get_hf_token()
         try:
-            info = HfApi().repo_info(repo_id=repo, files_metadata=True, token=effective)
+            info = HfApi().repo_info(
+                repo_id=repo,
+                revision=revision,
+                files_metadata=True,
+                token=effective,
+            )
         except HfHubHTTPError:
             return 0
         except Exception:
@@ -288,7 +307,7 @@ class DownloadManager:
         # honest AND makes the download complete-on-first-run (no surprise
         # second download when the user hits Generate).
         companions = catalog.companions_for(job.repo)
-        total = self._resolve_total_bytes(job.repo, job.token)
+        total = self._resolve_total_bytes(job.repo, job.token, job.revision)
         for c in companions:
             total += self._companion_bytes(c["repo"], c.get("allow_patterns"), job.token)
         job.total_bytes = total
@@ -314,6 +333,7 @@ class DownloadManager:
             ignore = catalog.ignore_patterns_for(job.repo)
             snapshot_download(
                 repo_id=job.repo,
+                revision=job.revision,
                 token=effective_token,
                 ignore_patterns=list(ignore) if ignore else None,
             )

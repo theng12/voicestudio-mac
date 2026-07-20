@@ -27,6 +27,17 @@ def test_status_snapshot_advertises_only_the_immutable_cached_revision(
     assert status["snapshot_revision"] == "a" * 40
 
 
+def test_snapshot_revision_ignores_a_mutable_main_snapshot_folder(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = _repo(tmp_path, monkeypatch)
+    (root / "refs").mkdir()
+    (root / "refs" / "main").write_text("main")
+    (root / "snapshots" / "main").mkdir()
+
+    assert cache.snapshot_revision(REPO) == "a" * 40
+
+
 def test_stale_duplicate_incomplete_does_not_block_cached_model(
     tmp_path: Path, monkeypatch
 ) -> None:
