@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.4] — 2026-07-20
+
+### Added — enforced release notes for every shipped change
+
+- Added `release_metadata_check.py` and regression coverage. It requires a
+  semantic version, a matching top changelog release, and a clear release-note
+  category and bullet; when product files change it also requires both
+  `VERSION` and `CHANGELOG.md` to change.
+- Documented the same rule for contributors, so the in-app **What's New** view
+  always describes the installed release rather than relying on memory.
+
+### Verification
+
+- Ran the release-metadata checker and the full Voice Studio test suite.
+  **Just run Update.**
+
 ## [1.21.3] — 2026-07-20
 
 ### Added — maintained VoiceStudio ↔ GenStudio integration boundary

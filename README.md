@@ -150,6 +150,14 @@ Voice Studio KH uses [Semantic Versioning](https://semver.org/) with this projec
 
 Current version is stored at the project root in [`VERSION`](VERSION). The full release history with what changed in each version lives in [`CHANGELOG.md`](CHANGELOG.md).
 
+Every shipped app, catalog, launcher, dependency, service, or worker-contract
+change must increase `VERSION` and add a clear top changelog entry. Run
+`python3 release_metadata_check.py` before committing: it verifies that the
+installed version and **What's New** entry agree, and that product changes have
+both release files. Use a patch bump for compatible fixes/small changes, a
+minor bump for features, engines, or model families, and a major bump for a
+breaking or reinstall-required change.
+
 The WebUI version area includes **What's New**, which opens the installed release history in a modal without leaving Voice Studio.
 
 The WebUI footer shows the running version. The same value is also surfaced at:
