@@ -114,6 +114,7 @@ def is_shipped_path(path: str) -> bool:
         "start.js",
         "update.js",
         "update_and_restart.js",
+        "voicestudio-watchdog.sh",
         "whats_new.js",
     }
 

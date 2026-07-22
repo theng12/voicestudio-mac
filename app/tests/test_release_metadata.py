@@ -23,6 +23,7 @@ def test_worktree_product_changes_require_release_metadata() -> None:
 def test_release_guard_distinguishes_product_changes_from_tests_and_docs() -> None:
     assert release_metadata_check.is_shipped_path("app/backend/generation.py") is True
     assert release_metadata_check.is_shipped_path("update.js") is True
+    assert release_metadata_check.is_shipped_path("voicestudio-watchdog.sh") is True
     assert release_metadata_check.is_shipped_path("app/tests/test_generation.py") is False
     assert release_metadata_check.is_shipped_path("README.md") is False
 

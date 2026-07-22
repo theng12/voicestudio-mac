@@ -50,6 +50,22 @@ def test_restart_rate_snapshot_handles_missing_log(tmp_path: Path) -> None:
     assert snapshot["last_restart_at"] is None
 
 
+def test_restart_rate_snapshot_counts_confirmed_failure_restarts(tmp_path: Path) -> None:
+    log = tmp_path / "watchdog.log"
+    log.write_text(
+        "[watchdog] 2026-07-23 09:00:00 health probe failed (1/3); waiting for confirmation\n"
+        "[watchdog] 2026-07-23 09:01:00 health probe failed (2/3); waiting for confirmation\n"
+        "[watchdog] 2026-07-23 09:02:00 health probe failed 3 consecutive times — restarting service\n",
+        encoding="utf-8",
+    )
+
+    snapshot = restart_rate_snapshot(log, now=datetime(2026, 7, 23, 10, 0, 0))
+
+    assert snapshot["restarts_24h"] == 1
+    assert snapshot["restarts_7d"] == 1
+    assert snapshot["last_restart_at"] == "2026-07-23T09:02:00"
+
+
 def test_restart_rate_message_explains_a_weekly_alert(tmp_path: Path) -> None:
     log = tmp_path / "watchdog.log"
     _write_events(

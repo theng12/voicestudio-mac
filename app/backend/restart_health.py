@@ -12,7 +12,7 @@ WATCHDOG_LOG = LAUNCHER_ROOT / "logs" / "service" / "watchdog.log"
 _MAX_LOG_BYTES = 256 * 1024
 _RESTART_LINE = re.compile(
     r"^\[watchdog\] (?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) "
-    r"no /api/health\b"
+    r"(?:no /api/health\b|health probe failed \d+ consecutive times\b)"
 )
 
 

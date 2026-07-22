@@ -10,6 +10,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.10] — 2026-07-23
+
+### Fixed — watchdog confirms failures before restarting
+
+- The always-on Voice Studio watchdog now requires three consecutive failed
+  health probes before restarting the service, matching the proven Image Studio
+  policy and preventing one transient miss from interrupting active work.
+- A successful probe immediately clears the repo-local failure streak. The
+  threshold accepts a validated numeric environment override and safely falls
+  back to three for invalid or unsafe values; its state remains under the
+  git-ignored per-machine `service/` directory.
+- Restart-rate evidence recognizes both historical one-miss restart records and
+  the new confirmed-failure records without counting the first two probe misses
+  as restarts.
+
+### Verification
+
+- Added isolated watchdog process tests for the three-failure threshold,
+  immediate success reset, numeric override validation, ignored local state,
+  and restart-log compatibility. No live service or job restart is required.
+  **Just run Update.**
+
 ## [1.21.9] — 2026-07-23
 
 ### Security — fleet credentials stay out of URLs
