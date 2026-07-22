@@ -59,8 +59,7 @@ def _presented(request: Request) -> str | None:
         return auth[7:].strip()
     return (request.headers.get("x-studio-token") or
             request.headers.get("x-hub-token") or
-            request.cookies.get(COOKIE_NAME) or
-            request.query_params.get("token"))
+            request.cookies.get(COOKIE_NAME))
 
 
 def make_middleware(token: str):
@@ -87,7 +86,14 @@ def manifest(*, modality: str, title: str, version: str, operations: list[str], 
     return {
         "schema_version": 1,
         "studio": {"modality": modality, "title": title, "app_version": version},
-        "auth": {"mode": "fleet_token", "header": "X-Studio-Token", "loopback_exempt": True},
+        "auth": {
+            "mode": "fleet_token",
+            "header": "X-Studio-Token",
+            "bearer_supported": True,
+            "cookie_supported": True,
+            "query_token_supported": False,
+            "loopback_exempt": True,
+        },
         "operations": operations,
         "catalog_endpoint": "/api/catalog",
         "diagnostics_endpoint": diagnostics,

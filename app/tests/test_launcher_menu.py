@@ -33,11 +33,15 @@ function info({ installed = true, generation = true, service = false,
 }
 (async () => {
   const scenarios = {
+    installing: { running: ['install.js'] },
+    installing_generation: { running: ['install_generation.js'] },
     service: { service: true },
     running_ready: { running: ['start.js'], local: { url: 'http://0.0.0.0:47870' } },
     running_starting: { running: ['start.js'] },
     stopped_missing_generation: { generation: false },
     updating: { running: ['update.js'] },
+    updating_restart: { running: ['update_and_restart.js'] },
+    resetting: { running: ['reset.js'] },
     uninstalled: { installed: false, generation: false },
   };
   const result = {};
@@ -86,3 +90,24 @@ def test_whats_new_displays_the_local_changelog() -> None:
 
     assert 'method: "fs.cat"' in source
     assert 'path: "CHANGELOG.md"' in source
+
+
+def test_common_actions_use_consistent_names_and_safe_order() -> None:
+    menus = _launcher_menus()
+
+    service = [item["text"] for item in menus["service"]]
+    assert "Repair Startup Service" in service
+    assert service.index("Outputs") < service.index("HF Cache")
+    assert service.index("Update") < service.index("What's New")
+    assert service.index("What's New") < service.index("Uninstall Startup Service")
+
+    running = [item["text"] for item in menus["running_ready"]]
+    assert running.index("Terminal") < running.index("Outputs")
+    assert running.index("Outputs") < running.index("HF Cache")
+    assert running.index("Install as Startup Service") < running.index("Update")
+    assert running.index("Update") < running.index("What's New")
+
+    stopped = [item["text"] for item in menus["stopped_missing_generation"]]
+    assert stopped.index("Outputs") < stopped.index("HF Cache")
+    assert stopped.index("Update") < stopped.index("What's New")
+    assert stopped.index("What's New") < stopped.index("Reinstall") < stopped.index("Reset")

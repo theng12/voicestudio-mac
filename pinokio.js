@@ -93,14 +93,14 @@ module.exports = {
           href: "open_external.js", params: { url: svcUrl } },
         { icon: "fa-solid fa-stethoscope", text: "Check Service Status", href: "service_status.js" },
         { icon: "fa-solid fa-rotate-right", text: "Restart Service", href: "service_restart.js" },
-        { icon: "fa-solid fa-screwdriver-wrench", text: "Repair · take over port", href: "service.js" },
+        { icon: "fa-solid fa-screwdriver-wrench", text: "Repair Startup Service", href: "service.js" },
         { icon: "fa-solid fa-folder-open", text: "Service Logs", href: "logs/service?fs=true" },
         { icon: "fa-solid fa-microphone-lines", text: "Outputs", href: "app/output?fs=true" },
         { icon: "fa-solid fa-folder-tree", text: "HF Cache", href: "cache/HF_HOME/hub?fs=true" },
-        { icon: "fa-regular fa-circle-xmark", text: "Uninstall Startup Service", href: "unservice.js" },
         generationItem,
         { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
-        whatsNewItem
+        whatsNewItem,
+        { icon: "fa-regular fa-circle-xmark", text: "Uninstall Startup Service", href: "unservice.js" }
       ]
     }
 
@@ -132,11 +132,11 @@ module.exports = {
             href: "open_external.js",
             params: { url: browserUrl } },
           { icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" },
-          { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
-          { icon: "fa-solid fa-folder-tree", text: "HF Cache", href: "cache/HF_HOME/hub?fs=true" },
           { icon: "fa-solid fa-microphone-lines", text: "Outputs", href: "app/output?fs=true" },
+          { icon: "fa-solid fa-folder-tree", text: "HF Cache", href: "cache/HF_HOME/hub?fs=true" },
           generationItem,
           serviceItem,
+          { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
           whatsNewItem
         ]
       }
@@ -149,14 +149,14 @@ module.exports = {
 
     return [
       { default: true, icon: "fa-solid fa-power-off", text: "Start", href: "start.js" },
-      { icon: "fa-solid fa-folder-tree", text: "HF Cache", href: "cache/HF_HOME/hub?fs=true" },
       { icon: "fa-solid fa-microphone-lines", text: "Outputs", href: "app/output?fs=true" },
+      { icon: "fa-solid fa-folder-tree", text: "HF Cache", href: "cache/HF_HOME/hub?fs=true" },
       generationItem,
       serviceItem,
       { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
+      whatsNewItem,
       { icon: "fa-solid fa-plug", text: "Reinstall", href: "install.js" },
-      { icon: "fa-regular fa-circle-xmark", text: "Reset", href: "reset.js" },
-      whatsNewItem
+      { icon: "fa-regular fa-circle-xmark", text: "Reset", href: "reset.js" }
     ]
   }
 }

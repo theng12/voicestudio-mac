@@ -36,6 +36,30 @@ class FleetAuthTests(unittest.TestCase):
             self.assertEqual(accepted.get("/api/catalog").status_code, 200)
             self.assertEqual(stale.get("/api/catalog").status_code, 401)
 
+    def test_supported_header_bearer_and_cookie_credentials(self):
+        header = TestClient(app, headers={"X-Studio-Token": FLEET_TOKEN})
+        bearer = TestClient(app, headers={"Authorization": f"Bearer {FLEET_TOKEN}"})
+        cookie = TestClient(app, cookies={fleet_auth.COOKIE_NAME: FLEET_TOKEN})
+
+        self.assertEqual(header.get("/api/catalog").status_code, 200)
+        self.assertEqual(bearer.get("/api/catalog").status_code, 200)
+        self.assertEqual(cookie.get("/api/catalog").status_code, 200)
+
+    def test_query_string_token_is_rejected(self):
+        client = TestClient(app)
+
+        response = client.get("/api/catalog", params={"token": FLEET_TOKEN})
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_capability_manifest_documents_header_only_urls(self):
+        auth = TestClient(app).get("/api/capabilities").json()["auth"]
+
+        self.assertEqual(auth["header"], "X-Studio-Token")
+        self.assertTrue(auth["bearer_supported"])
+        self.assertTrue(auth["cookie_supported"])
+        self.assertFalse(auth["query_token_supported"])
+
 
 if __name__ == "__main__":
     unittest.main()

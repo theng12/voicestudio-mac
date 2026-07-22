@@ -52,6 +52,7 @@ from .transcription import (
 from .auto_update import UpdateError
 from .auto_update_config import create_updater
 from .process_title import PROCESS_TITLE, apply_process_title
+from .restart_health import restart_rate_snapshot
 
 
 PROCESS_TITLE_APPLIED = apply_process_title()
@@ -229,9 +230,15 @@ class Txt2SpeechBody(BaseModel):
     speed: float = 1.0
     temperature: float = 0.7
     seed: Optional[int] = None
-    # Optional caller-enforced output ceiling. GenStudio KH sends 30 seconds;
-    # VoiceStudio still supports longer standalone jobs when this is omitted.
-    max_output_duration_s: Optional[float] = Field(default=None, gt=0, le=120)
+    # Optional caller-enforced compatibility ceiling. It is never applied by
+    # default: GenStudio long-form TTS omits it and VoiceStudio keeps ownership
+    # of internal chunking, joining, and one final speed adjustment.
+    max_output_duration_s: Optional[float] = Field(
+        default=None,
+        gt=0,
+        le=120,
+        description="Optional caller ceiling; generated TTS is unlimited when omitted.",
+    )
     # ── Qwen3-TTS CustomVoice (preset speakers + emotion) ──
     preset_speaker: Optional[str] = None    # e.g. "Ryan", "Vivian", "Sohee"
     instruct: Optional[str] = None          # emotion / tone tag, e.g. "Sad and crying, speaking slowly"
@@ -295,6 +302,7 @@ def health() -> dict:
         "busy": gen_manager.has_active_jobs() or _GEN_LOCK.locked(),
         "loaded_models": [list(item) for item in gen_manager.loaded_model_keys()],
         "memory": gen_manager.memory_status().get("snapshot"),
+        "restart_health": restart_rate_snapshot(),
     }
 
 
@@ -921,6 +929,7 @@ def generation_diagnostics() -> dict:
     data = gen_diagnostics()
     data["app_version"] = APP_VERSION
     data["memory"] = gen_manager.memory_status()
+    data["restart_health"] = restart_rate_snapshot()
     return data
 
 

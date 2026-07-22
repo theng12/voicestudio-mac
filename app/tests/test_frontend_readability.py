@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+from pathlib import Path
+import re
+
+
+ROOT = Path(__file__).parents[2]
+STYLE_PATH = ROOT / "app" / "frontend" / "style.css"
+FRONTEND_PATHS = [
+    STYLE_PATH,
+    ROOT / "app" / "frontend" / "index.html",
+    ROOT / "app" / "frontend" / "app.js",
+]
+
+
+def test_frontend_keeps_a_twelve_pixel_typography_floor() -> None:
+    declarations: list[tuple[str, str, float]] = []
+    for path in FRONTEND_PATHS:
+        source = path.read_text(encoding="utf-8")
+        declarations.extend(
+            (path.name, match.group(0), float(match.group("size")))
+            for match in re.finditer(
+                r"font-size\s*:\s*(?P<size>\d+(?:\.\d+)?)px",
+                source,
+                flags=re.IGNORECASE,
+            )
+        )
+        declarations.extend(
+            (path.name, match.group(0), float(match.group("size")))
+            for match in re.finditer(
+                r"\bfont\s*:\s*[^;{}]*?(?P<size>\d+(?:\.\d+)?)px(?:/|\s)",
+                source,
+                flags=re.IGNORECASE,
+            )
+        )
+
+    too_small = [
+        f"{filename}: {declaration}"
+        for filename, declaration, size in declarations
+        if size < 12
+    ]
+    assert not too_small, f"Readable UI text must be at least 12px: {too_small}"
+    css = STYLE_PATH.read_text(encoding="utf-8")
+    assert "--font-caption: 12.5px" in css
+    assert not re.search(r"font-size\s*:\s*0\.\d+(?:em|rem)", css, flags=re.IGNORECASE)
+
+
+def test_common_controls_keep_readable_and_compact_size_tokens() -> None:
+    css = STYLE_PATH.read_text(encoding="utf-8")
+
+    assert "--font-control: 15px" in css
+    assert "--control-min-height: 40px" in css
+    assert "--control-compact-height: 32px" in css
+    assert "min-height: var(--control-min-height)" in css
+    assert "min-height: var(--control-compact-height)" in css

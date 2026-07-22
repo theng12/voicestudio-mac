@@ -713,6 +713,22 @@ def test_requested_duration_ceiling_accepts_exact_limit(tmp_path: Path) -> None:
     )
 
 
+def test_tts_request_has_no_default_generated_audio_duration_cap() -> None:
+    from backend import main
+
+    body = main.Txt2SpeechBody(
+        repo="mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+        text="Long-form narration. " * 1_000,
+        client_request_id="studiohub:stable-long-form-attempt",
+        speed=0.9,
+    )
+
+    assert body.max_output_duration_s is None
+    assert body.client_request_id == "studiohub:stable-long-form-attempt"
+    assert body.speed == 0.9
+    assert generation._requested_output_duration_limit(body.model_dump()) is None
+
+
 def test_qwen_and_voxcpm_speed_control_is_visible_and_truthful() -> None:
     markup = (Path(__file__).parents[1] / "frontend" / "index.html").read_text()
 

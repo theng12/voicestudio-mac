@@ -82,9 +82,13 @@ Operators can inspect the current state at `GET /api/generate/memory`, or find
 the same snapshot under `GET /api/generate/diagnostics` → `memory`.
 
 `GET /api/health` reports whether Voice Studio is busy, the exact loaded model
-and runtime slot, and live host memory. Every local `/api/catalog` row reports
-dependency readiness, downloaded availability, loaded state, the cold/loaded
-free-memory requirements, the minimum total unified memory, and whether the
+and runtime slot, live host memory, and read-only `restart_health` evidence with
+24-hour/seven-day watchdog restart counts and alert severity. The same restart
+signal is included in `GET /api/generate/diagnostics`; it never changes service
+state or marks an otherwise healthy worker unavailable. Every local
+`/api/catalog` row reports dependency readiness, downloaded availability,
+loaded state, the cold/loaded free-memory requirements, the minimum total
+unified memory, and whether the
 model is eligible on the current machine at that moment.
 
 Settings now also provides model-memory modes. **Performance** is the default
@@ -283,8 +287,13 @@ transcribe shared voices in Hub rather than calling these directly:
   only an exact Hub-managed copy. It refuses machine-local voices and hash
   mismatches.
 
-Remote calls require the fleet's `X-Studio-Token`. Provider-specific voice IDs
-and generated embeddings are intentionally not distributed.
+Remote calls require the fleet's `X-Studio-Token`, an equivalent Bearer header,
+or the protected session cookie established after successful authentication.
+Voice Studio rejects query-string credentials such as `?token=...` so fleet
+secrets do not leak through browser history, access logs, or copied links.
+Studio Hub uses `X-Studio-Token` for direct Studio calls and `X-Hub-Token` for
+controller-proxied calls. Provider-specific voice IDs and generated embeddings
+are intentionally not distributed.
 
 ### Final TTS artifact contract
 

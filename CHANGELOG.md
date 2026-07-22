@@ -10,6 +10,42 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.9] — 2026-07-23
+
+### Security — fleet credentials stay out of URLs
+
+- Remote Voice Studio requests now accept the existing `X-Studio-Token`,
+  Bearer, and protected-cookie credentials but reject `?token=...`, preventing
+  fleet secrets from leaking through browser history, logs, or copied links.
+- Studio Hub's current direct and proxied Voice Studio callers were verified to
+  use authenticated headers, so the established fleet path remains compatible.
+
+### Fixed — long-form wording and readable operator controls
+
+- Corrected the retired 30-second GenStudio wording. Generated TTS has no
+  default duration ceiling; Voice Studio still owns long-form internal
+  chunking, joining, and the one final speed adjustment. The optional
+  `max_output_duration_s` compatibility guard remains opt-in for explicit
+  callers, and stable `client_request_id` replay remains unchanged.
+- Added a 12 px text floor plus shared 15 px/40 px control sizing, with a 32 px
+  compact allowance for dense tabs and small actions. A regression guard now
+  rejects future sub-12 px CSS declarations.
+- Aligned the common Pinokio action order, renamed the service repair action to
+  **Repair Startup Service**, kept destructive actions last, and expanded the
+  launcher test to prove **What's New** appears in every dynamic state.
+
+### Added — read-only restart-rate evidence
+
+- `/api/health` and `/api/generate/diagnostics` now report bounded watchdog
+  restart counts for the last 24 hours and seven days, a severity, most recent
+  restart, and operator message. The probe reads only a small log tail and does
+  not restart services, change health status, or alter active jobs.
+
+### Verification
+
+- Added authentication, long-form request, launcher-state, typography, and
+  restart-rate regression coverage. **Just run Update.**
+
 ## [1.21.8] — 2026-07-21
 
 ### Fixed — Kokoro and Chatterbox completion evidence
