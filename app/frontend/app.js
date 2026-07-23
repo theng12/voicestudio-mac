@@ -3748,7 +3748,7 @@ function studio() {
     // ──────── outputs folder disk usage ────────
     outputStats: { bytes: 0, count: 0, loaded: false },
     storagePolicy: {
-      enabled: true, retention_days: 3, max_gb: 80, used_bytes: 0,
+      enabled: true, retention_days: 30, max_gb: 80, used_bytes: 0,
       over_limit: false, loaded: false, busy: false, message: "",
     },
     async refreshOutputStats() {

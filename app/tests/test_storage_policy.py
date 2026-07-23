@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import time
 
@@ -82,6 +83,24 @@ def test_policy_api_round_trip(tmp_path, monkeypatch):
     })
     assert response.status_code == 200
     assert response.json()["retention_days"] == 3
+
+
+def test_legacy_three_day_policy_migrates_once_to_thirty_days(
+        tmp_path, monkeypatch):
+    policy_file = tmp_path / "config" / "policy.json"
+    policy_file.parent.mkdir()
+    policy_file.write_text(json.dumps({
+        "enabled": True, "retention_days": 3, "max_gb": 80,
+    }))
+    monkeypatch.setattr(storage_policy, "SETTINGS_FILE", policy_file)
+
+    assert storage_policy._read()["retention_days"] == 30
+    migrated = json.loads(policy_file.read_text())
+    assert migrated["retention_days"] == 30
+    assert migrated["policy_version"] == storage_policy.POLICY_VERSION
+
+    storage_policy.save(True, 3, 80)
+    assert storage_policy._read()["retention_days"] == 3
 
 
 def test_release_notes_follow_installed_changelog():

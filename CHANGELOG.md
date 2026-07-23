@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.21.11] — 2026-07-23
+
+### Changed — 30-day fleet backup retention
+
+- Raised completed voice-output backup retention from 3 days to 30 days while
+  retaining the 80 GB hard cap and protected shared voices, cloning references,
+  uploads, models, credentials, and active jobs.
+- Existing saved 3-day policies migrate automatically once during update.
+  Later explicit operator choices remain respected, so fleet workers require no
+  individual configuration.
+
+### Verification
+
+- Added regression coverage for automatic legacy migration and explicit
+  post-migration policy choices. **Just run Update.**
+
 ## [1.21.10] — 2026-07-23
 
 ### Fixed — watchdog confirms failures before restarting
