@@ -13,8 +13,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"   # launcher root (this file's folder)
 
 # Pin the model cache to the same place Pinokio uses, or the app won't find the
-# models you already downloaded. This is the one env var that actually matters.
+# models you already downloaded. High-performance Xet keeps large model pulls
+# from collapsing to a single slow range transfer on otherwise healthy links.
 export HF_HOME="$HERE/cache/HF_HOME"
+export HF_XET_HIGH_PERFORMANCE=1
 export PYTHONUNBUFFERED=1
 
 cd "$HERE/app"

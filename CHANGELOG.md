@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.22.1] — 2026-07-27
+
+### Fixed — fleet model downloads use the available connection
+
+- Enabled Hugging Face Xet high-performance downloads in both regular Pinokio
+  mode and the always-on startup service. Large fleet model rollouts no longer
+  let Xet's adaptive controller collapse an otherwise healthy connection to a
+  single slow range transfer.
+- Existing partial downloads remain resumable. Updating and restarting a Voice
+  Studio continues from its cached bytes with the faster transfer policy.
+
+### Verification
+
+- Added launcher regression coverage for both launch modes and retained the
+  existing URL capture, service lifecycle, model cache, and generation
+  behavior. **Just run Update.**
+
 ## [1.22.0] — 2026-07-27
 
 ### Added — 40,000-character Kokoro and VibeVoice long-form execution

@@ -23,7 +23,11 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   tier, both with voice design, transcript-aware cloning, sentence-safe long-form
   rendering, and exact pitch-preserving final tempo control. Bark uses its current
   native MLX conversion with all 130 multilingual presets and complete sampling controls.
-- **Smart downloads** — filters out redundant duplicate weight formats automatically. F5-TTS goes from 6.3 GB → 1.3 GB, Bark avoids more than 4 GB of duplicate preset files, and Chatterbox goes from 11 GB → 3 GB.
+- **Smart downloads** — filters out redundant duplicate weight formats
+  automatically and enables Hugging Face Xet's high-performance transfer mode
+  in both regular and always-on service launches. F5-TTS goes from 6.3 GB →
+  1.3 GB, Bark avoids more than 4 GB of duplicate preset files, and Chatterbox
+  goes from 11 GB → 3 GB.
 - **Resume on retry** — partial downloads pick up where they left off.
 - **Imports** — link or move TTS weights from other launchers (e.g. a standalone VoxCPM webui).
 - **Cloud audio gateway** — connect ElevenLabs, GenAIPro, Fish Audio, fal.ai, or Kie.ai in Settings, explicitly allow paid use, map provider-native IDs onto voices in the library, then use cloud and local models from the same Generate workspace. ElevenLabs supports a centralized named account pool with quota-aware failover.
