@@ -297,12 +297,15 @@ are intentionally not distributed.
 
 ### Final TTS artifact contract
 
-Qwen3-TTS (preset, clone, and VoiceDesign) and VoxCPM2 accept one logical
-long-form request. Voice Studio alone splits it at sentence-safe boundaries,
-renders private temporary sections, joins every section into one WAV, then
-applies a requested pitch-preserving speed adjustment once to that joined WAV.
+Qwen3-TTS (preset, clone, and VoiceDesign), VoxCPM2, Kokoro, and VibeVoice
+accept one logical long-form request. Voice Studio alone splits it at
+sentence-safe boundaries, renders private temporary sections, validates every
+section, and joins them into one WAV. Qwen, VoxCPM2, and VibeVoice apply the
+requested pitch-preserving speed adjustment once to that joined WAV; Kokoro
+uses its native synthesis-speed control consistently in every private section.
 Temporary section files never have an API route and are deleted before the job
-becomes terminal.
+becomes terminal. GenStudio may therefore offer a 40,000-character customer
+request without exposing the models' shorter internal synthesis windows.
 
 `GET /api/generate/jobs/{id}` exposes `output_url` only after the final WAV has
 passed validation and been atomically published. Successful local Qwen/VoxCPM2

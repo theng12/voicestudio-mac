@@ -462,6 +462,8 @@ def test_qwen_clone_long_sentence_falls_back_to_word_boundaries() -> None:
         ("chatterbox-mlx", "mlx-community/chatterbox-8bit", 500),
         ("chatterbox-mlx", "mlx-community/chatterbox-turbo-4bit", 400),
         ("voxcpm-mlx", "mlx-community/VoxCPM2-4bit", 400),
+        ("kokoro-mlx", "mlx-community/Kokoro-82M-bf16", 3000),
+        ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit", 3000),
     ],
 )
 def test_long_form_local_engines_split_safely_without_losing_text(
@@ -469,7 +471,7 @@ def test_long_form_local_engines_split_safely_without_losing_text(
 ) -> None:
     text = " ".join(
         f"Sentence {index} keeps every ordinary word at a natural boundary."
-        for index in range(1, 45)
+        for index in range(1, 121)
     )
 
     chunks = generation._internal_mlx_text_chunks(family, repo, text)
@@ -480,10 +482,39 @@ def test_long_form_local_engines_split_safely_without_losing_text(
 
 
 def test_long_form_catalogs_do_not_ask_callers_to_manually_chunk() -> None:
-    for family in ("qwen3-tts", "chatterbox-mlx", "voxcpm-mlx"):
+    for family in (
+        "qwen3-tts",
+        "chatterbox-mlx",
+        "voxcpm-mlx",
+        "kokoro-mlx",
+        "vibevoice",
+    ):
         guidance = catalog.FAMILIES[family].text_guidance
         assert guidance.soft_max_chars is None
         assert guidance.chunking == "auto-split"
+
+
+@pytest.mark.parametrize(
+    ("family", "repo"),
+    [
+        ("kokoro-mlx", "mlx-community/Kokoro-82M-bf16"),
+        ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit"),
+    ],
+)
+def test_customer_sized_40k_text_is_preserved_across_private_sections(
+    family: str, repo: str
+) -> None:
+    text = " ".join(
+        f"Sentence {index} stays complete, naturally paced, and privately sectioned."
+        for index in range(1, 701)
+    )
+    assert len(text) > 40_000
+
+    chunks = generation._internal_mlx_text_chunks(family, repo, text)
+
+    assert len(chunks) > 10
+    assert all(len(chunk) <= 3000 for chunk in chunks)
+    assert " ".join(chunks) == " ".join(text.split())
 
 
 def test_qwen_clone_join_preserves_segment_audio_and_pause(tmp_path: Path) -> None:
@@ -677,6 +708,70 @@ def test_qwen_regular_long_form_speed_runs_once_after_join(
     assert len(generated_sections) > 1
     assert " ".join(generated_sections) == " ".join(text.split())
     assert tempo_calls == [(output, 0.95, "qwen3-tts")]
+    assert sf.info(output).frames > 240
+
+
+def test_vibevoice_long_form_uses_full_section_budget_and_applies_speed_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import importlib
+    import soundfile as sf
+
+    generate_module = importlib.import_module("mlx_audio.tts.generate")
+    generated_sections: list[str] = []
+    tempo_calls: list[tuple[Path, float, str]] = []
+
+    def fake_generate_audio(*, model, output_path, join_audio, **kwargs) -> None:
+        assert model == "vibevoice-model"
+        assert join_audio is True
+        assert kwargs["max_tokens"] == 4096
+        assert "speed" not in kwargs
+        generated_sections.append(kwargs["text"])
+        sf.write(
+            Path(output_path) / "audio.wav",
+            np.ones(240, dtype=np.float32),
+            24000,
+            subtype="PCM_16",
+        )
+
+    def fake_apply_speed(path: Path, speed: float, family: str) -> bool:
+        assert path.exists()
+        tempo_calls.append((path, speed, family))
+        return True
+
+    monkeypatch.setattr(generate_module, "generate_audio", fake_generate_audio)
+    monkeypatch.setattr(generation, "_apply_mlx_output_speed", fake_apply_speed)
+    monkeypatch.setattr(generation, "_release_device_memory", lambda device: None)
+
+    manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_get_model = lambda repo: "vibevoice-model"
+    manager._resolve_mlx_kwargs = (
+        lambda mode, family, model_entry, params, gen_kwargs: "voice=en-Emma_woman"
+    )
+    text = " ".join(
+        f"Sentence {index} stays safely inside the VibeVoice long-form renderer."
+        for index in range(1, 101)
+    )
+    job = generation.GenerationJob(
+        job_id="vibevoice-long-speed",
+        mode="txt2speech",
+        params={"text": text, "speed": 0.93, "seed": 17, "voice": "en-Emma_woman"},
+    )
+    output = tmp_path / "vibevoice-long.wav"
+
+    manager._generate_mlx_audio(
+        job,
+        SimpleNamespace(
+            repo="mlx-community/VibeVoice-Realtime-0.5B-4bit",
+            family="vibevoice",
+            sample_rate_hz=24000,
+        ),
+        output,
+    )
+
+    assert len(generated_sections) > 1
+    assert " ".join(generated_sections) == " ".join(text.split())
+    assert tempo_calls == [(output, 0.93, "vibevoice")]
     assert sf.info(output).frames > 240
 
 

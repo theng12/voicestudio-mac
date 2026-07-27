@@ -156,12 +156,13 @@ FAMILIES: dict[str, Family] = {
             "optionally blend two voices in equal proportions. The selected voice "
             "sets the pronunciation pipeline automatically."
         ),
-        # English auto-chunks at phoneme boundaries. The current MLX pipeline asks
-        # non-English text to be split with newlines to avoid its 510-phoneme limit.
+        # Voice Studio owns long-form sections for progress and all-or-nothing
+        # validation. Kokoro then performs its model-native phoneme split inside
+        # each section.
         text_guidance=TextGuidance(
-            soft_max_chars=1200,
+            soft_max_chars=None,
             chunking="auto-split",
-            note="English auto-chunks. For longer non-English scripts, add line breaks between sentences or paragraphs for clean splitting.",
+            note="Long scripts are split privately at sentence boundaries, rendered in stable sections, and returned as one final audio file.",
         ),
     ),
     "chatterbox-mlx": Family(
@@ -270,12 +271,12 @@ FAMILIES: dict[str, Family] = {
             "Built for streaming / long-form speech with sub-realtime latency. "
             "4-bit is the recommended pick; fp16 only if you have headroom."
         ),
-        # Audit (v1.2.4): mlx_audio vibevoice/vibevoice.py:397 max_tokens=512 per segment
-        # (~43 sec @ 12 Hz). Streaming architecture multi-segments transparently.
+        # Voice Studio supplies the acoustic budget and owns sentence-safe
+        # sections; callers receive only the verified joined result.
         text_guidance=TextGuidance(
             soft_max_chars=None,
-            chunking="unlimited",
-            note="Designed for streaming. No practical length limit — auto-segments long text. May drift on very long single takes.",
+            chunking="auto-split",
+            note="Long scripts are split privately into stable sections, joined into one final file, then receive the requested speed adjustment once.",
         ),
     ),
     "omnivoice": Family(

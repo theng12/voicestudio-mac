@@ -729,6 +729,15 @@ _CHATTERBOX_TURBO_CHUNK_CHARS = 400
 # fidelity starts drifting around the 30-second mark. Roughly 400 characters
 # keeps each independent synthesis pass inside that practical quality window.
 _VOXCPM_CHUNK_CHARS = 400
+# Kokoro performs a second, model-native split at its 510-phoneme boundary.
+# These larger Voice Studio-owned sections provide progress, cancellation, and
+# all-or-nothing validation without making callers manage model internals.
+_KOKORO_CHUNK_CHARS = 3000
+# VibeVoice Realtime is trained for roughly ten-minute generations. A
+# sentence-safe 3,000-character section stays comfortably below that window
+# for normal English narration while preserving useful long-form continuity.
+_VIBEVOICE_CHUNK_CHARS = 3000
+_VIBEVOICE_MAX_TOKENS = 4096
 _LONG_FORM_JOIN_PAUSE_S = 0.12
 _QWEN_SENTENCE_ENDINGS = frozenset(".!?。！？")
 _QWEN_TRAILING_CLOSERS = frozenset("\"'”’»）】〕〉")
@@ -834,6 +843,10 @@ def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
         )
     elif family == "voxcpm-mlx":
         max_chars = _VOXCPM_CHUNK_CHARS
+    elif family == "kokoro-mlx":
+        max_chars = _KOKORO_CHUNK_CHARS
+    elif family == "vibevoice":
+        max_chars = _VIBEVOICE_CHUNK_CHARS
     if max_chars is None:
         return []
     return _sentence_safe_text_chunks(text, max_chars=max_chars)
@@ -841,7 +854,7 @@ def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
 
 def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,
                          family: str, pause_s: float = _LONG_FORM_JOIN_PAUSE_S) -> None:
-    """Validate and join independently synthesized WAV sections."""
+    """Validate and atomically stream independently synthesized WAV sections."""
     if not segment_paths:
         raise ValueError(f"No {family} audio segments were generated")
     import numpy as np
@@ -853,20 +866,48 @@ def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,
     if sample_rate <= 0 or channels <= 0 or first_info.frames <= 0:
         raise RuntimeError(f"{family} returned an empty or invalid audio segment")
 
-    joined: list = []
-    pause = np.zeros((round(max(0.0, pause_s) * sample_rate), channels), dtype=np.float32)
-    for index, path in enumerate(segment_paths):
+    # Validate every section before creating any candidate final file. A
+    # missing, empty, or incompatible section must never look like a successful
+    # partial long-form result.
+    for path in segment_paths:
         info = sf.info(str(path))
         if info.samplerate != sample_rate or info.channels != channels:
             raise RuntimeError(f"{family} segments returned incompatible audio formats")
         if info.frames <= 0:
             raise RuntimeError(f"{family} returned an empty audio segment: {path.name}")
-        audio, _ = sf.read(str(path), dtype="float32", always_2d=True)
-        joined.append(audio)
-        if index < len(segment_paths) - 1 and len(pause):
-            joined.append(pause)
-    sf.write(str(output_path), np.concatenate(joined, axis=0), sample_rate,
-             format="WAV", subtype=first_info.subtype)
+
+    pause = np.zeros(
+        (round(max(0.0, pause_s) * sample_rate), channels),
+        dtype=np.float32,
+    )
+    joining_path = output_path.parent / (
+        f".{output_path.name}.{uuid.uuid4().hex}.joining"
+    )
+    try:
+        with sf.SoundFile(
+            str(joining_path),
+            mode="w",
+            samplerate=sample_rate,
+            channels=channels,
+            format="WAV",
+            subtype=first_info.subtype,
+        ) as destination:
+            for index, path in enumerate(segment_paths):
+                with sf.SoundFile(str(path), mode="r") as source:
+                    while True:
+                        block = source.read(
+                            frames=262_144,
+                            dtype="float32",
+                            always_2d=True,
+                        )
+                        if len(block) == 0:
+                            break
+                        destination.write(block)
+                if index < len(segment_paths) - 1 and len(pause):
+                    destination.write(pause)
+        os.replace(joining_path, output_path)
+    finally:
+        joining_path.unlink(missing_ok=True)
 
 
 def _join_qwen_clone_wavs(segment_paths: list[Path], output_path: Path,
@@ -899,6 +940,7 @@ def _find_ffmpeg_executable() -> Optional[Path]:
 _POSTPROCESSED_SPEED_FAMILIES = {
     "qwen3-tts": "Qwen",
     "voxcpm-mlx": "VoxCPM2",
+    "vibevoice": "VibeVoice",
 }
 
 
@@ -2102,10 +2144,14 @@ class GenerationManager:
         # VoxCPM2 has no numeric speed parameter; its natural-language prompt
         # can shape delivery, while exact requested tempo is applied to the
         # finished WAV below. Passing speed upstream would be silently ignored.
-        if family not in {"voxcpm-mlx", "bark"}:
+        if family not in {"voxcpm-mlx", "bark", "vibevoice"}:
             # Qwen accepts this argument but does not apply it upstream. Keep
             # native generation at 1.0 and adjust the finished WAV below.
             gen_kwargs["speed"] = 1.0 if family == "qwen3-tts" else speed
+        if family == "vibevoice":
+            # At 7.5 acoustic frames per second this permits about nine minutes
+            # per private section. The model normally stops at EOS sooner.
+            gen_kwargs["max_tokens"] = _VIBEVOICE_MAX_TOKENS
 
         # Dispatch to the per-mode resolver to populate voice / clone / instruct
         # kwargs. Each resolver may raise ValueError if required inputs are missing.

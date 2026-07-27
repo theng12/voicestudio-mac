@@ -10,6 +10,35 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.22.0] — 2026-07-27
+
+### Added — 40,000-character Kokoro and VibeVoice long-form execution
+
+- Kokoro and VibeVoice now accept one logical long-form request while Voice
+  Studio privately splits it into sentence-safe sections of at most 3,000
+  characters, validates every section, and returns one joined final WAV.
+- VibeVoice sections receive a 4,096-token acoustic budget—about nine minutes
+  at its 7.5 Hz frame rate—rather than inheriting MLX Audio's short default.
+- VibeVoice speed now uses the established pitch-preserving final-file
+  processor exactly once after all sections are joined.
+
+### Fixed — hour-scale joining stays safe on 8 GB Macs
+
+- Long-form WAV joining now streams verified section files from disk instead
+  of concatenating the entire decoded project in memory.
+- The joined candidate is published atomically only after every section and
+  the complete output succeed. Missing, empty, incompatible, or unreadable
+  sections cannot leave an apparently successful partial result.
+- Kokoro's catalog no longer advertises a 1,200-character caller-side soft
+  limit; callers send one request and receive one final file.
+
+### Verification
+
+- Added 40,000+ character conservation tests for Kokoro and VibeVoice,
+  model-specific section ceilings, VibeVoice acoustic-budget and one-time speed
+  assertions, atomic failure coverage, and disk-streaming join regression
+  coverage. **Just run Update.**
+
 ## [1.21.12] — 2026-07-24
 
 ### Fixed — Pinokio 8 maintenance crash
