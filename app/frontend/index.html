@@ -133,7 +133,7 @@
           <div class="diag-explainer-body">
             <p>
               Different model families use different inference libraries.
-              <strong>Kokoro, VoxCPM2, Bark, Voxtral, and Spark-TTS</strong> use <code>mlx-audio</code>,
+              <strong>Kokoro, VoxCPM2, Bark, Voxtral, Spark-TTS, OmniVoice, and Fish S2 Pro</strong> use <code>mlx-audio</code>,
               while <strong>F5-TTS</strong> uses its own flow-matching engine and VoCoS vocoder.
               The catalog mixes models from different ecosystems so you can pick the
               right tool for each task — but each library has to be importable for
@@ -620,12 +620,12 @@
           </p>
         </section>
 
-        <!-- Chatterbox-MLX / Spark-TTS-MLX: voice cloning from the library. -->
-        <section class="control-block" x-show="isChatterboxMlx(gen.repo) || isSparkTtsMlx(gen.repo)" x-cloak>
+        <!-- Chatterbox-MLX / Spark-TTS-MLX / Fish S2 Pro: voice cloning from the library. -->
+        <section class="control-block" x-show="isChatterboxMlx(gen.repo) || isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo)" x-cloak>
           <label>
             Reference voice
             <span x-show="isChatterboxMlx(gen.repo)" class="required">*</span>
-            <span x-show="isSparkTtsMlx(gen.repo)" class="muted small">(optional — zero-shot if blank)</span>
+            <span x-show="isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo)" class="muted small">(optional — zero-shot if blank)</span>
           </label>
           <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
             <option value="">— pick a voice from your library —</option>
@@ -643,6 +643,10 @@
             </span>
             <span x-show="isSparkTtsMlx(gen.repo)">
               Spark-TTS works zero-shot or with a cloned voice. Manage clips in <a class="link-accent" @click="tab='voices'">Voices</a>.
+            </span>
+            <span x-show="isFishAudio(gen.repo)">
+              Fish S2 Pro can clone the selected clip or generate zero-shot. A clean 3–10 second clip is best;
+              commercial use requires a separate Fish Audio license.
             </span>
           </p>
         </section>
@@ -697,6 +701,41 @@
             Combines with the reference clip if one is picked.
           </p>
         </section>
+
+        <!-- Fish Audio S2 Pro: style/instruction and sampling controls. -->
+        <section class="control-block" x-show="isFishAudio(gen.repo)" x-cloak>
+          <label>Style / delivery prompt <span class="muted small">(optional)</span></label>
+          <input type="text" class="prompt-input" x-model="gen.voice_design_prompt"
+                 placeholder="e.g. calm, intimate audiobook narration with a warm tone">
+          <p class="muted hint">
+            Describe the delivery, emotion, or character. Voice Studio applies this to every private section
+            before joining the final file. Fish S2 Pro is licensed for research/non-commercial use by default.
+          </p>
+        </section>
+
+        <details class="control-block" x-show="isFishAudio(gen.repo)" x-cloak>
+          <summary>Advanced Fish S2 Pro controls</summary>
+          <div class="advanced-inner">
+            <label>Sampling temperature</label>
+            <div class="slider-row">
+              <input type="range" min="0.05" max="2" step="0.05" x-model.number="gen.fish_temperature">
+              <input type="number" class="num-input" min="0.05" max="2" step="0.05" x-model.number="gen.fish_temperature">
+            </div>
+            <label class="advanced-label">Top-p</label>
+            <div class="slider-row">
+              <input type="range" min="0.05" max="1" step="0.05" x-model.number="gen.fish_top_p">
+              <input type="number" class="num-input" min="0.05" max="1" step="0.05" x-model.number="gen.fish_top_p">
+            </div>
+            <label class="advanced-label">Top-k</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="100" step="1" x-model.number="gen.fish_top_k">
+              <input type="number" class="num-input" min="0" max="100" step="1" x-model.number="gen.fish_top_k">
+            </div>
+            <label class="advanced-label">Maximum audio tokens</label>
+            <input type="number" class="num-input" min="128" max="4096" step="1" x-model.number="gen.fish_max_tokens">
+            <p class="muted hint">Defaults mirror Fish S2 Pro's current MLX-Audio API. Voice Studio keeps the public speed control as one final pitch-preserving tempo pass after sections are joined.</p>
+          </div>
+        </details>
 
         <!-- OmniVoice MLX: voice design, cloning, or both. -->
         <section class="control-block" x-show="isOmniVoice(gen.repo)" x-cloak>
@@ -829,7 +868,7 @@
           </div>
           <p class="muted hint">
             0.95 is subtly slower; 0.90 is more deliberate; 1.0 keeps the generated pace.
-            Qwen and VoxCPM2 preserve pitch by adjusting the finished WAV after all sections are joined.
+            Qwen, VoxCPM2, VibeVoice, and Fish S2 Pro preserve pitch by adjusting the finished WAV after all sections are joined.
             VoxCPM2's delivery description can still shape expressive pacing; this control sets the exact final tempo.
             Other shown engines use their native speed control.
           </p>

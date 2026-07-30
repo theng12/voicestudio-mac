@@ -262,6 +262,11 @@ class Txt2SpeechBody(BaseModel):
     omnivoice_num_steps: int = 32
     omnivoice_guidance_scale: float = 2.0
     omnivoice_duration_s: Optional[float] = None
+    # ── Fish Audio S2 Pro MLX sampling controls ──
+    fish_temperature: float = 0.7
+    fish_top_p: float = 0.7
+    fish_top_k: int = 30
+    fish_max_tokens: int = 1024
     # ── Bark-specific knobs ──
     bark_voice_preset: Optional[str] = None  # e.g. "v2/en_speaker_6"; None = random
     bark_temperature: float = 0.7

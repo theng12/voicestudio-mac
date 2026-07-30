@@ -111,6 +111,11 @@ function studio() {
       omnivoice_num_steps: 32,
       omnivoice_guidance_scale: 2.0,
       omnivoice_duration_s: null,
+      // Fish Audio S2 Pro (MLX)
+      fish_temperature: 0.7,
+      fish_top_p: 0.7,
+      fish_top_k: 30,
+      fish_max_tokens: 1024,
       // F5-TTS (SWivid flow-matching, voice-cloning only — no zero-shot mode)
       f5_tts_available: false,
       // Batch / queue — Level 2 of the queue UX. Pinning a seed makes each
@@ -823,6 +828,7 @@ function studio() {
       "chatterbox_min_p", "chatterbox_top_p",
       "bark_temperature", "bark_max_coarse_history", "bark_sliding_window_len", "bark_allow_early_stop",
       "omnivoice_num_steps", "omnivoice_guidance_scale", "omnivoice_duration_s",
+      "fish_temperature", "fish_top_p", "fish_top_k", "fish_max_tokens",
     ],
 
     _loadAllGenPresets() {
@@ -3017,6 +3023,10 @@ function studio() {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "omnivoice";
     },
+    isFishAudio(repo) {
+      const m = (this.models || []).find(x => x.repo === repo);
+      return m?.family === "fish-audio-mlx";
+    },
     isF5TTS(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "f5-tts";
@@ -3073,7 +3083,8 @@ function studio() {
      *  the Voices library. Used to show the voice-library picker. */
     isMlxCloner(repo) {
       return this.isVoxCPMMlx(repo) || this.isChatterboxMlx(repo)
-          || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo);
+          || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo)
+          || this.isFishAudio(repo);
     },
     /** Group Bark voice presets by language for the optgroup picker. */
     barkPresetsByLang() {
@@ -3116,6 +3127,7 @@ function studio() {
           || this.isChatterboxMlx(repo) || this.isSparkTtsMlx(repo) || this.isOrpheus(repo)
           || this.isKittenTts(repo) || this.isVibeVoice(repo)
           || this.isVoxtral(repo) || this.isMarvis(repo) || this.isOmniVoice(repo)
+          || this.isFishAudio(repo)
           || this.isBark(repo);
     },
     setVoxcpmEmotionExample(text) {
@@ -3507,10 +3519,12 @@ function studio() {
         // and Orpheus (optional style nudge).
         const passesInstruct = mode === "custom" || mode === "design"
                             || this.isVoxCPMMlx(repo)
-                            || this.isSparkTtsMlx(repo) || this.isOrpheus(repo);
+                            || this.isSparkTtsMlx(repo) || this.isOrpheus(repo)
+                            || this.isFishAudio(repo);
 
         const passesDesignPrompt = mode === "design" || this.isVoxCPMMlx(repo)
-                                || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo);
+                                || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo)
+                                || this.isFishAudio(repo);
 
         // Voice library: every cloner family + Qwen3 clone mode + F5-TTS.
         const passesLibraryVoice = this.isCloudModel(repo)
@@ -3557,6 +3571,10 @@ function studio() {
           omnivoice_duration_s: this.gen.omnivoice_duration_s === null
                                 || this.gen.omnivoice_duration_s === ""
                                 ? null : Number(this.gen.omnivoice_duration_s),
+          fish_temperature: Number(this.gen.fish_temperature),
+          fish_top_p: Number(this.gen.fish_top_p),
+          fish_top_k: Number(this.gen.fish_top_k),
+          fish_max_tokens: Number(this.gen.fish_max_tokens),
           bark_voice_preset: this.isBark(repo)
                              ? (this.gen.bark_voice_preset || null)
                              : null,
@@ -4033,6 +4051,10 @@ function studio() {
       if (typeof p.omnivoice_guidance_scale === "number") this.gen.omnivoice_guidance_scale = p.omnivoice_guidance_scale;
       this.gen.omnivoice_duration_s = typeof p.omnivoice_duration_s === "number"
                                       ? p.omnivoice_duration_s : null;
+      if (typeof p.fish_temperature === "number") this.gen.fish_temperature = p.fish_temperature;
+      if (typeof p.fish_top_p === "number") this.gen.fish_top_p = p.fish_top_p;
+      if (typeof p.fish_top_k === "number") this.gen.fish_top_k = p.fish_top_k;
+      if (typeof p.fish_max_tokens === "number") this.gen.fish_max_tokens = p.fish_max_tokens;
     },
 
     async copyImageUrl(job) {

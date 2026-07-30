@@ -46,18 +46,33 @@ def test_priority_catalog_is_focused_and_clone_capable() -> None:
     assert all("voice-cloning" in entry.capabilities for entry in omni)
     assert "k2-fsa/OmniVoice" not in {entry.repo for entry in omni}
 
+    fish = _repos("fish-audio-mlx")
+    assert fish == [
+        "mlx-community/fish-audio-s2-pro-8bit",
+        "mlx-community/fish-audio-s2-pro-bf16",
+    ]
+    assert all(
+        "voice-cloning" in entry.capabilities
+        for entry in catalog.CATALOG
+        if entry.family == "fish-audio-mlx"
+    )
+    assert catalog.get_model(fish[0]).sample_rate_hz == 44100
+    assert catalog.get_model(fish[0]).min_unified_memory_gb == 24
+
 
 def test_diagnostics_cover_every_wired_engine_and_show_package_versions() -> None:
     result = generation.diagnostics()
 
     assert {engine["family"] for engine in result["engines"]} == generation._WIRED_FAMILIES
-    assert result["total_engines"] == 13
+    assert result["total_engines"] == 14
     packages = {package["package"]: package for package in result["packages"]}
     assert packages["mlx_audio"]["version"]
     assert packages["torchaudio"]["installed"]
     assert "torchaudio" in generation._ENGINE_REQUIREMENTS["f5-tts"]
     assert "mistral_common" in generation._ENGINE_REQUIREMENTS["voxtral-tts"]
     assert "mlx_lm" in generation._ENGINE_REQUIREMENTS["marvis"]
+    assert "mlx_lm" in generation._ENGINE_REQUIREMENTS["fish-audio-mlx"]
+    assert "omnivoice" not in generation._ENGINE_REQUIREMENTS["omnivoice"]
 
 
 def test_mlx_cache_release_prefers_current_api() -> None:
@@ -464,6 +479,7 @@ def test_qwen_clone_long_sentence_falls_back_to_word_boundaries() -> None:
         ("voxcpm-mlx", "mlx-community/VoxCPM2-4bit", 400),
         ("kokoro-mlx", "mlx-community/Kokoro-82M-bf16", 3000),
         ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit", 3000),
+        ("fish-audio-mlx", "mlx-community/fish-audio-s2-pro-8bit", 300),
     ],
 )
 def test_long_form_local_engines_split_safely_without_losing_text(
@@ -488,6 +504,7 @@ def test_long_form_catalogs_do_not_ask_callers_to_manually_chunk() -> None:
         "voxcpm-mlx",
         "kokoro-mlx",
         "vibevoice",
+        "fish-audio-mlx",
     ):
         guidance = catalog.FAMILIES[family].text_guidance
         assert guidance.soft_max_chars is None
@@ -499,6 +516,7 @@ def test_long_form_catalogs_do_not_ask_callers_to_manually_chunk() -> None:
     [
         ("kokoro-mlx", "mlx-community/Kokoro-82M-bf16"),
         ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit"),
+        ("fish-audio-mlx", "mlx-community/fish-audio-s2-pro-8bit"),
     ],
 )
 def test_customer_sized_40k_text_is_preserved_across_private_sections(
@@ -775,6 +793,70 @@ def test_vibevoice_long_form_uses_full_section_budget_and_applies_speed_once(
     assert sf.info(output).frames > 240
 
 
+def test_fish_audio_long_form_keeps_native_speed_at_one_and_postprocesses_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import importlib
+    import soundfile as sf
+
+    generate_module = importlib.import_module("mlx_audio.tts.generate")
+    generated_sections: list[str] = []
+    tempo_calls: list[tuple[Path, float, str]] = []
+
+    def fake_generate_audio(*, model, output_path, join_audio, **kwargs) -> None:
+        assert model == "fish-model"
+        assert join_audio is True
+        assert kwargs["speed"] == 1.0
+        assert kwargs["chunk_length"] == 100000
+        generated_sections.append(kwargs["text"])
+        sf.write(
+            Path(output_path) / "audio.wav",
+            np.ones(441, dtype=np.float32),
+            44100,
+            subtype="PCM_16",
+        )
+
+    def fake_apply_speed(path: Path, speed: float, family: str) -> bool:
+        assert path.exists()
+        tempo_calls.append((path, speed, family))
+        return True
+
+    monkeypatch.setattr(generate_module, "generate_audio", fake_generate_audio)
+    monkeypatch.setattr(generation, "_apply_mlx_output_speed", fake_apply_speed)
+    monkeypatch.setattr(generation, "_release_device_memory", lambda device: None)
+
+    manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_get_model = lambda repo: "fish-model"
+    manager._resolve_mlx_kwargs = (
+        lambda mode, family, model_entry, params, gen_kwargs: "clone + style"
+    )
+    text = " ".join(
+        f"Sentence {index} stays safely inside the Fish long-form renderer."
+        for index in range(1, 80)
+    )
+    job = generation.GenerationJob(
+        job_id="fish-long-speed",
+        mode="txt2speech",
+        params={"text": text, "speed": 0.97, "seed": 23},
+    )
+    output = tmp_path / "fish-long.wav"
+
+    manager._generate_mlx_audio(
+        job,
+        SimpleNamespace(
+            repo="mlx-community/fish-audio-s2-pro-8bit",
+            family="fish-audio-mlx",
+            sample_rate_hz=44100,
+        ),
+        output,
+    )
+
+    assert len(generated_sections) > 1
+    assert " ".join(generated_sections) == " ".join(text.split())
+    assert tempo_calls == [(output, 0.97, "fish-audio-mlx")]
+    assert sf.info(output).frames > 441
+
+
 def test_qwen_duration_ceiling_accounts_for_final_speed() -> None:
     assert generation._qwen_max_tokens_for_duration(30.0, 1.0) == 375
     assert generation._qwen_max_tokens_for_duration(30.0, 0.5) == 187
@@ -829,7 +911,7 @@ def test_qwen_and_voxcpm_speed_control_is_visible_and_truthful() -> None:
 
     assert "qwen3Mode(gen.repo) !== 'clone'" not in markup
     assert "!isVoxCPMMlx(gen.repo)" not in markup
-    assert "Qwen and VoxCPM2 preserve pitch" in markup
+    assert "Qwen, VoxCPM2, VibeVoice, and Fish S2 Pro preserve pitch" in markup
     assert "after all sections are joined" in markup
 
 
@@ -962,3 +1044,33 @@ def test_omnivoice_mlx_supports_clone_plus_traits_and_clamps(tmp_path: Path) -> 
     assert kwargs["num_steps"] == 64
     assert kwargs["guidance_scale"] == 8.0
     assert kwargs["duration_s"] == 120.0
+
+
+def test_fish_audio_mlx_supports_optional_clone_style_and_clamps(tmp_path: Path) -> None:
+    reference = tmp_path / "voice.wav"
+    reference.touch()
+    voices = SimpleNamespace(library=_VoiceLibrary(reference, transcript=""))
+    manager = object.__new__(generation.GenerationManager)
+    kwargs: dict = {}
+
+    label = manager._mlx_kwargs_fish_audio(
+        {
+            "voice_library_id": "voice-1",
+            "voice_design_prompt": "warm, intimate audiobook narration",
+            "fish_temperature": 9,
+            "fish_top_p": 0,
+            "fish_top_k": 999,
+            "fish_max_tokens": 9999,
+        },
+        kwargs,
+        voices,
+    )
+
+    assert label.startswith("clone + style")
+    assert kwargs["ref_audio"] == str(reference)
+    assert kwargs["ref_text"] == ""
+    assert kwargs["instruct"] == "warm, intimate audiobook narration"
+    assert kwargs["temperature"] == 2.0
+    assert kwargs["top_p"] == 0.05
+    assert kwargs["top_k"] == 100
+    assert kwargs["max_tokens"] == 4096

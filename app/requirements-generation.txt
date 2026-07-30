@@ -63,7 +63,7 @@ jaconv>=0.4,<1
 mojimoji>=0.0.13,<1
 pyopenjtalk>=0.4,<1
 
-# ─── MLX stack (mlx-audio + friends) — PINNED (v1.6.3) ───
+# ─── MLX stack (mlx-audio + friends) — PINNED (Voice Studio 1.23.0) ───
 # mlx-audio is a git install (not on PyPI) and tracks master, so an unpinned
 # `@ git+…` floats to whatever the latest commit is at install time. Different
 # Macs installing on different days got different mlx-audio code — and a newer
@@ -75,7 +75,10 @@ pyopenjtalk>=0.4,<1
 # commit the new known-good pins.
 mlx==0.31.2
 mlx-lm==0.31.3
-mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@14add666b5313cadff94a231ee11979f6ac1adf7
+# v0.4.6: Fish Audio S2 Pro support, OmniVoice loader, and current Chatterbox
+# fixes. Keep the exact release commit so every fleet worker uses the same
+# model loader and quantization behavior.
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb
 
 # ─── v1.5.0: Voxtral-4B-TTS (MLX) ───
 # Voxtral's tekken tokenizer is loaded via mistral-common, and the audio path

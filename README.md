@@ -6,9 +6,9 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 
 ## What it does
 
-- **Catalog of focused local models** across 13 families, including Qwen3-TTS,
-  Chatterbox, OmniVoice, VoxCPM2, Kokoro, F5-TTS, Spark-TTS, Bark,
-  Orpheus, KittenTTS, VibeVoice, Voxtral, and Marvis.
+- **Catalog of focused local models** across 14 families, including Qwen3-TTS,
+  Chatterbox, OmniVoice, Fish Audio S2 Pro, VoxCPM2, Kokoro, F5-TTS, Spark-TTS,
+  Bark, Orpheus, KittenTTS, VibeVoice, Voxtral, and Marvis.
 - **Apple Silicon first** — the priority families use curated MLX tiers instead
   of presenting every redundant precision. Qwen3 includes 0.6B and 1.7B Base
   voice cloning, preset speakers, and VoiceDesign. Long Qwen scripts are
@@ -17,7 +17,10 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   MLX Qwen engine ignores its native speed argument, Voice Studio applies the
   selected pace to the finished WAV with pitch-preserving tempo adjustment.
   The 1.7B Qwen tiers require a 16 GB Mac; 0.6B remains the qualified 8 GB tier.
-  Chatterbox and OmniVoice expose their native cloning and quality controls. Kokoro keeps one
+  Chatterbox, OmniVoice, and Fish Audio S2 Pro expose their native cloning and
+  quality controls. Fish S2 Pro is a high-memory research/non-commercial model;
+  its 8-bit tier is the practical 24 GB candidate and its bf16 tier is for 32 GB+.
+  Kokoro keeps one
   full-quality MLX model with all 54 voices, nine language variants, speed, and
   equal voice blending. VoxCPM2 keeps a fast 4-bit tier and a bf16 final-render
   tier, both with voice design, transcript-aware cloning, sentence-safe long-form
@@ -301,10 +304,12 @@ are intentionally not distributed.
 
 ### Final TTS artifact contract
 
-Qwen3-TTS (preset, clone, and VoiceDesign), VoxCPM2, Kokoro, and VibeVoice
+Qwen3-TTS (preset, clone, and VoiceDesign), VoxCPM2, Kokoro, VibeVoice, and Fish
+Audio S2 Pro
 accept one logical long-form request. Voice Studio alone splits it at
 sentence-safe boundaries, renders private temporary sections, validates every
-section, and joins them into one WAV. Qwen, VoxCPM2, and VibeVoice apply the
+section, and joins them into one WAV. Qwen, VoxCPM2, VibeVoice, and Fish Audio
+S2 Pro apply the
 requested pitch-preserving speed adjustment once to that joined WAV; Kokoro
 uses its native synthesis-speed control consistently in every private section.
 Temporary section files never have an API route and are deleted before the job

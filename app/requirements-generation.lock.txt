@@ -295,7 +295,7 @@ mlx==0.31.2
     #   -r app/requirements-generation.txt
     #   mlx-audio
     #   mlx-lm
-mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@14add666b5313cadff94a231ee11979f6ac1adf7
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb
     # via -r app/requirements-generation.txt
 mlx-lm==0.31.3
     # via

@@ -303,6 +303,28 @@ FAMILIES: dict[str, Family] = {
             note="No practical length limit. For multi-minute renders, splitting into multiple calls usually gives more consistent results.",
         ),
     ),
+    "fish-audio-mlx": Family(
+        id="fish-audio-mlx",
+        label="Fish Audio S2 Pro (MLX)",
+        summary=(
+            "Fish Audio's S2 Pro 5B multilingual TTS running through the MLX-Audio "
+            "v0.4.6 backend. It supports zero-shot voice cloning from a reference "
+            "clip plus expressive instruction prompts and includes its own codec."
+        ),
+        how_to_use=(
+            "Choose a Fish S2 Pro checkpoint, optionally select a reference voice, "
+            "and describe the delivery in the style field. Voice Studio privately "
+            "splits long scripts at safe boundaries, joins the sections, and applies "
+            "the requested final speed once. Check Fish Audio's license before "
+            "commercial use: the public model license is research/non-commercial "
+            "unless you have a separate commercial grant."
+        ),
+        text_guidance=TextGuidance(
+            soft_max_chars=None,
+            chunking="auto-split",
+            note="Long scripts are split privately at sentence-safe ~300-character sections, rendered with the same clone/style controls, joined, and tempo-adjusted once.",
+        ),
+    ),
     "voxtral-tts": Family(
         id="voxtral-tts",
         label="Voxtral-4B-TTS (MLX)",
@@ -958,8 +980,8 @@ CATALOG: tuple[ModelEntry, ...] = (
 
     # ──────────── OmniVoice (MLX) ────────────
     # k2-fsa's OmniVoice through mlx-audio. The published 4-bit and 8-bit
-    # conversions use a custom row-wise scale layout that mlx-audio cannot
-    # currently load. Keep the compatible unquantized MLX checkpoint visible.
+    # conversions use a custom row-wise scale layout that the v0.4.6 generic
+    # loader cannot load. Keep the compatible bfloat16 checkpoint visible.
     ModelEntry(
         repo="mlx-community/OmniVoice-bfloat16",
         label="OmniVoice 0.6B bf16 (MLX) — recommended",
@@ -976,6 +998,49 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Reference-quality OmniVoice at half the size of fp32"),
             ("good",  "Apache-2.0, 646 languages, voice cloning and voice design"),
             ("weak",  "16 GB recommended; the published compact conversions are not compatible with the current MLX engine"),
+        ),
+    ),
+
+    # ──────────── Fish Audio S2 Pro (MLX) ────────────
+    # v0.4.6 is the first pinned mlx-audio release in this app with the Fish
+    # S2 Pro engine. The model repo bundles its codec.safetensors, so it needs
+    # no companion download. The public Fish model license is not commercial.
+    ModelEntry(
+        repo="mlx-community/fish-audio-s2-pro-8bit",
+        label="Fish Audio S2 Pro 5B 8-bit (MLX) — fleet candidate",
+        family="fish-audio-mlx",
+        size_gb=6.73,
+        gated=False,
+        min_unified_memory_gb=24,
+        recommended_hardware="Apple Silicon with 24 GB as the practical floor; 32 GB preferred for long-form cloning.",
+        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
+        best_for="The practical Fish S2 Pro MLX tier. It bundles the model and codec in about 6.73 GB, supports 77 languages and reference-voice cloning, but the public Fish Audio research license is not a commercial-use grant.",
+        sample_rate_hz=44100,
+        languages=("en", "zh", "ja", "ko", "de", "fr", "es", "+70 more"),
+        use_cases=(
+            ("good",  "High-quality multilingual voice cloning with natural-language style control"),
+            ("good",  "Single download includes the S2 Pro model and bundled codec"),
+            ("weak",  "24 GB unified memory is the practical floor; 32 GB is safer for long-form jobs"),
+            ("avoid", "Commercial customer work unless you have Fish Audio's separate commercial license"),
+        ),
+    ),
+    ModelEntry(
+        repo="mlx-community/fish-audio-s2-pro-bf16",
+        label="Fish Audio S2 Pro 5B bf16 (MLX)",
+        family="fish-audio-mlx",
+        size_gb=11.01,
+        gated=False,
+        min_unified_memory_gb=32,
+        recommended_hardware="Apple Silicon with 32 GB or more; not suitable for the 8/16 GB fleet tier.",
+        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
+        best_for="Full-precision Fish S2 Pro for reference-quality cloning and qualification work on high-memory Apple Silicon Macs. The public model license is research/non-commercial unless separately licensed.",
+        sample_rate_hz=44100,
+        languages=("en", "zh", "ja", "ko", "de", "fr", "es", "+70 more"),
+        use_cases=(
+            ("good",  "Full-precision reference tier for 32 GB+ Apple Silicon"),
+            ("good",  "Same cloning and style controls as the 8-bit build"),
+            ("weak",  "About 11.01 GB on disk before runtime memory and cache overhead"),
+            ("avoid", "8/16 GB Macs and commercial use without a separate Fish license"),
         ),
     ),
 
@@ -1085,7 +1150,8 @@ def ignore_patterns_for(repo: str) -> tuple[str, ...]:
 #                         filename="tokenizer-e351c8d8-checkpoint125.safetensors")
 #   - orpheus (llama)   → llama.py loads mlx-community/snac_24khz
 #   - chatterbox-mlx    → chatterbox.py loads mlx-community/S3TokenizerV2
-# OmniVoice / Spark load their codecs from inside their own repo (no companion).
+# OmniVoice / Spark / Fish S2 Pro load their codecs from inside their own repo
+# (no companion).
 FAMILY_COMPANIONS: dict[str, tuple[dict, ...]] = {
     "bark": (
         {
@@ -1155,7 +1221,7 @@ def serialize_model(m: ModelEntry) -> dict:
     # kokoro-mlx / chatterbox-mlx / spark-tts-mlx; the rest are named.
     _MLX_AUDIO_FAMILIES = (
         "qwen3-tts", "orpheus", "kittentts", "vibevoice",
-        "omnivoice", "voxtral-tts", "marvis", "bark",
+        "omnivoice", "fish-audio-mlx", "voxtral-tts", "marvis", "bark",
     )
     apple_optimized = m.family.endswith("-mlx") or m.family in _MLX_AUDIO_FAMILIES
     return {

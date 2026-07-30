@@ -10,6 +10,42 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.23.0] — 2026-07-30
+
+### Added — MLX-Audio v0.4.6 and Fish Audio S2 Pro
+
+- Pinned `mlx-audio` to the immutable v0.4.6 release commit
+  `d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb`, bringing the current upstream
+  Chatterbox fixes, OmniVoice engine, and Fish S2 Pro support to every future
+  Generation install.
+- Added functional Fish Audio S2 Pro MLX rows for the published 8-bit and bf16
+  checkpoints. Fish uses the existing MLX-Audio stack and its bundled codec—no
+  separate Fish Python package or companion model is required.
+- Fish S2 Pro supports optional Voices-library cloning, natural-language style
+  prompts, private sentence-safe long-form sections, final WAV joining, and one
+  pitch-preserving speed pass after the join. Sampling controls are recorded in
+  the normal job parameters.
+- The catalog records the observed 44.1 kHz output, approximately 6.73 GB / 11.01
+  GB download sizes, and conservative 24 GB / 32 GB unified-memory floors. It
+  clearly marks Fish Audio's public research/non-commercial license boundary.
+
+### Audited — OmniVoice dependencies and quantized artifacts
+
+- OmniVoice remains wired through the pinned MLX-Audio loader; there is no
+  separate `omnivoice` package in the tracked Generation requirements. The
+  stale package in an existing environment was deliberately not removed while
+  the live service was left untouched.
+- The published OmniVoice 4-bit and 8-bit rows remain excluded because their
+  custom `omnivoice-rowwise` manifests are not loadable by MLX-Audio v0.4.6's
+  generic quantization loader. The compatible bfloat16 row remains available.
+
+### Verification
+
+- Truth audit, focused model/generation/release tests, JavaScript/Python syntax
+  checks, and the full test suite pass. The live process was not restarted or
+  reinstalled; run **Reinstall Generation** and restart the worker to activate
+  the new MLX-Audio pin.
+
 ## [1.22.1] — 2026-07-27
 
 ### Fixed — fleet model downloads use the available connection

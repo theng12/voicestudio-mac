@@ -18,6 +18,7 @@ Currently wired (workers exist):
 - voxtral-tts     → mlx-audio worker (20 preset voices / 9 langs)
 - marvis          → mlx-audio worker (sesame/csm engine; 2 preset voices)
 - omnivoice       → mlx-audio worker (voice design + cloning)
+- fish-audio-mlx  → mlx-audio worker (Fish S2 Pro style + cloning)
 - f5-tts          → f5_tts.api.F5TTS (separate worker)
 
 Removed in v1.3.1:
@@ -430,7 +431,7 @@ _PACKAGE_CHECKLIST = [
     # MLX-side packages (Qwen3-TTS family). Apple Silicon native, not PyTorch.
     ("mlx",           "Apple Silicon ML framework (Qwen3-TTS)"),
     ("mlx_lm",        "MLX language-model runtime used by Marvis"),
-    ("mlx_audio",     "MLX inference wrapper for audio models (including OmniVoice)"),
+    ("mlx_audio",     "MLX inference wrapper for audio models (including OmniVoice and Fish S2 Pro)"),
     ("mistral_common", "Voxtral speech tokenizer and audio request encoding"),
     # F5-TTS (SWivid) — flow-matching voice cloning.
     ("f5_tts",        "F5-TTS flow-matching TTS engine"),
@@ -449,7 +450,11 @@ _ENGINE_REQUIREMENTS = {
     "orpheus":        ["mlx", "mlx_audio", "soundfile", "numpy"],
     "kittentts":      ["mlx", "mlx_audio", "soundfile", "numpy"],
     "vibevoice":      ["mlx", "mlx_audio", "soundfile", "numpy"],
-    "omnivoice":      ["mlx", "mlx_audio", "torch", "transformers", "soundfile", "numpy"],
+    # v0.4.6 OmniVoice is MLX + Transformers; no separate omnivoice package is
+    # required by the tracked generation environment. Torch may still be
+    # installed globally for other engines, but is not an OmniVoice contract.
+    "omnivoice":      ["mlx", "mlx_audio", "transformers", "soundfile", "numpy"],
+    "fish-audio-mlx": ["mlx", "mlx_lm", "mlx_audio", "transformers", "soundfile", "numpy"],
     "voxtral-tts":    ["mlx", "mlx_audio", "mistral_common", "soundfile", "numpy"],
     "marvis":         ["mlx", "mlx_lm", "mlx_audio", "soundfile", "numpy"],
     # F5-TTS (PyTorch, flow-matching). Wired in v1.3.0.
@@ -465,7 +470,7 @@ _WIRED_FAMILIES = {
     "qwen3-tts", "voxcpm-mlx", "kokoro-mlx",
     "chatterbox-mlx", "spark-tts-mlx", "orpheus",
     "kittentts", "vibevoice", "voxtral-tts", "marvis",
-    "omnivoice",
+    "omnivoice", "fish-audio-mlx",
     # Its own loader (f5_tts.api.F5TTS) — separate worker.
     "f5-tts",
 }
@@ -567,6 +572,12 @@ MLX_AUDIO_FAMILIES: dict[str, dict] = {
         "uses_cfg": False,
         "mode": "omnivoice",
         "label": "OmniVoice (MLX)",
+    },
+    "fish-audio-mlx": {
+        "default_sample_rate": 44100,
+        "uses_cfg": False,
+        "mode": "fish_audio",
+        "label": "Fish Audio S2 Pro (MLX)",
     },
 }
 
@@ -847,6 +858,11 @@ def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
         max_chars = _KOKORO_CHUNK_CHARS
     elif family == "vibevoice":
         max_chars = _VIBEVOICE_CHUNK_CHARS
+    elif family == "fish-audio-mlx":
+        # Fish's upstream generator can apply its own segmenting. Voice Studio
+        # owns the customer-facing long-form boundary so every section gets the
+        # same reference/style controls and is joined before final postprocess.
+        max_chars = 300
     if max_chars is None:
         return []
     return _sentence_safe_text_chunks(text, max_chars=max_chars)
@@ -941,6 +957,7 @@ _POSTPROCESSED_SPEED_FAMILIES = {
     "qwen3-tts": "Qwen",
     "voxcpm-mlx": "VoxCPM2",
     "vibevoice": "VibeVoice",
+    "fish-audio-mlx": "Fish Audio S2 Pro",
 }
 
 
@@ -1721,7 +1738,8 @@ class GenerationManager:
         is_voxcpm = "voxcpm2" in normalized_repo
         is_kokoro = "kokoro" in normalized_repo
         is_chatterbox = "chatterbox" in normalized_repo
-        if not (is_qwen or is_voxcpm or is_kokoro or is_chatterbox):
+        is_fish = "fish-audio-s2-pro" in normalized_repo
+        if not (is_qwen or is_voxcpm or is_kokoro or is_chatterbox or is_fish):
             return
         revision = cache.snapshot_revision(repo)
         if not revision:
@@ -1741,7 +1759,12 @@ class GenerationManager:
             job.voice_revision = f"{revision}:preset:{speaker}"
             return
         voice_id = str(job.params.get("voice_library_id") or "").strip()
-        if (is_qwen and mode == "clone") or (is_voxcpm and voice_id) or is_chatterbox:
+        if (
+            (is_qwen and mode == "clone")
+            or (is_voxcpm and voice_id)
+            or is_chatterbox
+            or (is_fish and voice_id)
+        ):
             from . import voices as voices_module
 
             if not voice_id:
@@ -2144,14 +2167,23 @@ class GenerationManager:
         # VoxCPM2 has no numeric speed parameter; its natural-language prompt
         # can shape delivery, while exact requested tempo is applied to the
         # finished WAV below. Passing speed upstream would be silently ignored.
-        if family not in {"voxcpm-mlx", "bark", "vibevoice"}:
+        if family not in {"voxcpm-mlx", "bark", "vibevoice", "fish-audio-mlx"}:
             # Qwen accepts this argument but does not apply it upstream. Keep
             # native generation at 1.0 and adjust the finished WAV below.
             gen_kwargs["speed"] = 1.0 if family == "qwen3-tts" else speed
+        elif family == "fish-audio-mlx":
+            # Fish applies its native speed per generated segment. Keep that at
+            # 1.0 so the public speed control is applied exactly once to the
+            # fully joined WAV below.
+            gen_kwargs["speed"] = 1.0
         if family == "vibevoice":
             # At 7.5 acoustic frames per second this permits about nine minutes
             # per private section. The model normally stops at EOS sooner.
             gen_kwargs["max_tokens"] = _VIBEVOICE_MAX_TOKENS
+        if family == "fish-audio-mlx":
+            # Prevent a second model-owned split inside Voice Studio's private
+            # 300-character sections. Fish still stops naturally at EOS.
+            gen_kwargs["chunk_length"] = 100000
 
         # Dispatch to the per-mode resolver to populate voice / clone / instruct
         # kwargs. Each resolver may raise ValueError if required inputs are missing.
@@ -2331,6 +2363,8 @@ class GenerationManager:
             return self._mlx_kwargs_voice_or_clone(params, gen_kwargs, voices_module)
         if mode == "omnivoice":
             return self._mlx_kwargs_omnivoice(params, gen_kwargs, voices_module)
+        if mode == "fish_audio":
+            return self._mlx_kwargs_fish_audio(params, gen_kwargs, voices_module)
         raise RuntimeError(f"Unknown mlx-audio mode {mode!r} for family {family!r}")
 
     # --- per-mode kwarg builders ---
@@ -2559,6 +2593,42 @@ class GenerationManager:
         if voice_id:
             return f"clone (voice={voice_id})"
         return f"design ({len(instruct)} char traits)"
+
+    def _mlx_kwargs_fish_audio(self, params, gen_kwargs, voices_module) -> str:
+        """Fish Audio S2 Pro: optional reference clone plus style/instruct.
+
+        Fish's upstream API accepts a reference audio/transcript pair and a
+        natural-language ``instruct``. Voice Studio keeps the reference
+        transcript optional because Fish can clone from the clip alone.
+        """
+        voice_id = (params.get("voice_library_id") or "").strip()
+        instruct = (params.get("voice_design_prompt") or params.get("instruct") or "").strip()
+        if instruct:
+            gen_kwargs["instruct"] = instruct[:500]
+        if voice_id:
+            self._inject_voice_clone(
+                voice_id, params, gen_kwargs, voices_module, fallback_transcript=""
+            )
+
+        gen_kwargs["max_tokens"] = max(
+            128, min(int(params.get("fish_max_tokens", 1024)), 4096)
+        )
+        gen_kwargs["temperature"] = max(
+            0.05, min(float(params.get("fish_temperature", 0.7)), 2.0)
+        )
+        gen_kwargs["top_p"] = max(
+            0.05, min(float(params.get("fish_top_p", 0.7)), 1.0)
+        )
+        gen_kwargs["top_k"] = max(
+            0, min(int(params.get("fish_top_k", 30)), 100)
+        )
+        if voice_id and instruct:
+            return f"clone + style (voice={voice_id})"
+        if voice_id:
+            return f"clone (voice={voice_id})"
+        if instruct:
+            return f"zero-shot + style ({len(instruct)} char prompt)"
+        return "zero-shot"
 
     def _mlx_kwargs_voice_or_clone(self, params, gen_kwargs, voices_module) -> str:
         """Spark-TTS (MLX): EITHER a voice picker (preset) OR a reference
