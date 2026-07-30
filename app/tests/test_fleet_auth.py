@@ -6,6 +6,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from backend import fleet_auth
+from backend import main
 from backend.main import FLEET_TOKEN, app
 
 
@@ -59,6 +60,53 @@ class FleetAuthTests(unittest.TestCase):
         self.assertTrue(auth["bearer_supported"])
         self.assertTrue(auth["cookie_supported"])
         self.assertFalse(auth["query_token_supported"])
+
+    def test_completed_cache_does_not_create_duplicate_download_history(self):
+        repo = "mlx-community/VibeVoice-Realtime-0.5B-4bit"
+        cached = {
+            "repo": repo,
+            "state": "cached",
+            "snapshot_revision": "a" * 40,
+            "bytes_complete": 123,
+            "bytes_incomplete": 0,
+        }
+
+        with patch.object(main.manager, "active_for_repo", return_value=None), \
+             patch.object(main.manager, "start", side_effect=AssertionError("download not expected")), \
+             patch.object(main, "_cache_with_companions", return_value=cached):
+            response = TestClient(
+                app, headers={"X-Studio-Token": FLEET_TOKEN}
+            ).post("/api/downloads", json={"repo": repo})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            "job": None,
+            "already_cached": True,
+            "cache": cached,
+        })
+
+    def test_completed_cache_is_not_reused_for_a_different_revision(self):
+        repo = "mlx-community/VibeVoice-Realtime-0.5B-4bit"
+        cached = {
+            "repo": repo,
+            "state": "cached",
+            "snapshot_revision": "a" * 40,
+        }
+        job = SimpleNamespace(serialize=lambda: {"id": "fresh", "state": "queued"})
+
+        with patch.object(main.manager, "active_for_repo", return_value=None), \
+             patch.object(main.manager, "start", return_value=job) as start, \
+             patch.object(main, "_cache_with_companions", return_value=cached):
+            response = TestClient(
+                app, headers={"X-Studio-Token": FLEET_TOKEN}
+            ).post("/api/downloads", json={
+                "repo": repo,
+                "revision": "b" * 40,
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["job"], {"id": "fresh", "state": "queued"})
+        start.assert_called_once_with(repo, token=None, revision="b" * 40)
 
 
 if __name__ == "__main__":

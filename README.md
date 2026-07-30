@@ -26,8 +26,9 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   tier, both with voice design, transcript-aware cloning, sentence-safe long-form
   rendering, and exact pitch-preserving final tempo control. Bark uses its current
   native MLX conversion with all 130 multilingual presets and complete sampling controls.
-- **Smart downloads** — filters out redundant duplicate weight formats
-  automatically and enables Hugging Face Xet's high-performance transfer mode
+- **Smart downloads** — filters out redundant duplicate weight formats,
+  recognizes an already-complete immutable snapshot without creating another
+  history entry, and enables Hugging Face Xet's high-performance transfer mode
   in both regular and always-on service launches. F5-TTS goes from 6.3 GB →
   1.3 GB, Bark avoids more than 4 GB of duplicate preset files, and Chatterbox
   goes from 11 GB → 3 GB.
@@ -219,12 +220,13 @@ await fetch("http://localhost:47870/api/providers/elevenlabs/accounts", {
   body: JSON.stringify({ label: "ElevenLabs 2", api_key: "your-api-key" }),
 });
 
-// Start a download
-await fetch("http://localhost:47870/api/downloads", {
+// Start a download. An already-complete matching snapshot returns
+// { job: null, already_cached: true, cache: ... } instead of another history row.
+const download = await fetch("http://localhost:47870/api/downloads", {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ repo: "mlx-community/Kokoro-82M-bf16" }),
-});
+}).then(r => r.json());
 
 // Watch download progress (SSE)
 const es = new EventSource("http://localhost:47870/api/downloads/stream");

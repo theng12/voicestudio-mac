@@ -550,6 +550,45 @@ def start_download(body: StartDownloadBody) -> dict:
         raise HTTPException(status_code=400, detail="repo must be 'owner/name'")
     if body.revision and not re.fullmatch(r"[0-9a-fA-F]{40,64}", body.revision):
         raise HTTPException(status_code=400, detail="revision must be an immutable commit hash")
+
+    # An active job owns this repo already.  Return it before inspecting or
+    # pruning disk state so a normal resumable download is never disturbed.
+    active = manager.active_for_repo(body.repo)
+    if active is not None:
+        return {"job": active.serialize()}
+
+    # Hugging Face can leave an unrelated .incomplete blob behind after the
+    # snapshot itself has completed.  That made a usable model look "partial",
+    # so every Hub reconciliation started a new, immediately-completed job and
+    # filled the Downloads page with duplicate history rows.  The manager only
+    # prunes when it has independently verified the exact manifest byte total,
+    # a real snapshot, and real weight files; otherwise the partial remains
+    # resumable.
+    current_cache = _cache_with_companions(body.repo)
+    if current_cache.get("state") == "partial":
+        try:
+            manager.prune_stale_incomplete(body.repo)
+        except RuntimeError:
+            # A concurrent start won the race after the active check above.
+            # start() below returns that job without creating another one.
+            pass
+        current_cache = _cache_with_companions(body.repo)
+
+    # Do not create terminal history just to rediscover a completed model.  A
+    # pinned request may reuse the cache only when its immutable revision is
+    # exactly the cached one; otherwise it must fetch the requested revision.
+    cached_revision = str(current_cache.get("snapshot_revision") or "").lower()
+    requested_revision = (body.revision or "").lower()
+    if (
+        current_cache.get("state") == "cached"
+        and (not requested_revision or requested_revision == cached_revision)
+    ):
+        return {
+            "job": None,
+            "already_cached": True,
+            "cache": current_cache,
+        }
+
     job = manager.start(body.repo, token=body.token, revision=body.revision)
     return {"job": job.serialize()}
 

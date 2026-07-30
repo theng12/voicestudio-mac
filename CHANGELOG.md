@@ -10,6 +10,34 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.23.1] — 2026-07-30
+
+### Fixed — completed model downloads are idempotent
+
+- `POST /api/downloads` now returns an explicit `already_cached` result instead
+  of creating another terminal download job when the requested immutable model
+  snapshot is already complete. The Downloads page therefore stays a truthful
+  history instead of accumulating duplicate “done” rows during fleet checks.
+- A safely provable stale Hugging Face `.incomplete` blob is pruned before this
+  decision only when Voice Studio verifies the current official manifest byte
+  total, a complete snapshot, and real model weights. Active and resumable
+  downloads are never removed or interrupted.
+- A request pinned to a different immutable revision still downloads that
+  revision; an existing cache is never falsely reused.
+
+### Fleet compatibility
+
+- Studio Hub can now treat a worker that safely repaired its cache during a
+  baseline reconcile as ready immediately, without recording a fake queued
+  download. This is a patch-level protocol addition; existing workers remain
+  compatible.
+
+### Verification
+
+- Added API coverage for completed-cache deduplication and immutable-revision
+  protection, alongside the existing cache and fleet-auth tests. **Just run
+  Update.**
+
 ## [1.23.0] — 2026-07-30
 
 ### Added — MLX-Audio v0.4.6 and Fish Audio S2 Pro
