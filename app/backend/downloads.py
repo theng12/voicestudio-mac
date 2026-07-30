@@ -34,6 +34,12 @@ from huggingface_hub.utils import HfHubHTTPError
 from . import cache, catalog, settings
 
 
+# A normal Hugging Face partial is useful resumable state and must remain on
+# disk.  This only detects a transfer that has stopped changing on disk long
+# enough for the next Hub reconciliation to recover it safely.
+STALE_DOWNLOAD_RESTART_SECONDS = 15 * 60
+
+
 def _matches_any(path: str, patterns: tuple[str, ...]) -> bool:
     """fnmatch with extra love: a pattern of 'foo/*' should match
     'foo/bar.bin' AND 'foo/sub/bar.bin'. fnmatch normally won't match the
@@ -64,6 +70,14 @@ class DownloadJob:
     # oscillate when chunks land in bursts.
     _last_speed_sample: Optional[tuple[float, int]] = field(default=None, repr=False)
     _speed_bps: float = field(default=0.0, repr=False)
+    _last_observed_bytes: int = field(default=-1, repr=False)
+    _last_progress_at: Optional[float] = field(default=None, repr=False)
+
+    def observe_progress(self, observed: int, now: Optional[float] = None) -> None:
+        """Record byte growth without treating an unchanged partial as progress."""
+        if observed > self._last_observed_bytes:
+            self._last_observed_bytes = observed
+            self._last_progress_at = time.time() if now is None else now
 
     def serialize(self) -> dict:
         bytes_done = cache.disk_bytes(self.repo)
@@ -75,6 +89,7 @@ class DownloadJob:
         # stale speeds next to a finished job.
         now = time.time()
         if self.state == "running":
+            self.observe_progress(observed, now)
             if self._last_speed_sample is None:
                 self._last_speed_sample = (now, observed)
             else:
@@ -136,6 +151,20 @@ class DownloadJob:
             "finished_at": self.finished_at,
         }
 
+    def is_stalled(self, now: Optional[float] = None) -> bool:
+        """True only for a running transfer with no observed byte growth.
+
+        This intentionally needs a long quiet period. Slow transfers stay
+        resumable; the recovery is triggered only by a later request (normally
+        the Hub's regular reconciliation), never by an aggressive background
+        cancellation loop.
+        """
+        if self.state != "running" or self.started_at is None:
+            return False
+        check_at = time.time() if now is None else now
+        last_progress = self._last_progress_at or self.started_at
+        return check_at - last_progress >= STALE_DOWNLOAD_RESTART_SECONDS
+
 
 class DownloadManager:
     """In-memory registry of download jobs, keyed by repo."""
@@ -156,7 +185,19 @@ class DownloadManager:
         with self._lock:
             existing = self._active_for_repo_locked(repo)
             if existing is not None:
-                return existing
+                existing.observe_progress(
+                    cache.disk_bytes(repo) + cache.incomplete_bytes(repo)
+                )
+                if existing.is_stalled():
+                    # snapshot_download can occasionally remain blocked on a
+                    # dead transport. Mark the old attempt cancelling and let
+                    # a fresh job reuse the same HF partial under its lock.
+                    # No model bytes are removed.
+                    existing.cancel_event.set()
+                    existing.state = "cancelling"
+                    self._active_by_repo.pop(repo, None)
+                else:
+                    return existing
             job = DownloadJob(
                 job_id=uuid.uuid4().hex[:12],
                 repo=repo,
@@ -206,7 +247,52 @@ class DownloadManager:
 
     def active_for_repo(self, repo: str) -> Optional[DownloadJob]:
         with self._lock:
-            return self._active_for_repo_locked(repo)
+            job = self._active_for_repo_locked(repo)
+            if job is not None:
+                job.observe_progress(
+                    cache.disk_bytes(repo) + cache.incomplete_bytes(repo)
+                )
+            if job is not None and job.is_stalled():
+                # Let the caller start a replacement immediately. The old
+                # transfer retains its partial files and observes cancellation
+                # when its blocked transport returns.
+                job.cancel_event.set()
+                job.state = "cancelling"
+                self._active_by_repo.pop(repo, None)
+                return None
+            return job
+
+    def _prune_completed_stale_incomplete(self, job: DownloadJob) -> None:
+        """Remove only proven-stale partial blobs after a successful download.
+
+        An active replacement must win over an old worker before any cleanup;
+        in that case its partials remain completely untouched.  For the owning
+        job, complete bytes must exactly match Hugging Face's current manifest
+        and the cache must contain both a snapshot and model weights before an
+        orphan partial may be removed.
+        """
+        expected_bytes = self._resolve_total_bytes(
+            job.repo, job.token, job.revision
+        )
+        with self._lock:
+            if self._active_by_repo.get(job.repo) != job.job_id:
+                return
+            complete_bytes = cache.disk_bytes(job.repo)
+            verified = bool(
+                expected_bytes > 0
+                and complete_bytes == expected_bytes
+                and cache.has_any_snapshot(job.repo)
+                and cache.has_weight_files(job.repo)
+            )
+            removed = cache.prune_stale_incomplete(
+                job.repo, complete_snapshot_verified=verified
+            )
+        if removed["removed_files"]:
+            print(
+                f"[downloads] pruned {removed['removed_files']} stale partial file(s) "
+                f"for {job.repo}",
+                flush=True,
+            )
 
     def prune_stale_incomplete(self, repo: str) -> dict[str, int | bool]:
         """Prune stale partials while excluding concurrent download starts."""
@@ -302,6 +388,10 @@ class DownloadManager:
     def _run(self, job: DownloadJob) -> None:
         job.state = "running"
         job.started_at = time.time()
+        # Capture the resumable starting point. Future health/catalog polls
+        # compare against it, so a transfer that is actually writing bytes is
+        # never mistaken for a silent stall at the first 15-minute Hub check.
+        job.observe_progress(cache.disk_bytes(job.repo) + cache.incomplete_bytes(job.repo))
         # Total = main repo + every companion (codec/tokenizer) the engine pulls
         # at generation time. Counting companions here keeps the progress bar
         # honest AND makes the download complete-on-first-run (no surprise
@@ -359,6 +449,7 @@ class DownloadManager:
                 job.state = "cancelled"
                 print(f"[downloads] cancelled {job.repo}", flush=True)
             else:
+                self._prune_completed_stale_incomplete(job)
                 job.state = "done"
                 print(f"[downloads] done {job.repo}", flush=True)
         except Exception as e:

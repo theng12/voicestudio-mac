@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.23.2] — 2026-07-30
+
+### Fixed — self-healing resumable model transfers
+
+- Successful model downloads now automatically remove only stale Hugging Face
+  partial blobs that are proven unnecessary by the exact current manifest,
+  completed snapshot, and real model weights. Normal incomplete files remain
+  intact and resumable.
+- A running download with no observed byte progress for 15 minutes is safely
+  marked for cancellation on the next download or Hub reconciliation request,
+  then replaced with one fresh resumable attempt. It never deletes the partial
+  files or interrupts Voice Studio generation.
+
+### Verification
+
+- Added completed-download cleanup and stalled-transfer recovery coverage.
+  **Just run Update.**
+
 ## [1.23.1] — 2026-07-30
 
 ### Fixed — completed model downloads are idempotent

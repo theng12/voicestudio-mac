@@ -33,6 +33,9 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   1.3 GB, Bark avoids more than 4 GB of duplicate preset files, and Chatterbox
   goes from 11 GB → 3 GB.
 - **Resume on retry** — partial downloads pick up where they left off.
+  A normal partial is preserved until it finishes; proven-stale leftovers are
+  cleaned after success, and a transfer with no byte progress for 15 minutes
+  automatically receives one fresh resumable attempt on the next fleet check.
 - **Imports** — link or move TTS weights from other launchers (e.g. a standalone VoxCPM webui).
 - **Cloud audio gateway** — connect ElevenLabs, GenAIPro, Fish Audio, fal.ai, or Kie.ai in Settings, explicitly allow paid use, map provider-native IDs onto voices in the library, then use cloud and local models from the same Generate workspace. ElevenLabs supports a centralized named account pool with quota-aware failover.
 - **Restart-safe cloud jobs** — asynchronous provider tasks are saved immediately and recalled after an Update or restart, so Voice Studio polls the existing paid task instead of submitting it twice.
