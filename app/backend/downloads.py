@@ -20,6 +20,8 @@ This is server-driven and outside our control.
 from __future__ import annotations
 
 import fnmatch
+import multiprocessing as mp
+import queue
 import sys
 import threading
 import time
@@ -38,6 +40,38 @@ from . import cache, catalog, settings
 # disk.  This only detects a transfer that has stopped changing on disk long
 # enough for the next Hub reconciliation to recover it safely.
 STALE_DOWNLOAD_RESTART_SECONDS = 15 * 60
+
+
+def _download_worker(payload: dict, result_queue) -> None:
+    """Run one HF transfer in an interruptible child process.
+
+    ``snapshot_download`` can block inside an HTTP/Xet transfer while holding
+    a Hugging Face file lock.  A cancelled Python thread cannot interrupt that
+    call, so starting a replacement in the same process can leave the new job
+    waiting forever on the old lock.  Keeping the transfer in a child process
+    lets the parent terminate a genuinely stalled attempt; the child still
+    uses the same HF_HOME, so every retry resumes the existing ``.incomplete``
+    blobs rather than starting a second cache.
+    """
+    try:
+        snapshot_download(
+            repo_id=payload["repo"],
+            revision=payload.get("revision"),
+            token=payload.get("token"),
+            ignore_patterns=payload.get("ignore_patterns"),
+        )
+        for companion in payload.get("companions", ()):
+            snapshot_download(
+                repo_id=companion["repo"],
+                token=payload.get("token"),
+                allow_patterns=companion.get("allow_patterns"),
+            )
+        result_queue.put({"ok": True})
+    except BaseException as exc:  # report the error without pickling it
+        result_queue.put({
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        })
 
 
 def _matches_any(path: str, patterns: tuple[str, ...]) -> bool:
@@ -169,10 +203,12 @@ class DownloadJob:
 class DownloadManager:
     """In-memory registry of download jobs, keyed by repo."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, use_processes: bool = True) -> None:
         self._lock = threading.Lock()
         self._jobs: dict[str, DownloadJob] = {}     # job_id -> job
         self._active_by_repo: dict[str, str] = {}   # repo   -> active job_id
+        self._workers: dict[str, mp.Process] = {}
+        self._use_processes = bool(use_processes)
 
     # ---------- public API ----------
 
@@ -410,41 +446,21 @@ class DownloadManager:
         )
 
         try:
-            # cache_dir omitted on purpose — honours HF_HOME from env.
-            # resume is automatic in huggingface_hub 0.27+; the explicit
-            # resume_download kwarg was removed in 1.0.
-            # If the user didn't pass a per-download token, fall back to the
-            # global token from Settings — useful for gated repos and higher
-            # rate limits.
             effective_token = job.token or settings.get_hf_token()
             # Per-model ignore patterns trim out redundant weight formats
             # (e.g. pytorch_model.bin when model.safetensors already exists,
             # or audiocraft state_dict.bin alongside transformers weights).
             ignore = catalog.ignore_patterns_for(job.repo)
-            snapshot_download(
-                repo_id=job.repo,
-                revision=job.revision,
-                token=effective_token,
+            completed = self._run_download_process(
+                job,
+                effective_token=effective_token,
                 ignore_patterns=list(ignore) if ignore else None,
+                companions=companions,
             )
-            # Companion models — the audio codec / tokenizer the engine loads
-            # from a separate repo at generation time. Fetched right after the
-            # main model so "downloaded" really means "ready to generate".
-            if not job.cancel_event.is_set():
-                for c in companions:
-                    allow = c.get("allow_patterns")
-                    print(
-                        f"[downloads] companion {c['repo']} "
-                        f"({c.get('label', 'helper model')}) for {job.repo}",
-                        flush=True,
-                    )
-                    snapshot_download(
-                        repo_id=c["repo"],
-                        token=effective_token,
-                        allow_patterns=list(allow) if allow else None,
-                    )
-                    if job.cancel_event.is_set():
-                        break
+            if not completed:
+                job.state = "cancelled"
+                print(f"[downloads] cancelled {job.repo}", flush=True)
+                return
             if job.cancel_event.is_set():
                 job.state = "cancelled"
                 print(f"[downloads] cancelled {job.repo}", flush=True)
@@ -466,6 +482,84 @@ class DownloadManager:
             with self._lock:
                 if self._active_by_repo.get(job.repo) == job.job_id:
                     self._active_by_repo.pop(job.repo, None)
+
+    def _run_download_process(
+        self,
+        job: DownloadJob,
+        *,
+        effective_token: Optional[str],
+        ignore_patterns: Optional[list[str]],
+        companions,
+    ) -> bool:
+        """Run the transfer and terminate it promptly when cancelled.
+
+        Tests can opt into the old in-process runner so they can monkeypatch
+        ``snapshot_download`` without spawning a second interpreter. Production
+        downloads use a child process to make stale-transfer recovery real.
+        """
+        payload = {
+            "repo": job.repo,
+            "revision": job.revision,
+            "token": effective_token,
+            "ignore_patterns": ignore_patterns,
+            "companions": [
+                {
+                    "repo": c["repo"],
+                    "allow_patterns": list(c.get("allow_patterns") or []) or None,
+                }
+                for c in companions
+            ],
+        }
+        if not self._use_processes:
+            snapshot_download(
+                repo_id=payload["repo"],
+                revision=payload.get("revision"),
+                token=payload.get("token"),
+                ignore_patterns=payload.get("ignore_patterns"),
+            )
+            for companion in payload["companions"]:
+                snapshot_download(
+                    repo_id=companion["repo"],
+                    token=payload.get("token"),
+                    allow_patterns=companion.get("allow_patterns"),
+                )
+            return True
+
+        context = mp.get_context("spawn")
+        result_queue = context.Queue()
+        worker = context.Process(
+            target=_download_worker,
+            args=(payload, result_queue),
+            name=f"hf-download-{job.job_id}",
+        )
+        with self._lock:
+            self._workers[job.job_id] = worker
+        worker.start()
+        try:
+            while worker.is_alive():
+                if job.cancel_event.wait(0.5):
+                    worker.terminate()
+                    worker.join(timeout=5)
+                    if worker.is_alive():
+                        worker.kill()
+                        worker.join(timeout=5)
+                    return False
+            worker.join(timeout=1)
+            try:
+                # multiprocessing.Queue uses a feeder thread; allow it a
+                # moment to flush the child's terminal result after exit.
+                result = result_queue.get(timeout=2)
+            except queue.Empty as exc:
+                raise RuntimeError(
+                    f"download worker exited with code {worker.exitcode}"
+                ) from exc
+            if not result.get("ok"):
+                raise RuntimeError(str(result.get("error") or "download failed"))
+            return True
+        finally:
+            with self._lock:
+                self._workers.pop(job.job_id, None)
+            result_queue.close()
 
 
 manager = DownloadManager()
