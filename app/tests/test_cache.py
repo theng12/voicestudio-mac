@@ -71,6 +71,22 @@ def test_unresolved_incomplete_remains_partial_and_is_not_pruned(
     assert partial.read_bytes() == b"needed"
 
 
+def test_zero_byte_incomplete_placeholder_is_safe_to_prune(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = _repo(tmp_path, monkeypatch)
+    placeholder = root / "blobs" / "cancelled-at-start.incomplete"
+    placeholder.write_bytes(b"")
+
+    assert cache.cache_state(REPO) == "cached"
+    assert cache.incomplete_bytes(REPO) == 0
+    assert cache.prune_stale_incomplete(REPO) == {
+        "removed_files": 1,
+        "removed_bytes": 0,
+    }
+    assert not placeholder.exists()
+
+
 def test_orphan_incomplete_is_pruned_only_after_complete_snapshot_verification(
     tmp_path: Path, monkeypatch
 ) -> None:

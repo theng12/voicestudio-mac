@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.23.4] — 2026-08-01
+
+### Fixed — cancelled placeholders no longer block completed models
+
+- Zero-byte Hugging Face `.incomplete` placeholders left by an interrupted
+  worker are now recognized as non-resumable metadata and safely removed on
+  the next reconciliation.
+- Non-empty partial blobs remain untouched and resumable; a real model
+  snapshot is never deleted to clean up download history.
+
+### Verification
+
+- Cache and download tests cover both resumable non-empty partials and empty
+  cancellation placeholders.
+
 ## [1.23.3] — 2026-08-01
 
 ### Fixed — stalled model retries release their transfer process

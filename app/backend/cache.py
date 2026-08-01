@@ -79,6 +79,16 @@ def _unresolved_incomplete_entries(repo: str) -> list[Path]:
         for entry in blobs.iterdir():
             if not entry.name.endswith(".incomplete"):
                 continue
+            # A cancelled child downloader can leave a zero-byte placeholder
+            # with a transport-specific suffix. It contains no resumable
+            # state; keeping it would make an otherwise usable snapshot look
+            # partial forever and cause every reconciliation to queue a
+            # duplicate download. Only non-empty partial blobs are meaningful.
+            try:
+                if entry.stat().st_size == 0:
+                    continue
+            except (FileNotFoundError, PermissionError):
+                continue
             completed = entry.with_name(entry.name.removesuffix(".incomplete"))
             if not completed.exists():
                 unresolved.append(entry)
@@ -209,7 +219,13 @@ def prune_stale_incomplete(
             continue
         completed = entry.with_name(entry.name.removesuffix(".incomplete"))
         if not completed.exists() and not complete_snapshot_verified:
-            continue
+            try:
+                # Empty placeholders are safe to remove: unlike a non-empty
+                # HF partial they cannot contribute resumable bytes.
+                if entry.stat().st_size != 0:
+                    continue
+            except (FileNotFoundError, PermissionError):
+                continue
         try:
             size = entry.stat().st_size
             entry.unlink()
