@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.23.3] — 2026-08-01
+
+### Fixed — stalled model retries release their transfer process
+
+- Hugging Face model transfers now run in an interruptible worker process.
+- A stalled retry terminates the blocked transfer before starting the next
+  attempt, so it cannot hold a file lock and leave the replacement queued
+  forever.
+- The retry continues using the existing Hugging Face cache and `.incomplete`
+  blobs; it does not create a fresh duplicate download.
+
+### Verification
+
+- Focused download, cache, and fleet-auth tests pass. Existing generation and
+  cache files are left untouched during recovery.
+
 ## [1.23.2] — 2026-07-30
 
 ### Fixed — self-healing resumable model transfers

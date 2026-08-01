@@ -4,7 +4,7 @@ from backend import downloads
 def test_pinned_download_passes_exact_revision_to_hugging_face(monkeypatch) -> None:
     revision = "b" * 40
     observed = {}
-    manager = downloads.DownloadManager()
+    manager = downloads.DownloadManager(use_processes=False)
     job = downloads.DownloadJob(
         job_id="pinned-download",
         repo="example/model",
