@@ -2633,8 +2633,25 @@ class GenerationManager:
             raise ValueError(
                 "Chatterbox needs a reference voice or private reference upload."
             )
+        language = (params.get("language") or "").strip().lower()
+        catalog_entry = catalog.get_model(model_entry.repo)
+        support = getattr(catalog_entry, "language_support", None)
+        supported_languages = (
+            support.codes if support is not None else catalog.CHATTERBOX_LANGUAGE_CODES
+        )
+        if not language:
+            raise ValueError(
+                "Chatterbox needs a language code. Choose one of: "
+                + ", ".join(supported_languages)
+            )
+        if language not in supported_languages:
+            raise ValueError(
+                f"Unsupported Chatterbox language code: {language}. Choose one of: "
+                + ", ".join(supported_languages)
+            )
         self._inject_voice_clone(voice_id, params, gen_kwargs, voices_module,
                                  fallback_transcript="")
+        gen_kwargs["lang_code"] = language
         # Exaggeration is a Chatterbox-specific dial (0.0–1.0, default 0.5).
         # Surface it via the generic `cfg_value` slot in params so the UI
         # doesn't need a brand-new field per family.

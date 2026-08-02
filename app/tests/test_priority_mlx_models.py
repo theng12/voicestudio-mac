@@ -978,6 +978,7 @@ def test_chatterbox_controls_match_standard_and_turbo_engines(tmp_path: Path) ->
     manager = object.__new__(generation.GenerationManager)
     params = {
         "voice_library_id": "voice-1",
+        "language": "en",
         "temperature": 1.1,
         "cfg_value": 0.7,
         "chatterbox_cfg_weight": 0.6,
@@ -996,6 +997,7 @@ def test_chatterbox_controls_match_standard_and_turbo_engines(tmp_path: Path) ->
     assert standard == {
         "ref_audio": str(reference),
         "ref_text": "Saved reference transcript",
+        "lang_code": "en",
         "exaggeration": 0.7,
         "temperature": 1.1,
         "repetition_penalty": 1.3,

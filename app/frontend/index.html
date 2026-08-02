@@ -803,6 +803,16 @@
         </details>
 
         <!-- Chatterbox-MLX: exaggeration / intensity dial (reuses cfg_value). -->
+        <section class="control-block" x-show="isChatterboxMlx(gen.repo)" x-cloak>
+          <label for="chatterbox-language">Language <span class="required">*</span></label>
+          <select id="chatterbox-language" x-model="gen.language" required>
+            <template x-for="code in chatterboxLanguageCodes()" :key="code">
+              <option :value="code" x-text="code"></option>
+            </template>
+          </select>
+          <p class="muted hint">Chatterbox needs an explicit supported language code for multilingual text.</p>
+        </section>
+
         <section class="control-block" x-show="isChatterboxMlx(gen.repo) && !(gen.repo || '').toLowerCase().includes('turbo')" x-cloak>
           <label>Exaggeration <span class="muted small">(0.0 – 1.0)</span></label>
           <div class="slider-row">
@@ -1325,7 +1335,7 @@
                         <p class="variant-repo"><code x-text="m.repo"></code></p>
                         <p class="best-for" x-show="m.best_for"><strong>Best for:</strong> <span x-text="m.best_for"></span></p>
                         <p class="hw" x-text="m.recommended_hardware"></p>
-                        <p class="muted small"><span x-text="(m.sample_rate_hz/1000)+' kHz'"></span> · <span x-text="(m.languages||[]).join(', ')"></span></p>
+                        <p class="muted small"><span x-text="(m.sample_rate_hz/1000)+' kHz'"></span> · <span x-text="languageSupportLabel(m)"></span></p>
                         <ul class="use-case-list" x-show="m.use_cases&&m.use_cases.length"><template x-for="uc in m.use_cases" :key="uc.text"><li :class="'use-case-'+uc.kind"><span class="use-case-icon" x-text="useCaseIcon(uc.kind)"></span><span x-text="uc.text"></span></li></template></ul>
                         <p class="saved-loc" x-show="m.cache.state==='cached'&&m.cache.path"><small>Saved at <code x-text="m.cache.path"></code></small><button class="link small" @click="revealInFolder(m.cache.path)">Reveal in Finder</button></p>
                       </div>

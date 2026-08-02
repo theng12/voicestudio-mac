@@ -372,6 +372,35 @@ FAMILIES: dict[str, Family] = {
 
 
 @dataclass(frozen=True)
+class LanguageSupport:
+    """Truthful language capability metadata for catalog and Studio Hub clients.
+
+    ``codes`` is present only when it is a complete, actionable enumeration.
+    Large upstream coverage claims use a count/lower-bound instead of a
+    fabricated pseudo-language such as ``+70 more``.
+    """
+    input_selection: str = "none"  # none | required | optional
+    enumeration_status: str = "exact"  # exact | claimed_count | claimed_lower_bound
+    codes: tuple[str, ...] = ()
+    claimed_count: Optional[int] = None
+    claimed_lower_bound: Optional[int] = None
+    runtime_enforced: bool = False
+
+
+VOXCPM2_LANGUAGE_CODES = (
+    "ar", "my", "zh", "da", "nl", "en", "fi", "fr", "de", "el",
+    "he", "hi", "id", "it", "ja", "km", "ko", "lo", "ms", "no",
+    "pl", "pt", "ru", "es", "sw", "sv", "tl", "th", "tr", "vi",
+)
+
+CHATTERBOX_LANGUAGE_CODES = (
+    "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi",
+    "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv",
+    "sw", "tr", "zh",
+)
+
+
+@dataclass(frozen=True)
 class ModelEntry:
     repo: str
     label: str
@@ -384,6 +413,7 @@ class ModelEntry:
     best_for: str = ""
     sample_rate_hz: int = 24000           # most TTS engines output 22–24 kHz
     languages: tuple[str, ...] = ("en",)
+    language_support: Optional[LanguageSupport] = None
     # huggingface_hub-style glob patterns of files to SKIP during download.
     # F5-TTS in particular ships 4–5 alternate checkpoints in one repo (different
     # training stages and vocoders) — keep just one. Chatterbox has multiple
@@ -473,7 +503,12 @@ CATALOG: tuple[ModelEntry, ...] = (
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="The recommended VoxCPM2 pick for most users. 4-bit quantized — fastest and smallest, with minimal quality loss vs bf16. 48 kHz studio-quality output, 30 languages, voice cloning + voice design in one model.",
         sample_rate_hz=48000,
-        languages=("en", "zh", "ja", "ko", "id", "fr", "de", "es", "it", "pt", "ru", "ar", "hi", "+19 more"),
+        languages=VOXCPM2_LANGUAGE_CODES,
+        language_support=LanguageSupport(
+            input_selection="none",
+            enumeration_status="exact",
+            codes=VOXCPM2_LANGUAGE_CODES,
+        ),
         use_cases=(
             ("good",  "Recommended starter for multilingual TTS on Apple Silicon"),
             ("good",  "48 kHz studio output — sharpest sample rate in the catalog"),
@@ -494,7 +529,12 @@ CATALOG: tuple[ModelEntry, ...] = (
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="Full bf16 precision — slower (RTF ~0.5×) but the reference quality. Pick when you're doing final renders and quality matters more than speed.",
         sample_rate_hz=48000,
-        languages=("en", "zh", "ja", "ko", "id", "fr", "de", "es", "it", "pt", "ru", "ar", "hi", "+19 more"),
+        languages=VOXCPM2_LANGUAGE_CODES,
+        language_support=LanguageSupport(
+            input_selection="none",
+            enumeration_status="exact",
+            codes=VOXCPM2_LANGUAGE_CODES,
+        ),
         use_cases=(
             ("good",  "Reference quality — the bf16 weights are openbmb's published model"),
             ("good",  "Final renders, audiobook production, anything where artifacts can't slip through"),
@@ -662,7 +702,13 @@ CATALOG: tuple[ModelEntry, ...] = (
         capabilities=("tts", "voice-cloning", "expressive", "multilingual"),
         best_for="Compact 4-bit MLX conversion of ResembleAI/chatterbox (~600 MB on disk), reporting 23-language support. The recommended Chatterbox pick.",
         sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "fr", "de", "es", "+16 more"),
+        languages=CHATTERBOX_LANGUAGE_CODES,
+        language_support=LanguageSupport(
+            input_selection="required",
+            enumeration_status="exact",
+            codes=CHATTERBOX_LANGUAGE_CODES,
+            runtime_enforced=True,
+        ),
         use_cases=(
             ("good",  "Compact MLX conversion of ResembleAI/chatterbox (~600 MB on disk)"),
             ("good",  "23 languages — broader than the old build"),
@@ -681,7 +727,13 @@ CATALOG: tuple[ModelEntry, ...] = (
         capabilities=("tts", "voice-cloning", "expressive", "multilingual"),
         best_for="Higher-precision newer Chatterbox. Pick if 4-bit shows artifacts on your reference voice.",
         sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "fr", "de", "es", "+16 more"),
+        languages=CHATTERBOX_LANGUAGE_CODES,
+        language_support=LanguageSupport(
+            input_selection="required",
+            enumeration_status="exact",
+            codes=CHATTERBOX_LANGUAGE_CODES,
+            runtime_enforced=True,
+        ),
         use_cases=(
             ("good",  "Newer 8-bit conversion, 23 languages"),
             ("good",  "Voice cloning + exaggeration dial"),
@@ -699,6 +751,12 @@ CATALOG: tuple[ModelEntry, ...] = (
         best_for="ResembleAI's Chatterbox Turbo — faster sibling of standard Chatterbox. 4-bit MLX conversion. Same voice-cloning API; tradeoff is quality vs latency.",
         sample_rate_hz=24000,
         languages=("en",),
+        language_support=LanguageSupport(
+            input_selection="required",
+            enumeration_status="exact",
+            codes=("en",),
+            runtime_enforced=True,
+        ),
         use_cases=(
             ("good",  "Faster inference than standard Chatterbox at the same precision"),
             ("good",  "Same voice cloning + exaggeration controls"),
@@ -996,7 +1054,11 @@ CATALOG: tuple[ModelEntry, ...] = (
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="The reliable OmniVoice MLX option for multilingual cloning and voice design. It preserves the reference checkpoint precision without the redundant fp32 download.",
         sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "es", "fr", "de", "ar", "hi", "ru", "+636 more"),
+        languages=(),
+        language_support=LanguageSupport(
+            enumeration_status="claimed_count",
+            claimed_count=646,
+        ),
         use_cases=(
             ("good",  "Reference-quality OmniVoice at half the size of fp32"),
             ("good",  "Apache-2.0, 646 languages, voice cloning and voice design"),
@@ -1017,9 +1079,13 @@ CATALOG: tuple[ModelEntry, ...] = (
         min_unified_memory_gb=24,
         recommended_hardware="Apple Silicon with 24 GB as the practical floor; 32 GB preferred for long-form cloning.",
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
-        best_for="The practical Fish S2 Pro MLX tier. It bundles the model and codec in about 6.73 GB, supports 77 languages and reference-voice cloning, but the public Fish Audio research license is not a commercial-use grant.",
+        best_for="The practical Fish S2 Pro MLX tier. It bundles the model and codec in about 6.73 GB, claims 80+ language coverage and supports reference-voice cloning, but the public Fish Audio research license is not a commercial-use grant.",
         sample_rate_hz=44100,
-        languages=("en", "zh", "ja", "ko", "de", "fr", "es", "+70 more"),
+        languages=(),
+        language_support=LanguageSupport(
+            enumeration_status="claimed_lower_bound",
+            claimed_lower_bound=80,
+        ),
         use_cases=(
             ("good",  "High-quality multilingual voice cloning with natural-language style control"),
             ("good",  "Single download includes the S2 Pro model and bundled codec"),
@@ -1038,7 +1104,11 @@ CATALOG: tuple[ModelEntry, ...] = (
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="Full-precision Fish S2 Pro for reference-quality cloning and qualification work on high-memory Apple Silicon Macs. The public model license is research/non-commercial unless separately licensed.",
         sample_rate_hz=44100,
-        languages=("en", "zh", "ja", "ko", "de", "fr", "es", "+70 more"),
+        languages=(),
+        language_support=LanguageSupport(
+            enumeration_status="claimed_lower_bound",
+            claimed_lower_bound=80,
+        ),
         use_cases=(
             ("good",  "Full-precision reference tier for 32 GB+ Apple Silicon"),
             ("good",  "Same cloning and style controls as the 8-bit build"),
@@ -1241,6 +1311,7 @@ def serialize_model(m: ModelEntry) -> dict:
         audited_text_max = int(audited_text_max) if audited_text_max is not None else None
     except (TypeError, ValueError):
         audited_text_max = None
+    language_support = m.language_support or LanguageSupport(codes=m.languages)
     return {
         "repo": m.repo,
         "label": m.label,
@@ -1257,6 +1328,14 @@ def serialize_model(m: ModelEntry) -> dict:
         # Frontend will use text length as the user-visible cost signal instead.
         "max_duration_seconds": None,
         "languages": list(m.languages),
+        "language_support": {
+            "input_selection": language_support.input_selection,
+            "enumeration_status": language_support.enumeration_status,
+            "codes": list(language_support.codes),
+            "claimed_count": language_support.claimed_count,
+            "claimed_lower_bound": language_support.claimed_lower_bound,
+            "runtime_enforced": language_support.runtime_enforced,
+        },
         "execution_contract": {
             # Public limits are qualification results, not optimistic guesses
             # from family guidance. An unaudited model remains available for

@@ -10,6 +10,36 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.0] — 2026-08-03
+
+### Added — truthful structured language support in the model catalog
+
+- Catalog models now expose a backward-compatible `language_support` object.
+  Exact language codes are separated from count-only and lower-bound coverage
+  claims, so API and Studio Hub clients never receive display placeholders as
+  machine-readable languages.
+- VoxCPM2 now exposes its complete 30-code language enumeration, while
+  OmniVoice (646 claimed) and Fish S2 Pro (80+ claimed) expose non-actionable
+  coverage claims until their exact runtime contracts are audited.
+- Chatterbox now exposes and validates its 23 exact language codes, and the
+  Generate view requires an explicit language selection that is forwarded to
+  MLX Audio as `lang_code`. Chatterbox Turbo truthfully exposes its
+  English-only exact selector under the same adapter contract.
+
+### Changed
+
+- Model cards now show compact exact or claimed language coverage instead of
+  rendering pseudo-language entries such as `+70 more`.
+
+### Verification
+
+- Focused catalog/API and Chatterbox adapter tests verify exact enumerations,
+  no placeholders, non-selectable claimed coverage, and language validation.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
+---
+
 ## [1.26.4] — 2026-08-03
 
 ### Fixed — Kokoro catalog contract matches audited capabilities

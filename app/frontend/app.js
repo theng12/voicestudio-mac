@@ -1100,6 +1100,7 @@ function studio() {
           && !this.gen.voice_library_id && !this.gen.voice_design_prompt.trim()) return false;
       // Chatterbox is voice-cloning only; prevent a guaranteed backend error.
       if (this.isChatterboxMlx(this.gen.repo) && !this.gen.voice_library_id) return false;
+      if (this.isChatterboxMlx(this.gen.repo) && !this.chatterboxLanguageCodes().includes(this.gen.language)) return false;
       // F5-TTS requires a library voice (voice cloning only — no zero-shot).
       if (this.isF5TTS(this.gen.repo) && !this.gen.voice_library_id) return false;
       return true;
@@ -1124,6 +1125,9 @@ function studio() {
       }
       if ((this.isChatterboxMlx(this.gen.repo) || this.isF5TTS(this.gen.repo)) && !this.gen.voice_library_id) {
         return "Pick a reference voice from your library.";
+      }
+      if (this.isChatterboxMlx(this.gen.repo) && !this.chatterboxLanguageCodes().includes(this.gen.language)) {
+        return "Choose a supported Chatterbox language.";
       }
       return "Complete the required fields to continue.";
     },
@@ -3094,6 +3098,25 @@ function studio() {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "chatterbox-mlx";
     },
+    chatterboxLanguageCodes() {
+      const model = (this.models || []).find(x => x.repo === this.gen.repo);
+      return model?.language_support?.enumeration_status === "exact"
+        ? (model.language_support.codes || []) : [];
+    },
+    languageSupportLabel(model) {
+      const support = model?.language_support;
+      if (!support) return (model?.languages || []).join(", ");
+      if (support.enumeration_status === "exact") {
+        return `${(support.codes || []).length} languages · exact`;
+      }
+      if (support.enumeration_status === "claimed_count") {
+        return `${support.claimed_count} languages · claimed`;
+      }
+      if (support.enumeration_status === "claimed_lower_bound") {
+        return `${support.claimed_lower_bound}+ languages · claimed`;
+      }
+      return "Language coverage not listed";
+    },
     isSparkTtsMlx(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "spark-tts-mlx";
@@ -3250,6 +3273,9 @@ function studio() {
       if (this.isChatterboxMlx(this.gen.repo)) {
         if (this.gen.cfg_value > 1.0 || this.gen.cfg_value < 0.0) {
           this.gen.cfg_value = 0.5;
+        }
+        if (!this.chatterboxLanguageCodes().includes(this.gen.language)) {
+          this.gen.language = "en";
         }
       } else if (this.gen.cfg_value < 0.5) {
         // Coming back from Chatterbox to a VoxCPM model — restore cfg=2.0
