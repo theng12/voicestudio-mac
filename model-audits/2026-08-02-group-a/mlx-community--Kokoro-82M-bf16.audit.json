@@ -1,8 +1,8 @@
 {
   "schema": "studio.model-audit-record",
   "schema_version": 1,
-  "audit_id": "voicestudio-20260802-kokoro-a71e4d38",
-  "audited_at": "2026-08-02T05:16:25Z",
+  "audit_id": "voicestudio-20260802-kokoro-a71e4d38-supplemental",
+  "audited_at": "2026-08-02T11:11:58Z",
   "subject": {
     "model_id": "mlx-community/Kokoro-82M-bf16",
     "display_name": "Kokoro v1.0 82M",
@@ -17,7 +17,7 @@
     "approved_operations": ["voice.tts"],
     "adapter": {
       "id": "voicestudio.mlx-audio.kokoro",
-      "version": "1.0",
+      "version": "1.1",
       "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
     },
     "controls": {
@@ -70,7 +70,7 @@
       "platform": "Apple Silicon",
       "minimum_unified_memory_gb": 8,
       "recommended_unified_memory_gb": 8,
-      "measured_peak_memory_gb": 1.388
+      "measured_peak_memory_gb": 3.55
     },
     "capacity": {
       "max_concurrency": 1
@@ -83,16 +83,16 @@
   "genstudio_candidate": {
     "schema": "studio.model-audit",
     "schema_version": 1,
-    "audit_id": "voicestudio-20260802-kokoro-a71e4d38",
+    "audit_id": "voicestudio-20260802-kokoro-a71e4d38-supplemental",
     "audit_status": "passed",
     "candidate_for_genstudio": true,
-    "contract_hash": "sha256:7d5c5e7946b7e3bd32c0dae5336333270f1509dbefe4d7f34f47ec553f344333",
+    "contract_hash": "sha256:eb468737162cbf5067858b60ee83d666c0a15bd189d44b28d3146ee98d4fbbc0",
     "runtime_revision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
     "approved_operations": ["voice.tts"],
-    "audited_at": "2026-08-02T05:16:25Z",
+    "audited_at": "2026-08-02T11:11:58Z",
     "adapter": {
       "id": "voicestudio.mlx-audio.kokoro",
-      "version": "1.0",
+      "version": "1.1",
       "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
     },
     "controls": {
@@ -145,7 +145,7 @@
       "platform": "Apple Silicon",
       "minimum_unified_memory_gb": 8,
       "recommended_unified_memory_gb": 8,
-      "measured_peak_memory_gb": 1.388
+      "measured_peak_memory_gb": 3.55
     },
     "capacity": {
       "max_concurrency": 1
@@ -201,12 +201,49 @@
       "1.0": {"duration_seconds": 3.95, "result": "passed"},
       "2.0": {"duration_seconds": 2.1, "result": "passed"}
     },
+    "supplemental_voice_samples": {
+      "requested": 54,
+      "generated": 54,
+      "unique_scripts": 54,
+      "language_pipelines": 9,
+      "minimum_duration_seconds": 20.175,
+      "maximum_duration_seconds": 29.9,
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "signal_validation": "passed",
+      "manifest_sha256": "sha256:e9b66568cb16511a1044430c3358147540e73000f16b69cbfb7f996a78f14cc8"
+    },
+    "long_form_endurance": {
+      "voice_id": "bm_lewis",
+      "input_characters": 40000,
+      "private_sections": 55,
+      "output_duration_seconds": 2567.705,
+      "output_sha256": "sha256:0b9ce81dbf5edc915c968296e9cd81cca0d4929d9673e367c9420f76158a02bd",
+      "peak_memory_gb": 3.55,
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "clipped_sample_ratio": 0.0,
+      "result": "passed"
+    },
+    "transcript_verification": {
+      "model": "mlx-community/whisper-large-v3-turbo",
+      "strategy": "30-second bounded windows",
+      "source_words": 6583,
+      "transcript_words": 6668,
+      "matching_words": 6540,
+      "reference_word_coverage": 0.993468,
+      "sequence_similarity": 0.987095,
+      "result": "passed_with_verifier_boundary_notes"
+    },
     "verified_modes": ["preset_voice", "same_language_equal_voice_blend"],
     "excluded_modes": ["voice_clone", "voice_design", "style_prompt", "customer_streaming"],
     "findings": [
       "The audited checkpoint contains all 54 stock voicepacks; the adapter now resolves those local files instead of downloading a second copy from another repository.",
       "The checkpoint and original model cards declare Apache-2.0; the previous catalog MIT wording was corrected.",
-      "Every language pipeline generated non-silent 24 kHz audio offline. Non-English quality remains dependent on thinner upstream training data and G2P quality."
+      "Every language pipeline generated non-silent 24 kHz audio offline. Non-English quality remains dependent on thinner upstream training data and G2P quality.",
+      "The live API initially failed because resolving a Hugging Face voicepack symlink removed its safetensors suffix. Adapter 1.1 preserves the snapshot filename; the real symlink layout and a live Lewis generation now pass.",
+      "All 54 voices produced distinct native-language samples between 20 and 30 seconds, and Lewis completed a real 40,000-character, 55-section endurance job with 99.3468 percent Whisper reference-word coverage.",
+      "Whisper Large cannot yet accept the entire 42-minute verifier artifact in one request on this 16 GB machine; 30-second bounded verifier windows passed and the single-request restart is tracked as a transcription-adapter limitation, not a Kokoro failure."
     ]
   }
 }

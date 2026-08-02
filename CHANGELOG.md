@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.25.2] — 2026-08-02
+
+### Changed — Kokoro supplemental commercial evidence
+
+- Reissued Kokoro's exact audit candidate for adapter 1.1 after a live
+  snapshot-symlink generation, all 54 stock voices, and the requested real
+  40,000-character Lewis endurance run passed.
+- The 54 native-language preview WAVs use distinct scripts and all measure
+  between 20.175 and 29.900 seconds. The 40,000-character output contains 55
+  private sections, lasts 2,567.705 seconds, and has no clipped samples.
+- Bounded Whisper verification matched 6,540 of 6,583 source words (99.3468%
+  coverage). The audit records that one unbounded 42-minute Whisper request
+  restarts the 16 GB worker; this is a transcription-adapter limitation and
+  does not alter Kokoro's passed adapter-managed long-form result.
+
+### Verification
+
+- The updated audit contract hash is recomputed and validated by the focused
+  model-audit suite. Generated evidence is stored outside the release tree in
+  the dated fleet-audit sample folder.
+
 ## [1.25.1] — 2026-08-02
 
 ### Fixed — cached Kokoro voicepacks generate through the live API
