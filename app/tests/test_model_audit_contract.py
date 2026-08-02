@@ -74,9 +74,35 @@ def test_kokoro_adapter_uses_audited_checkpoint_local_voicepacks(
 
     assert kwargs["lang_code"] == "j"
     assert kwargs["voice"].split(",") == [
-        str((voices_dir / "jf_alpha.safetensors").resolve()),
-        str((voices_dir / "jm_kumo.safetensors").resolve()),
+        str((voices_dir / "jf_alpha.safetensors").absolute()),
+        str((voices_dir / "jm_kumo.safetensors").absolute()),
     ]
+
+
+def test_kokoro_adapter_preserves_suffix_for_huggingface_voicepack_symlink(
+    tmp_path: Path,
+) -> None:
+    blobs = tmp_path / "blobs"
+    voices = tmp_path / "snapshot" / "voices"
+    blobs.mkdir()
+    voices.mkdir(parents=True)
+    blob = blobs / ("a" * 64)
+    blob.write_bytes(b"voice")
+    voicepack = voices / "bm_lewis.safetensors"
+    voicepack.symlink_to(blob)
+
+    manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_snapshot_path = lambda _repo: tmp_path / "snapshot"
+    kwargs: dict = {}
+
+    manager._mlx_kwargs_voice_picker(
+        "kokoro-mlx",
+        {"voice": "bm_lewis", "language": "b"},
+        kwargs,
+    )
+
+    assert kwargs["voice"] == str(voicepack.absolute())
+    assert kwargs["voice"].endswith(".safetensors")
 
 
 def test_catalog_exposes_candidate_evidence_without_exposure_authority(

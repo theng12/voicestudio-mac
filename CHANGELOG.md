@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.25.1] — 2026-08-02
+
+### Fixed — cached Kokoro voicepacks generate through the live API
+
+- Preserve each snapshot voicepack's `.safetensors` filename when passing it
+  to Kokoro. Resolving Hugging Face's symlink to its extensionless blob name
+  made the runtime treat that path as a voice ID, append another extension,
+  and finish without producing a WAV.
+- Added a regression test using the same snapshot-symlink layout as the real
+  Hugging Face cache. The live failure is now represented in the test suite,
+  rather than covered only by ordinary-file fixtures.
+
+### Verification
+
+- The focused Kokoro, audited-contract, and priority-model suites pass. A live
+  Lewis generation is required after the active model download finishes and
+  Voice Studio restarts onto this patch.
+
 ## [1.25.0] — 2026-08-02
 
 ### Added — private customer references and adapter-managed long form

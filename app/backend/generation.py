@@ -2587,7 +2587,13 @@ class GenerationManager:
                         + ", ".join(missing)
                         + ". Re-download this exact model revision."
                     )
-                voice = ",".join(str(path.resolve()) for path in local_voices)
+                # Keep the snapshot filename instead of resolving its symlink
+                # into Hugging Face's extensionless blob path. Kokoro detects
+                # a direct local voicepack by the ``.safetensors`` suffix; an
+                # extensionless resolved blob is treated as a voice ID and the
+                # runtime appends another suffix, so inference completes with
+                # no output artifact.
+                voice = ",".join(str(path.absolute()) for path in local_voices)
 
         gen_kwargs["voice"] = voice
         # Some voice-picker families (Orpheus) accept an optional instruct
