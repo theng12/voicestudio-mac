@@ -10,6 +10,43 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.25.0] — 2026-08-02
+
+### Added — private customer references and adapter-managed long form
+
+- Added a checksum-bound private reference-audio endpoint for assigned
+  GenStudio work. Voice Studio derives a model-compatible PCM reference using
+  the exact audited duration, sample-rate, transcript, and alignment contract
+  while keeping local paths and private request fields out of job responses.
+- Model catalogues now publish audit-derived reference-audio requirements and
+  long-form execution capabilities, including the public 40,000-character
+  request ceiling and each adapter's private sentence-safe chunk budget.
+- Generation results now report reference-source and prepared-audio checksums,
+  preprocessing revision, prepared duration, long-form strategy, and chunk
+  totals so Studio Hub can verify the exact execution evidence.
+
+### Changed — model adapters own model-specific audio work
+
+- Clone-capable local adapters can consume a temporary prepared customer
+  reference without creating a permanent Voice Studio library voice. The
+  original upload remains owned by GenStudio; Voice Studio caches only a
+  deterministic derived execution reference until its supplied expiry.
+- Long requests are split inside Voice Studio at audited sentence-safe limits,
+  then generated, validated, stitched, and speed-adjusted through the existing
+  adapter path. A model can therefore qualify as adapter-managed long form
+  without claiming one-pass 40,000-character support.
+- Job logging now redacts source text; job serialization redacts private paths
+  and internal preparation parameters while preserving safe progress and
+  terminal evidence.
+
+### Verification
+
+- Focused tests cover duration selection, timestamp-aligned transcript slicing,
+  deterministic cache reuse, private-field redaction, exact adapter injection,
+  audited chunk sizing, catalog capabilities, and terminal evidence.
+- The complete Voice Studio suite passes without loading a model, downloading a
+  dependency, or calling a paid provider.
+
 ## [1.24.0] — 2026-08-02
 
 ### Added — revision-bound Group A model audits

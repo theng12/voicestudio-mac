@@ -47,6 +47,11 @@ def test_kokoro_audit_inventory_exactly_matches_the_runtime_roster() -> None:
     assert len(audited) == 54
     assert set(groups) == set(generation.LANG_NAMES)
     assert record["contract"]["license"]["spdx"] == "Apache-2.0"
+    limits = record["contract"]["input_limits"]
+    assert limits["text_max_characters"] == 40_000
+    assert limits["long_form_strategy"] == "adapter_managed_long_form"
+    assert limits["supports_chunk_progress"] is True
+    assert limits["supports_cancellation_between_chunks"] is True
 
 
 def test_kokoro_adapter_uses_audited_checkpoint_local_voicepacks(

@@ -103,7 +103,7 @@ from typing import Optional
 import httpx
 from packaging.version import InvalidVersion, Version
 
-from . import catalog, cache
+from . import catalog, cache, model_audits
 from .voicestudio_genstudio_integration import final_tts_result
 
 
@@ -842,7 +842,12 @@ def _split_long_text_unit(text: str, max_chars: int) -> list[str]:
 
 
 def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
-    """Return safe independent synthesis sections for long-form local TTS."""
+    """Return safe independent synthesis sections for long-form local TTS.
+
+    A passed model audit may tighten or expand the private section budget for
+    one exact checkpoint. Until that evidence exists, the established family
+    fallback remains active. Callers still submit one complete script.
+    """
     max_chars: Optional[int] = None
     if family == "qwen3-tts":
         max_chars = _QWEN_CLONE_CHUNK_CHARS
@@ -865,6 +870,15 @@ def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
         max_chars = 300
     if max_chars is None:
         return []
+    audited = model_audits.input_limits(repo).get(
+        "private_section_max_characters"
+    )
+    try:
+        audited_chars = int(audited)
+    except (TypeError, ValueError):
+        audited_chars = 0
+    if 40 <= audited_chars <= 20_000:
+        max_chars = audited_chars
     return _sentence_safe_text_chunks(text, max_chars=max_chars)
 
 
@@ -1223,6 +1237,13 @@ class GenerationJob:
         if self.started_at is not None:
             end = self.finished_at if self.finished_at is not None else time.time()
             duration = max(0.0, end - self.started_at)
+        public_params = {
+            key: value for key, value in self.params.items()
+            if not str(key).startswith("_")
+        }
+        audited_strategy = model_audits.input_limits(
+            str(self.params.get("repo") or "")
+        ).get("long_form_strategy")
         result = {
             "id": self.job_id,
             "mode": self.mode,
@@ -1233,7 +1254,7 @@ class GenerationJob:
             "progress": self.progress,
             "chunk_index": self.chunk_index,
             "chunk_total": self.chunk_total,
-            "params": self.params,
+            "params": public_params,
             "output_path": self.output_path,
             "output_url": f"/api/generate/jobs/{self.job_id}/audio" if self.output_path else None,
             "resolved_seed": self.resolved_seed,
@@ -1249,6 +1270,14 @@ class GenerationJob:
                 model_revision=self.model_revision,
                 voice_library_id=self.params.get("voice_library_id"),
                 voice_revision=self.voice_revision,
+                reference_audio_sha256=self.params.get("_reference_audio_sha256"),
+                reference_source_sha256=self.params.get("_reference_source_sha256"),
+                reference_preparation_revision=self.params.get(
+                    "_reference_preparation_revision"
+                ),
+                reference_duration_s=self.params.get("_reference_duration_s"),
+                long_form_strategy=audited_strategy or "unverified",
+                chunk_total=self.chunk_total,
                 runtime_s=duration,
                 media_type=self.media_type,
                 format=self.format,
@@ -1639,7 +1668,12 @@ class GenerationManager:
             if not job.provider:
                 self._last_model_activity_at = job.started_at
             job.progress = 0.05          # move the bar off zero the moment work starts
-            print(f"[gen] starting {job.job_id}: {job.params}", flush=True)
+            print(
+                f"[gen] starting {job.job_id}: repo={job.params.get('repo')} "
+                f"text_chars={len(str(job.params.get('text') or ''))} "
+                f"private_reference={bool(job.params.get('_reference_audio_path'))}",
+                flush=True,
+            )
 
             if not TTS_AVAILABLE and not job.provider:
                 job.state = "error"
@@ -1739,7 +1773,11 @@ class GenerationManager:
         is_kokoro = "kokoro" in normalized_repo
         is_chatterbox = "chatterbox" in normalized_repo
         is_fish = "fish-audio-s2-pro" in normalized_repo
-        if not (is_qwen or is_voxcpm or is_kokoro or is_chatterbox or is_fish):
+        is_omnivoice = "omnivoice" in normalized_repo
+        if not (
+            is_qwen or is_voxcpm or is_kokoro or is_chatterbox
+            or is_fish or is_omnivoice
+        ):
             return
         revision = cache.snapshot_revision(repo)
         if not revision:
@@ -1759,12 +1797,19 @@ class GenerationManager:
             job.voice_revision = f"{revision}:preset:{speaker}"
             return
         voice_id = str(job.params.get("voice_library_id") or "").strip()
+        private_revision = str(
+            job.params.get("_reference_audio_sha256") or ""
+        ).strip().lower()
         if (
             (is_qwen and mode == "clone")
-            or (is_voxcpm and voice_id)
+            or (is_voxcpm and (voice_id or private_revision))
             or is_chatterbox
-            or (is_fish and voice_id)
+            or (is_fish and (voice_id or private_revision))
+            or (is_omnivoice and (voice_id or private_revision))
         ):
+            if private_revision:
+                job.voice_revision = private_revision
+                return
             from . import voices as voices_module
 
             if not voice_id:
@@ -2434,14 +2479,13 @@ class GenerationManager:
 
         if mode == "clone":
             voice_id = (params.get("voice_library_id") or "").strip()
-            if not voice_id:
+            if not voice_id and not params.get("_reference_audio_path"):
                 raise ValueError(
-                    "Voice cloning needs a reference voice. Pick one from your Voices library — "
-                    "go to the Voices tab to upload one if it's empty."
+                    "Voice cloning needs a reference voice or private reference upload."
                 )
             self._inject_voice_clone(voice_id, params, gen_kwargs, voices_module,
                                      fallback_transcript=".")
-            return f"clone (voice={voice_id})"
+            return f"clone (voice={voice_id or 'private-reference'})"
 
         raise RuntimeError(f"Unknown qwen3-tts mode {mode!r}")
 
@@ -2455,17 +2499,13 @@ class GenerationManager:
             gen_kwargs["instruct"] = design_prompt
 
         voice_id = (params.get("voice_library_id") or "").strip() or None
-        if voice_id:
-            voice = voices_module.library.get(voice_id)
-            if voice is None:
-                raise ValueError(f"Voice {voice_id} not found in library")
-            ref_path = voices_module.library.reference_path(voice_id)
-            if ref_path is None or not ref_path.exists():
-                raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
-            gen_kwargs["ref_audio"] = str(ref_path)
-            transcript = (params.get("ref_transcript") or "").strip()
-            if not transcript:
-                transcript = (voices_module.library.transcript(voice_id) or "").strip()
+        if voice_id or params.get("_reference_audio_path"):
+            self._inject_voice_clone(
+                voice_id or "", params, gen_kwargs, voices_module,
+                fallback_transcript="",
+            )
+            ref_path = gen_kwargs["ref_audio"]
+            transcript = (gen_kwargs.pop("ref_text", "") or "").strip()
             if transcript:
                 # VoxCPM2's highest-fidelity path needs the same clip in both
                 # reference and continuation slots, paired with its transcript.
@@ -2562,9 +2602,9 @@ class GenerationManager:
         """Chatterbox (MLX): requires a reference audio for voice cloning,
         plus an optional `exaggeration` knob for emotion intensity."""
         voice_id = (params.get("voice_library_id") or "").strip()
-        if not voice_id:
+        if not voice_id and not params.get("_reference_audio_path"):
             raise ValueError(
-                "Chatterbox needs a reference voice. Pick one from your Voices library."
+                "Chatterbox needs a reference voice or private reference upload."
             )
         self._inject_voice_clone(voice_id, params, gen_kwargs, voices_module,
                                  fallback_transcript="")
@@ -2588,20 +2628,21 @@ class GenerationManager:
                 0.0, min(float(params.get("chatterbox_min_p", 0.05)), 1.0)
             )
         detail = "turbo sampling" if turbo else f"exaggeration={exaggeration:.2f}"
-        return f"clone (voice={voice_id}, {detail})"
+        return f"clone (voice={voice_id or 'private-reference'}, {detail})"
 
     def _mlx_kwargs_omnivoice(self, params, gen_kwargs, voices_module) -> str:
         """OmniVoice MLX supports voice design, cloning, or both together."""
         instruct = (params.get("voice_design_prompt") or "").strip()
         voice_id = (params.get("voice_library_id") or "").strip()
-        if not instruct and not voice_id:
+        has_reference = bool(voice_id or params.get("_reference_audio_path"))
+        if not instruct and not has_reference:
             raise ValueError(
                 "OmniVoice needs either a reference voice or voice traits such as "
                 "'female, british accent'."
             )
         if instruct:
             gen_kwargs["instruct"] = instruct
-        if voice_id:
+        if has_reference:
             self._inject_voice_clone(
                 voice_id, params, gen_kwargs, voices_module, fallback_transcript="."
             )
@@ -2616,10 +2657,11 @@ class GenerationManager:
         duration = params.get("omnivoice_duration_s")
         if duration is not None:
             gen_kwargs["duration_s"] = max(0.5, min(float(duration), 120.0))
-        if voice_id and instruct:
-            return f"combined (clone={voice_id} + traits)"
-        if voice_id:
-            return f"clone (voice={voice_id})"
+        reference_label = voice_id or "private-reference"
+        if has_reference and instruct:
+            return f"combined (clone={reference_label} + traits)"
+        if has_reference:
+            return f"clone (voice={reference_label})"
         return f"design ({len(instruct)} char traits)"
 
     def _mlx_kwargs_fish_audio(self, params, gen_kwargs, voices_module) -> str:
@@ -2630,10 +2672,11 @@ class GenerationManager:
         transcript optional because Fish can clone from the clip alone.
         """
         voice_id = (params.get("voice_library_id") or "").strip()
+        has_reference = bool(voice_id or params.get("_reference_audio_path"))
         instruct = (params.get("voice_design_prompt") or params.get("instruct") or "").strip()
         if instruct:
             gen_kwargs["instruct"] = instruct[:500]
-        if voice_id:
+        if has_reference:
             self._inject_voice_clone(
                 voice_id, params, gen_kwargs, voices_module, fallback_transcript=""
             )
@@ -2650,10 +2693,11 @@ class GenerationManager:
         gen_kwargs["top_k"] = max(
             0, min(int(params.get("fish_top_k", 30)), 100)
         )
-        if voice_id and instruct:
-            return f"clone + style (voice={voice_id})"
-        if voice_id:
-            return f"clone (voice={voice_id})"
+        reference_label = voice_id or "private-reference"
+        if has_reference and instruct:
+            return f"clone + style (voice={reference_label})"
+        if has_reference:
+            return f"clone (voice={reference_label})"
         if instruct:
             return f"zero-shot + style ({len(instruct)} char prompt)"
         return "zero-shot"
@@ -2662,10 +2706,10 @@ class GenerationManager:
         """Spark-TTS (MLX): EITHER a voice picker (preset) OR a reference
         audio. If both, the reference clip wins (Spark prefers clone over preset)."""
         voice_id = (params.get("voice_library_id") or "").strip() or None
-        if voice_id:
-            self._inject_voice_clone(voice_id, params, gen_kwargs, voices_module,
+        if voice_id or params.get("_reference_audio_path"):
+            self._inject_voice_clone(voice_id or "", params, gen_kwargs, voices_module,
                                      fallback_transcript=".")
-            return f"clone (voice={voice_id})"
+            return f"clone (voice={voice_id or 'private-reference'})"
 
         voice = (params.get("voice") or "").strip()
         if voice:
@@ -2680,15 +2724,21 @@ class GenerationManager:
         """Helper — look up `voice_id` in the voices library, validate the
         reference clip exists, and inject ref_audio + ref_text into gen_kwargs.
         Used by every clone-capable mode."""
-        voice = voices_module.library.get(voice_id)
-        if voice is None:
-            raise ValueError(f"Voice {voice_id} not found in library")
-        ref_path = voices_module.library.reference_path(voice_id)
-        if ref_path is None or not ref_path.exists():
-            raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
+        private_path = str(params.get("_reference_audio_path") or "").strip()
+        if private_path:
+            ref_path = Path(private_path)
+            if not ref_path.is_file():
+                raise ValueError("The private reference audio is no longer available")
+        else:
+            voice = voices_module.library.get(voice_id)
+            if voice is None:
+                raise ValueError(f"Voice {voice_id} not found in library")
+            ref_path = voices_module.library.reference_path(voice_id)
+            if ref_path is None or not ref_path.exists():
+                raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
         gen_kwargs["ref_audio"] = str(ref_path)
         ref_text = (params.get("ref_transcript") or "").strip()
-        if not ref_text:
+        if not ref_text and voice_id:
             ref_text = voices_module.library.transcript(voice_id) or ""
         gen_kwargs["ref_text"] = ref_text or fallback_transcript
 
@@ -2783,22 +2833,26 @@ class GenerationManager:
 
         # F5-TTS requires voice cloning — no zero-shot mode.
         voice_id = (params.get("voice_library_id") or "").strip()
-        if not voice_id:
+        private_path = str(params.get("_reference_audio_path") or "").strip()
+        if not voice_id and not private_path:
             raise ValueError(
-                "F5-TTS requires a reference voice (it has no zero-shot mode). "
-                "Pick a voice from your Voices library."
+                "F5-TTS requires a reference voice or private reference upload."
             )
-
-        voice = voices_module.library.get(voice_id)
-        if voice is None:
-            raise ValueError(f"Voice {voice_id} not found in library")
-        ref_path = voices_module.library.reference_path(voice_id)
-        if ref_path is None or not ref_path.exists():
-            raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
+        if private_path:
+            ref_path = Path(private_path)
+            if not ref_path.is_file():
+                raise ValueError("The private reference audio is no longer available")
+        else:
+            voice = voices_module.library.get(voice_id)
+            if voice is None:
+                raise ValueError(f"Voice {voice_id} not found in library")
+            ref_path = voices_module.library.reference_path(voice_id)
+            if ref_path is None or not ref_path.exists():
+                raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
 
         # Transcript: prefer per-request override, fall back to library entry.
         ref_text = (params.get("ref_transcript") or "").strip()
-        if not ref_text:
+        if not ref_text and voice_id:
             ref_text = (voices_module.library.transcript(voice_id) or "").strip()
         if not ref_text:
             raise ValueError(

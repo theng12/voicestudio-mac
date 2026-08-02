@@ -324,9 +324,35 @@ Studio Hub uses `X-Studio-Token` for direct Studio calls and `X-Hub-Token` for
 controller-proxied calls. Provider-specific voice IDs and generated embeddings
 are intentionally not distributed.
 
+### Private GenStudio reference execution
+
+Customer uploads do not enter the operator Shared Voices library. Studio Hub
+temporarily transports the exact bytes to
+`POST /api/generate/txt2speech/reference` as multipart `audio`, `request_json`,
+the source checksum, optional ordered transcript segments, and the source
+expiry. The endpoint accepts only local clone-capable models and refuses a
+simultaneous `voice_library_id`.
+
+Voice Studio reads the exact model audit's `input_limits.reference_audio`
+profile when present. It decodes the upload, removes surrounding silence,
+selects a duration-compatible speech window, resamples and normalizes a mono
+PCM WAV, slices timestamped transcript evidence, and caches the derived copy by
+source checksum + model + audit profile + preparation revision. An unaudited
+model keeps its established adapter fallback until a grounded Group audit
+publishes exact limits.
+
+Stable errors such as `REFERENCE_AUDIO_TOO_SHORT`,
+`REFERENCE_TRANSCRIPT_REQUIRED`, and
+`REFERENCE_TRANSCRIPT_ALIGNMENT_REQUIRED` are returned as machine-readable
+`detail.code` values. Successful jobs report source and derived checksums,
+preparation revision, selected duration, long-form strategy, and chunk count;
+private filesystem paths and customer text never enter the public job payload
+or generation start log.
+
 ### Final TTS artifact contract
 
-Qwen3-TTS (preset, clone, and VoiceDesign), VoxCPM2, Kokoro, VibeVoice, and Fish
+Qwen3-TTS (preset, clone, and VoiceDesign), VoxCPM2, Kokoro, Chatterbox,
+OmniVoice, VibeVoice, and Fish
 Audio S2 Pro
 accept one logical long-form request. Voice Studio alone splits it at
 sentence-safe boundaries, renders private temporary sections, validates every
@@ -345,7 +371,10 @@ applicable voice-library ID and audio-hash voice revision, runtime, decoded
 duration, sample rate, channels, byte size, SHA-256, media type, and format.
 Studio Hub supplies the assigned worker identity and independently verifies the
 same final bytes; GenStudio verifies them again before durable publication.
-The worker-owned part of this boundary lives in
+Live progress includes `chunk_index` and `chunk_total`, and cancellation is
+checked between private sections. A model qualifies as sellable long-form when
+the complete adapter-managed request passes; the raw checkpoint does not need
+to accept 40,000 characters in one native call. The worker-owned part of this boundary lives in
 `app/backend/voicestudio_genstudio_integration.py`; add future VoiceStudio
 evidence fields there with a regression test.
 

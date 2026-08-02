@@ -100,3 +100,18 @@ def candidate_summary(model_id: str) -> Optional[dict[str, Any]]:
     # Return a detached JSON-compatible object so callers cannot mutate the
     # file-backed evidence shared with another request.
     return json.loads(json.dumps(record["genstudio_candidate"]))
+
+
+def input_limits(model_id: str) -> dict[str, Any]:
+    """Return detached, audit-bound input limits for one exact model.
+
+    Runtime adapters use this helper for private execution choices such as
+    sentence-section budgets and reference-audio preparation.  An unaudited
+    model deliberately returns an empty mapping so the established adapter
+    fallback remains in force until grounded evidence lands.
+    """
+    record = audit_record(model_id)
+    if record is None:
+        return {}
+    value = record.get("contract", {}).get("input_limits")
+    return json.loads(json.dumps(value)) if isinstance(value, dict) else {}

@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import os
 import re
+import secrets
 import socket
 import subprocess
 import sys
@@ -33,7 +35,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import cache, catalog, memory_policy, providers, settings as app_settings, storage_policy
+from . import (cache, catalog, memory_policy, providers, reference_audio,
+               settings as app_settings, storage_policy)
 from .generation import (
     manager as gen_manager,
     OUTPUT_DIR,
@@ -78,6 +81,7 @@ APP_VERSION = _read_app_version()
 # ───────────── FastAPI setup ─────────────
 
 app = FastAPI(title="Voice Studio KH", version="0.1.0")
+reference_audio.cleanup_expired()
 
 # Permissive CORS so the main mac can call the mac mini over LAN.
 app.add_middleware(
@@ -220,7 +224,7 @@ def _validate_voice_provider_tags(tags: list[dict]) -> None:
 
 class Txt2SpeechBody(BaseModel):
     repo: str
-    text: str
+    text: str = Field(max_length=40_000)
     # Optional caller idempotency key. Studio Hub sends one stable value per
     # batch item so a lost submit response returns the original job.
     client_request_id: Optional[str] = Field(default=None, max_length=200)
@@ -1286,6 +1290,120 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return {"job": job.serialize()}
+
+
+@app.post("/api/generate/txt2speech/reference")
+async def start_txt2speech_with_reference(
+    audio: UploadFile = File(...),
+    request_json: str = Form(...),
+    transcript_segments_json: str = Form(""),
+    source_sha256: str = Form(""),
+    reference_expires_at: float | None = Form(None),
+) -> dict:
+    """Start one clone job from a private, execution-scoped reference.
+
+    Studio Hub transports the GenStudio-owned source bytes here. Voice Studio
+    derives the exact model-compatible WAV and never requires Hub or GenStudio
+    to know a model's duration, sample-rate, or transcript rules.
+    """
+    try:
+        raw_request = json.loads(request_json)
+        if not isinstance(raw_request, dict):
+            raise ValueError("request_json must contain an object")
+        body = Txt2SpeechBody.model_validate(raw_request)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid TTS request: {exc}") from exc
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="text is required")
+    if providers.parse_id(body.repo):
+        raise HTTPException(
+            status_code=400,
+            detail="Private reference uploads are supported by local Voice Studio models only.",
+        )
+    model = catalog.get_model(body.repo)
+    if model is None:
+        raise HTTPException(status_code=400, detail=f"Unknown repo: {body.repo}")
+    if "voice-cloning" not in (model.capabilities or ()):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "REFERENCE_AUDIO_UNSUPPORTED",
+                "detail": f"Model {body.repo} does not support reference-audio cloning.",
+            },
+        )
+    if not gen_manager.is_available():
+        raise HTTPException(status_code=503, detail="TTS generation engine is not installed.")
+    if cache.cache_state(body.repo) != "cached":
+        raise HTTPException(status_code=409, detail=f"Model {body.repo} is not fully cached.")
+    if body.voice_library_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Use either a private reference upload or voice_library_id, not both.",
+        )
+    try:
+        data = await audio.read(reference_audio.MAX_BYTES + 1)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="failed to read reference audio") from exc
+    if source_sha256:
+        actual = hashlib.sha256(data).hexdigest()
+        if not secrets.compare_digest(actual, source_sha256.strip().lower()):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "REFERENCE_AUDIO_CHECKSUM_MISMATCH",
+                    "detail": "The transported reference audio did not match GenStudio's checksum.",
+                },
+            )
+    segments = None
+    if transcript_segments_json.strip():
+        try:
+            segments = json.loads(transcript_segments_json)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "REFERENCE_TRANSCRIPT_SEGMENTS_INVALID",
+                    "detail": "Reference transcript segments are not valid JSON.",
+                },
+            ) from exc
+    try:
+        prepared = reference_audio.prepare(
+            audio_bytes=data,
+            filename=audio.filename or "reference.wav",
+            model_id=body.repo,
+            transcript=body.ref_transcript or "",
+            transcript_segments=segments,
+            expires_at=reference_expires_at,
+        )
+    except reference_audio.ReferenceAudioError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "detail": exc.detail},
+        ) from exc
+    params = body.model_dump()
+    params.update({
+        "voice_library_id": None,
+        "ref_transcript": prepared.get("transcript") or None,
+        "_reference_audio_path": prepared["path"],
+        "_reference_audio_sha256": prepared["derived_sha256"],
+        "_reference_source_sha256": prepared["source_sha256"],
+        "_reference_preparation_revision": prepared["preparation_revision"],
+        "_reference_duration_s": prepared["duration_seconds"],
+    })
+    try:
+        job = gen_manager.start_txt2speech(params)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "job": job.serialize(),
+        "reference": {
+            key: prepared.get(key) for key in (
+                "source_sha256", "derived_sha256", "preparation_revision",
+                "duration_seconds", "sample_rate_hz", "channels",
+                "window_start_seconds", "window_end_seconds",
+            )
+        },
+    }
 
 
 @app.get("/api/generate/jobs")

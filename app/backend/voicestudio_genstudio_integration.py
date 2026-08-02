@@ -15,7 +15,7 @@ from typing import Any
 
 
 INTEGRATION_NAME = "voicestudio_genstudio_integration"
-INTEGRATION_VERSION = "1.0"
+INTEGRATION_VERSION = "1.1"
 
 # Worker-owned fields that Studio Hub may relay and GenStudio may independently
 # verify. ``worker_id`` is intentionally absent: Studio Hub supplies it from
@@ -28,6 +28,12 @@ FINAL_TTS_RESULT_FIELDS = (
     "runtime_revision",
     "voice_library_id",
     "voice_revision",
+    "reference_audio_sha256",
+    "reference_source_sha256",
+    "reference_preparation_revision",
+    "reference_duration_s",
+    "long_form_strategy",
+    "chunk_total",
     "runtime_s",
     "media_type",
     "format",
@@ -55,6 +61,12 @@ def final_tts_result(
     audio_duration_ms: int | None,
     sample_rate_hz: int | None,
     channels: int | None,
+    reference_audio_sha256: str | None = None,
+    reference_source_sha256: str | None = None,
+    reference_preparation_revision: str | None = None,
+    reference_duration_s: float | None = None,
+    long_form_strategy: str | None = None,
+    chunk_total: int | None = None,
 ) -> dict[str, Any]:
     """Return the versioned, worker-owned final TTS evidence envelope."""
     return {
@@ -67,6 +79,12 @@ def final_tts_result(
         "runtime_revision": model_revision,
         "voice_library_id": voice_library_id,
         "voice_revision": voice_revision,
+        "reference_audio_sha256": reference_audio_sha256,
+        "reference_source_sha256": reference_source_sha256,
+        "reference_preparation_revision": reference_preparation_revision,
+        "reference_duration_s": reference_duration_s,
+        "long_form_strategy": long_form_strategy,
+        "chunk_total": chunk_total,
         "runtime_s": runtime_s,
         "media_type": media_type,
         "format": format,

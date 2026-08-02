@@ -4,6 +4,7 @@ logs/
 app/output/
 app/uploads/
 app/voices/
+app/reference_cache/
 app/__pycache__/
 app/backend/__pycache__/
 app/backend/settings.json

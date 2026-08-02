@@ -23,7 +23,7 @@ def test_final_wav_evidence_is_derived_from_published_bytes(tmp_path: Path) -> N
 
     result = job.serialize()
     assert result["integration_name"] == "voicestudio_genstudio_integration"
-    assert result["integration_version"] == "1.0"
+    assert result["integration_version"] == "1.1"
     assert set(voicestudio_genstudio_integration.FINAL_TTS_RESULT_FIELDS) <= set(result)
     assert result["media_type"] == "audio/wav"
     assert result["format"] == "wav"

@@ -1224,6 +1224,20 @@ def serialize_model(m: ModelEntry) -> dict:
         "omnivoice", "fish-audio-mlx", "voxtral-tts", "marvis", "bark",
     )
     apple_optimized = m.family.endswith("-mlx") or m.family in _MLX_AUDIO_FAMILIES
+    try:
+        from . import model_audits
+        audited_input_limits = model_audits.input_limits(m.repo)
+    except Exception:
+        audited_input_limits = {}
+    reference_profile = audited_input_limits.get("reference_audio")
+    if not isinstance(reference_profile, dict):
+        reference_profile = {}
+    family_guidance = FAMILIES[m.family].text_guidance
+    audited_text_max = audited_input_limits.get("text_max_characters")
+    try:
+        audited_text_max = int(audited_text_max) if audited_text_max is not None else None
+    except (TypeError, ValueError):
+        audited_text_max = None
     return {
         "repo": m.repo,
         "label": m.label,
@@ -1240,6 +1254,24 @@ def serialize_model(m: ModelEntry) -> dict:
         # Frontend will use text length as the user-visible cost signal instead.
         "max_duration_seconds": None,
         "languages": list(m.languages),
+        "execution_contract": {
+            # Public limits are qualification results, not optimistic guesses
+            # from family guidance. An unaudited model remains available for
+            # local testing without claiming a sellable 40k contract.
+            "text_max_characters": audited_text_max,
+            "long_form_strategy": audited_input_limits.get(
+                "long_form_strategy"
+            ) or "unverified",
+            "private_section_max_characters": audited_input_limits.get(
+                "private_section_max_characters"
+            ),
+            "qualification_source": "audit" if audited_input_limits else "unverified",
+        },
+        "reference_audio": {
+            "supported": bool("voice-cloning" in m.capabilities),
+            "profile_source": "audit" if reference_profile else "unverified",
+            **reference_profile,
+        },
         "apple_optimized": apple_optimized,
         "quantization": None,
         "aliases": [],
