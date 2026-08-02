@@ -1,0 +1,43 @@
+{
+  "schema": "studio.model-audit-run",
+  "schema_version": 1,
+  "run_id": "2026-08-02-group-a",
+  "studio": "Voice Studio KH",
+  "studio_version": "1.24.0",
+  "started_at": "2026-08-02T05:04:12Z",
+  "completed_at": "2026-08-02T05:16:25Z",
+  "baseline_commit": "c91b80a8947152e901ceb59c2e3a9303be893fb8",
+  "source_tree": "Voice Studio 1.24.0 audit release",
+  "machine": {
+    "model": "Mac mini (Mac16,10)",
+    "chip": "Apple M4",
+    "unified_memory_gb": 16,
+    "os": "macOS 26.5.2 (25F84)"
+  },
+  "runtime": {
+    "python": "3.12.13",
+    "mlx": "0.31.2",
+    "mlx_audio": "0.4.6",
+    "mlx_audio_commit": "d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb",
+    "transformers": "5.9.0",
+    "tokenizers": "0.22.2",
+    "misaki": "0.9.4",
+    "soundfile": "0.14.0"
+  },
+  "records": [
+    "mlx-community--Kokoro-82M-bf16.audit.json",
+    "mlx-community--whisper-large-v3-turbo.audit.json",
+    "mlx-community--whisper-tiny.audit.json"
+  ],
+  "summary": {
+    "passed": 3,
+    "conditional": 0,
+    "failed": 0,
+    "candidate_for_genstudio": 3
+  },
+  "safety": {
+    "paid_provider_calls": 0,
+    "managed_service_restarted": false,
+    "historical_jobs_modified": false
+  }
+}

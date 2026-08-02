@@ -1,0 +1,206 @@
+{
+  "schema": "studio.model-audit-record",
+  "schema_version": 1,
+  "audit_id": "voicestudio-20260802-kokoro-a71e4d38",
+  "audited_at": "2026-08-02T05:16:25Z",
+  "subject": {
+    "model_id": "mlx-community/Kokoro-82M-bf16",
+    "display_name": "Kokoro v1.0 82M",
+    "modality": "voice",
+    "checkpoint_revision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c"
+  },
+  "contract": {
+    "model_id": "mlx-community/Kokoro-82M-bf16",
+    "display_name": "Kokoro v1.0 82M",
+    "modality": "voice",
+    "runtime_revision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+    "approved_operations": ["voice.tts"],
+    "adapter": {
+      "id": "voicestudio.mlx-audio.kokoro",
+      "version": "1.0",
+      "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
+    },
+    "controls": {
+      "voice": {
+        "type": "enum",
+        "required": true,
+        "values": [
+          "af_heart", "af_bella", "af_aoede", "af_kore", "af_nicole", "af_nova", "af_sarah", "af_sky", "af_alloy", "af_jessica", "af_river",
+          "am_michael", "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_onyx", "am_puck", "am_santa",
+          "bf_alice", "bf_emma", "bf_isabella", "bf_lily", "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+          "ef_dora", "em_alex", "em_santa", "ff_siwis", "hf_alpha", "hf_beta", "hm_omega", "hm_psi", "if_sara", "im_nicola",
+          "jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo", "pf_dora", "pm_alex", "pm_santa",
+          "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang"
+        ],
+        "max_selections": 2,
+        "blend": "equal-weight, same-language only"
+      },
+      "language": {
+        "type": "enum",
+        "required": true,
+        "values": ["a", "b", "e", "f", "h", "i", "j", "p", "z"]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 40000,
+      "private_section_max_characters": 3000,
+      "reference_audio_supported": false,
+      "voice_design_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 8,
+      "recommended_unified_memory_gb": 8,
+      "measured_peak_memory_gb": 1.388
+    },
+    "capacity": {
+      "max_concurrency": 1
+    },
+    "license": {
+      "spdx": "Apache-2.0",
+      "commercial_use": true
+    }
+  },
+  "genstudio_candidate": {
+    "schema": "studio.model-audit",
+    "schema_version": 1,
+    "audit_id": "voicestudio-20260802-kokoro-a71e4d38",
+    "audit_status": "passed",
+    "candidate_for_genstudio": true,
+    "contract_hash": "sha256:bed71e9d70f55e1aab90d295cf34f2fe789f3c204e52f0a674fef852f872a1c5",
+    "runtime_revision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+    "approved_operations": ["voice.tts"],
+    "audited_at": "2026-08-02T05:16:25Z",
+    "adapter": {
+      "id": "voicestudio.mlx-audio.kokoro",
+      "version": "1.0",
+      "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
+    },
+    "controls": {
+      "voice": {
+        "type": "enum",
+        "required": true,
+        "values": [
+          "af_heart", "af_bella", "af_aoede", "af_kore", "af_nicole", "af_nova", "af_sarah", "af_sky", "af_alloy", "af_jessica", "af_river",
+          "am_michael", "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_onyx", "am_puck", "am_santa",
+          "bf_alice", "bf_emma", "bf_isabella", "bf_lily", "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+          "ef_dora", "em_alex", "em_santa", "ff_siwis", "hf_alpha", "hf_beta", "hm_omega", "hm_psi", "if_sara", "im_nicola",
+          "jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo", "pf_dora", "pm_alex", "pm_santa",
+          "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang"
+        ],
+        "max_selections": 2,
+        "blend": "equal-weight, same-language only"
+      },
+      "language": {
+        "type": "enum",
+        "required": true,
+        "values": ["a", "b", "e", "f", "h", "i", "j", "p", "z"]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 40000,
+      "private_section_max_characters": 3000,
+      "reference_audio_supported": false,
+      "voice_design_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 8,
+      "recommended_unified_memory_gb": 8,
+      "measured_peak_memory_gb": 1.388
+    },
+    "capacity": {
+      "max_concurrency": 1
+    }
+  },
+  "evidence": {
+    "cache": {
+      "state": "cached",
+      "bytes_complete": 389410807,
+      "bytes_incomplete": 0,
+      "snapshot_revision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "upstream_revision_at_audit": "a71e4d38b236d968966a2002c4c895dbd12b1c3c",
+      "revision_current": true,
+      "primary_weight": "kokoro-v1_0.safetensors",
+      "voicepack_format": "safetensors"
+    },
+    "license_sources": [
+      "https://huggingface.co/mlx-community/Kokoro-82M-bf16",
+      "https://huggingface.co/hexgrad/Kokoro-82M"
+    ],
+    "stock_voice_inventory": {
+      "a": {"language": "American English", "voice_ids": ["af_heart", "af_bella", "af_aoede", "af_kore", "af_nicole", "af_nova", "af_sarah", "af_sky", "af_alloy", "af_jessica", "af_river", "am_michael", "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_onyx", "am_puck", "am_santa"]},
+      "b": {"language": "British English", "voice_ids": ["bf_alice", "bf_emma", "bf_isabella", "bf_lily", "bm_daniel", "bm_fable", "bm_george", "bm_lewis"]},
+      "e": {"language": "Spanish", "voice_ids": ["ef_dora", "em_alex", "em_santa"]},
+      "f": {"language": "French", "voice_ids": ["ff_siwis"]},
+      "h": {"language": "Hindi", "voice_ids": ["hf_alpha", "hf_beta", "hm_omega", "hm_psi"]},
+      "i": {"language": "Italian", "voice_ids": ["if_sara", "im_nicola"]},
+      "j": {"language": "Japanese", "voice_ids": ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"]},
+      "p": {"language": "Brazilian Portuguese", "voice_ids": ["pf_dora", "pm_alex", "pm_santa"]},
+      "z": {"language": "Mandarin Chinese", "voice_ids": ["zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang"]}
+    },
+    "voicepack_validation": {
+      "expected": 54,
+      "found": 54,
+      "missing": [],
+      "unexpected": [],
+      "loadable": 54,
+      "tensor_shape": [510, 1, 256]
+    },
+    "functional_language_tests": {
+      "a": {"voice_id": "af_heart", "duration_seconds": 3.675, "peak_memory_gb": 1.241, "result": "passed"},
+      "b": {"voice_id": "bf_emma", "duration_seconds": 3.725, "peak_memory_gb": 1.254, "result": "passed"},
+      "e": {"voice_id": "ef_dora", "duration_seconds": 2.475, "peak_memory_gb": 0.943, "result": "passed"},
+      "f": {"voice_id": "ff_siwis", "duration_seconds": 2.625, "peak_memory_gb": 0.979, "result": "passed"},
+      "h": {"voice_id": "hf_alpha", "duration_seconds": 3.425, "peak_memory_gb": 1.182, "result": "passed"},
+      "i": {"voice_id": "if_sara", "duration_seconds": 2.925, "peak_memory_gb": 1.053, "result": "passed"},
+      "j": {"voice_id": "jf_alpha", "duration_seconds": 3.2, "peak_memory_gb": 1.129, "result": "passed"},
+      "p": {"voice_id": "pf_dora", "duration_seconds": 2.4, "peak_memory_gb": 0.928, "result": "passed"},
+      "z": {"voice_id": "zf_xiaobei", "duration_seconds": 3.275, "peak_memory_gb": 1.148, "result": "passed"}
+    },
+    "speed_tests": {
+      "0.5": {"duration_seconds": 8.025, "result": "passed"},
+      "1.0": {"duration_seconds": 3.95, "result": "passed"},
+      "2.0": {"duration_seconds": 2.1, "result": "passed"}
+    },
+    "verified_modes": ["preset_voice", "same_language_equal_voice_blend"],
+    "excluded_modes": ["voice_clone", "voice_design", "style_prompt", "customer_streaming"],
+    "findings": [
+      "The audited checkpoint contains all 54 stock voicepacks; the adapter now resolves those local files instead of downloading a second copy from another repository.",
+      "The checkpoint and original model cards declare Apache-2.0; the previous catalog MIT wording was corrected.",
+      "Every language pipeline generated non-silent 24 kHz audio offline. Non-English quality remains dependent on thinner upstream training data and G2P quality."
+    ]
+  }
+}

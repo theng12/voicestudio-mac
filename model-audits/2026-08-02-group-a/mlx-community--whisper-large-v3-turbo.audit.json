@@ -1,0 +1,85 @@
+{
+  "schema": "studio.model-audit-record",
+  "schema_version": 1,
+  "audit_id": "voicestudio-20260802-whisper-large-a4aaeec0",
+  "audited_at": "2026-08-02T05:16:25Z",
+  "subject": {
+    "model_id": "mlx-community/whisper-large-v3-turbo",
+    "display_name": "Whisper Large v3 Turbo",
+    "modality": "transcription",
+    "checkpoint_revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb"
+  },
+  "contract": {
+    "model_id": "mlx-community/whisper-large-v3-turbo",
+    "display_name": "Whisper Large v3 Turbo",
+    "modality": "transcription",
+    "runtime_revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb",
+    "approved_operations": ["audio.transcription"],
+    "adapter": {
+      "id": "voicestudio.mlx-audio.whisper",
+      "version": "1.1",
+      "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
+    },
+    "controls": {
+      "language": {
+        "type": "enum_or_auto",
+        "default": "auto",
+        "values": ["af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la", "lb", "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi", "yi", "yo", "yue", "zh"]
+      },
+      "word_timestamps": {"type": "boolean", "default": false},
+      "segment_timestamps": {"type": "boolean", "constant": true}
+    },
+    "input_limits": {
+      "accepted_extensions": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"],
+      "accepted_mime_types": ["audio/wav", "audio/mpeg", "audio/flac", "audio/mp4", "audio/aac", "audio/ogg", "audio/opus", "audio/webm"],
+      "max_audio_bytes": null,
+      "max_duration_seconds": null,
+      "channels": "decoded to mono",
+      "sample_rate_hz": "decoded to 16000"
+    },
+    "output_limits": {
+      "format": "json",
+      "fields": ["text", "language", "duration", "model", "segments", "srt", "vtt", "elapsed_seconds"],
+      "segment_fields": ["id", "start", "end", "text"],
+      "optional_word_fields": ["word", "start", "end"],
+      "subtitle_formats": ["srt", "vtt"]
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 8,
+      "recommended_unified_memory_gb": 16,
+      "measured_peak_memory_gb": 2.142
+    },
+    "capacity": {"max_concurrency": 1},
+    "license": {"spdx": "MIT", "commercial_use": true}
+  },
+  "genstudio_candidate": {
+    "schema": "studio.model-audit",
+    "schema_version": 1,
+    "audit_id": "voicestudio-20260802-whisper-large-a4aaeec0",
+    "audit_status": "passed",
+    "candidate_for_genstudio": true,
+    "contract_hash": "sha256:5989146a07091c6f03584531e6c54df3db4ef5c045f88cda5d10a10b45e76a39",
+    "runtime_revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb",
+    "approved_operations": ["audio.transcription"],
+    "audited_at": "2026-08-02T05:16:25Z",
+    "adapter": {"id": "voicestudio.mlx-audio.whisper", "version": "1.1", "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"},
+    "controls": {
+      "language": {"type": "enum_or_auto", "default": "auto", "values": ["af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la", "lb", "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi", "yi", "yo", "yue", "zh"]},
+      "word_timestamps": {"type": "boolean", "default": false},
+      "segment_timestamps": {"type": "boolean", "constant": true}
+    },
+    "input_limits": {"accepted_extensions": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"], "accepted_mime_types": ["audio/wav", "audio/mpeg", "audio/flac", "audio/mp4", "audio/aac", "audio/ogg", "audio/opus", "audio/webm"], "max_audio_bytes": null, "max_duration_seconds": null, "channels": "decoded to mono", "sample_rate_hz": "decoded to 16000"},
+    "output_limits": {"format": "json", "fields": ["text", "language", "duration", "model", "segments", "srt", "vtt", "elapsed_seconds"], "segment_fields": ["id", "start", "end", "text"], "optional_word_fields": ["word", "start", "end"], "subtitle_formats": ["srt", "vtt"]},
+    "hardware": {"platform": "Apple Silicon", "minimum_unified_memory_gb": 8, "recommended_unified_memory_gb": 16, "measured_peak_memory_gb": 2.142},
+    "capacity": {"max_concurrency": 1}
+  },
+  "evidence": {
+    "cache": {"state": "cached", "bytes_complete": 1613979758, "bytes_incomplete": 0, "snapshot_revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb", "upstream_revision_at_audit": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb", "revision_current": true, "primary_weight": "weights.safetensors"},
+    "license_sources": ["https://github.com/openai/whisper/blob/main/LICENSE", "https://huggingface.co/mlx-community/whisper-large-v3-turbo"],
+    "fixture": {"source": "macOS say, Samantha, 165 words/minute", "expected_text": "Voice Studio audit confirms local transcription is ready.", "duration_seconds": 3.278, "format": "mono WAV 16000 Hz"},
+    "functional_test": {"text": "Voice Studio audit confirms local transcription is ready.", "language": "en", "duration_seconds": 3.278, "elapsed_seconds": 10.986, "segments": 1, "words": 8, "srt": true, "vtt": true, "peak_memory_gb": 2.142, "result": "passed"},
+    "decoder_tests": {"passed": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"], "not_advertised": ["aiff"]},
+    "findings": ["The MLX checkpoint omits processor assets; Voice Studio attaches the matching OpenAI tokenizer from its local Hugging Face cache.", "Segment timestamps, optional word timestamps, SRT and VTT were verified against deterministic local speech.", "The API currently enforces neither a byte limit nor a duration limit; those remain explicit nulls rather than invented limits."]
+  }
+}

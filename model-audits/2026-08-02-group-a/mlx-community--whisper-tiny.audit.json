@@ -1,0 +1,45 @@
+{
+  "schema": "studio.model-audit-record",
+  "schema_version": 1,
+  "audit_id": "voicestudio-20260802-whisper-tiny-78c52ab9",
+  "audited_at": "2026-08-02T05:16:25Z",
+  "subject": {"model_id": "mlx-community/whisper-tiny", "display_name": "Whisper Tiny", "modality": "transcription", "checkpoint_revision": "78c52ab98ca87f570bc57ad852e15ef7060f9f76"},
+  "contract": {
+    "model_id": "mlx-community/whisper-tiny",
+    "display_name": "Whisper Tiny",
+    "modality": "transcription",
+    "runtime_revision": "78c52ab98ca87f570bc57ad852e15ef7060f9f76",
+    "approved_operations": ["audio.transcription"],
+    "adapter": {"id": "voicestudio.mlx-audio.whisper", "version": "1.1", "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"},
+    "controls": {
+      "language": {"type": "enum_or_auto", "default": "auto", "values": ["af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la", "lb", "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi", "yi", "yo", "yue", "zh"]},
+      "word_timestamps": {"type": "boolean", "default": false},
+      "segment_timestamps": {"type": "boolean", "constant": true}
+    },
+    "input_limits": {"accepted_extensions": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"], "accepted_mime_types": ["audio/wav", "audio/mpeg", "audio/flac", "audio/mp4", "audio/aac", "audio/ogg", "audio/opus", "audio/webm"], "max_audio_bytes": null, "max_duration_seconds": null, "channels": "decoded to mono", "sample_rate_hz": "decoded to 16000"},
+    "output_limits": {"format": "json", "fields": ["text", "language", "duration", "model", "segments", "srt", "vtt", "elapsed_seconds"], "segment_fields": ["id", "start", "end", "text"], "optional_word_fields": ["word", "start", "end"], "subtitle_formats": ["srt", "vtt"]},
+    "hardware": {"platform": "Apple Silicon", "minimum_unified_memory_gb": 8, "recommended_unified_memory_gb": 8, "measured_peak_memory_gb": 0.311},
+    "capacity": {"max_concurrency": 1},
+    "license": {"spdx": "MIT", "commercial_use": true}
+  },
+  "genstudio_candidate": {
+    "schema": "studio.model-audit", "schema_version": 1, "audit_id": "voicestudio-20260802-whisper-tiny-78c52ab9", "audit_status": "passed", "candidate_for_genstudio": true, "contract_hash": "sha256:79e2e2161ad720337432d87d17517c20cb245ad933d003a6adfd38f605709b2a", "runtime_revision": "78c52ab98ca87f570bc57ad852e15ef7060f9f76", "approved_operations": ["audio.transcription"], "audited_at": "2026-08-02T05:16:25Z",
+    "adapter": {"id": "voicestudio.mlx-audio.whisper", "version": "1.1", "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"},
+    "controls": {
+      "language": {"type": "enum_or_auto", "default": "auto", "values": ["af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la", "lb", "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi", "yi", "yo", "yue", "zh"]},
+      "word_timestamps": {"type": "boolean", "default": false}, "segment_timestamps": {"type": "boolean", "constant": true}
+    },
+    "input_limits": {"accepted_extensions": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"], "accepted_mime_types": ["audio/wav", "audio/mpeg", "audio/flac", "audio/mp4", "audio/aac", "audio/ogg", "audio/opus", "audio/webm"], "max_audio_bytes": null, "max_duration_seconds": null, "channels": "decoded to mono", "sample_rate_hz": "decoded to 16000"},
+    "output_limits": {"format": "json", "fields": ["text", "language", "duration", "model", "segments", "srt", "vtt", "elapsed_seconds"], "segment_fields": ["id", "start", "end", "text"], "optional_word_fields": ["word", "start", "end"], "subtitle_formats": ["srt", "vtt"]},
+    "hardware": {"platform": "Apple Silicon", "minimum_unified_memory_gb": 8, "recommended_unified_memory_gb": 8, "measured_peak_memory_gb": 0.311},
+    "capacity": {"max_concurrency": 1}
+  },
+  "evidence": {
+    "cache": {"state": "cached", "bytes_complete": 74420189, "bytes_incomplete": 0, "snapshot_revision": "78c52ab98ca87f570bc57ad852e15ef7060f9f76", "upstream_revision_at_audit": "78c52ab98ca87f570bc57ad852e15ef7060f9f76", "revision_current": true, "primary_weight": "weights.npz"},
+    "license_sources": ["https://github.com/openai/whisper/blob/main/LICENSE", "https://huggingface.co/mlx-community/whisper-tiny"],
+    "fixture": {"source": "macOS say, Samantha, 165 words/minute", "expected_text": "Voice Studio audit confirms local transcription is ready.", "duration_seconds": 3.278, "format": "mono WAV 16000 Hz"},
+    "functional_test": {"text": "Voice Studio Audit confirms local transcription is ready.", "language": "en", "duration_seconds": 3.278, "elapsed_seconds": 5.679, "segments": 1, "words": 8, "srt": true, "vtt": true, "peak_memory_gb": 0.311, "result": "passed"},
+    "decoder_tests": {"passed": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"], "not_advertised": ["aiff"]},
+    "findings": ["The raw tiny decoder emitted valid speech followed by tokens in the 30-second zero-padding window.", "Voice Studio now clamps segments and word timestamps to the probed source-media duration and rebuilds text only from retained real-audio segments.", "Tiny remains the lowest-accuracy customer option; the audit verifies functional correctness, not parity with Large v3 Turbo accuracy."]
+  }
+}

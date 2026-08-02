@@ -10,6 +10,47 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.24.0] — 2026-08-02
+
+### Added — revision-bound Group A model audits
+
+- Added durable, machine-readable audit records for the exact cached Kokoro
+  82M bf16, Whisper Large v3 Turbo, and Whisper Tiny checkpoints.
+- `/api/catalog` and `/api/transcribe/availability` now attach a versioned
+  `genstudio_candidate` summary with the immutable runtime revision, exact
+  operations, adapter, controls, limits, hardware evidence, capacity ceiling,
+  and contract hash. This is candidate evidence only; Studio Hub still owns
+  deliberate exposure and no `approved_for_genstudio` authority is emitted.
+- Kokoro's record enumerates all 54 stock voices and the nine language
+  pipelines. Whisper records enumerate the accepted audio formats, 100
+  language codes, timestamp controls, and stable response fields.
+
+### Fixed — audited local execution remains bounded to real assets
+
+- Kokoro now loads its verified preset voicepacks from the exact cached model
+  revision instead of performing a surprise first-use download from another
+  repository. The catalog's stale MIT wording was corrected to the model
+  cards' Apache-2.0 license.
+- Whisper transcription now probes the source-media duration, removes tokens
+  emitted in a padded-silence window, and clamps segment and word timestamps
+  to the real file. This prevents Whisper Tiny from appending junk text and
+  impossible 30-second timestamps to a short clip.
+
+### Verification
+
+- All 54 Kokoro voicepacks were present, loadable, and shape-consistent; one
+  preset from each of the nine language pipelines generated non-silent 24 kHz
+  audio offline. Speeds 0.5x, 1.0x, and 2.0x produced the expected duration
+  ordering.
+- Both Whisper checkpoints transcribed the same deterministic 3.278-second
+  local speech fixture with one bounded segment, eight word timestamps, and
+  valid SRT/VTT. WAV, MP3, FLAC, M4A, AAC, OGG, Opus, and WebM decoding passed;
+  unsupported AIFF is deliberately not advertised.
+- Focused contract, catalog, generation, artifact, and transcription tests and
+  the full Voice Studio suite pass. Other cached models remain unaudited and
+  unmodified; no Hub exposure, GenStudio product, paid provider call, service
+  restart, or dependency reinstall was performed.
+
 ## [1.23.4] — 2026-08-01
 
 ### Fixed — cancelled placeholders no longer block completed models

@@ -53,6 +53,7 @@ from .auto_update import UpdateError
 from .auto_update_config import create_updater
 from .process_title import PROCESS_TITLE, apply_process_title
 from .restart_health import restart_rate_snapshot
+from .model_audits import candidate_summary
 
 
 PROCESS_TITLE_APPLIED = apply_process_title()
@@ -499,11 +500,26 @@ def get_catalog() -> dict:
     for m in catalog.CATALOG:
         d = catalog.serialize_model(m)
         d["cache"] = _cache_with_companions(m.repo)
+        candidate = candidate_summary(m.repo)
         runtime = gen_manager.model_runtime_status(m)
         d.update(runtime)
         d["available"] = bool(
             runtime["runtime_ready"] and d["cache"].get("state") == "cached"
         )
+        if candidate:
+            candidate["capacity"] = {
+                **candidate.get("capacity", {}),
+                "available_slots": int(
+                    d["available"]
+                    and not gen_manager.has_active_jobs()
+                    and not stt_manager.is_active()
+                ),
+            }
+            d["genstudio_candidate"] = candidate
+            d["genstudio_candidate_runtime_match"] = bool(
+                d["cache"].get("snapshot_revision")
+                == candidate.get("runtime_revision")
+            )
         active = manager.active_for_repo(m.repo)
         d["active_download"] = active.serialize() if active else None
         d["kind"] = "local"

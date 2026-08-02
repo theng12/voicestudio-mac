@@ -2521,6 +2521,34 @@ class GenerationManager:
                 )
             gen_kwargs["lang_code"] = lang_code
 
+            # The audited Kokoro checkpoint already contains every verified
+            # voicepack.  mlx-audio otherwise resolves the same voice ID from
+            # prince-canuma/Kokoro-82M and performs a surprise Hub download on
+            # first use.  Pass the checkpoint-local safetensors paths so a
+            # cached model is genuinely offline-ready and remains bound to the
+            # exact audited revision.  Unit callers without a cache keep the
+            # plain IDs; generation itself cannot reach this point without a
+            # cached model.
+            try:
+                snapshot = self._mlx_audio_snapshot_path(
+                    "mlx-community/Kokoro-82M-bf16"
+                )
+            except RuntimeError:
+                snapshot = None
+            if snapshot is not None:
+                local_voices = [
+                    snapshot / "voices" / f"{voice_id}.safetensors"
+                    for voice_id in voices
+                ]
+                missing = [path.stem for path in local_voices if not path.is_file()]
+                if missing:
+                    raise RuntimeError(
+                        "The cached Kokoro checkpoint is missing audited voicepacks: "
+                        + ", ".join(missing)
+                        + ". Re-download this exact model revision."
+                    )
+                voice = ",".join(str(path.resolve()) for path in local_voices)
+
         gen_kwargs["voice"] = voice
         # Some voice-picker families (Orpheus) accept an optional instruct
         # for style nudges — forward it if present.

@@ -148,7 +148,7 @@ FAMILIES: dict[str, Family] = {
         label="Kokoro v1.0 (MLX)",
         summary=(
             "The latest Kokoro v1.0 82M release, ported to MLX for native Apple "
-            "Silicon inference via mlx-audio. Tiny, fast, MIT licensed, and bundled "
+            "Silicon inference via mlx-audio. Tiny, fast, Apache-2.0 licensed, and bundled "
             "with 54 preset voices across nine language variants."
         ),
         how_to_use=(
@@ -638,7 +638,7 @@ CATALOG: tuple[ModelEntry, ...] = (
         use_cases=(
             ("good",  "Audiobook, podcast, and video narration with 54 preset voices"),
             ("good",  "Tiny — 340 MB on disk with native MLX inference"),
-            ("good",  "MIT licensed, commercial use OK"),
+            ("good",  "Apache-2.0 licensed, commercial use OK"),
             ("good",  "Optional equal blending of two voices for a custom timbre"),
             ("weak",  "Non-English voices have less training data than the strongest English voices"),
             ("avoid", "Voice cloning — Kokoro uses fixed voicepacks; use Qwen3 Base or Chatterbox"),

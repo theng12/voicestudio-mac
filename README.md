@@ -202,6 +202,23 @@ The script reads `app/backend/catalog.py` + `app/backend/generation.py` via AST 
 
 No deps beyond stdlib — runs without the venv.
 
+## Model audit evidence
+
+Exact checkpoint audits live under `model-audits/<run-id>/`. A valid record
+binds its controls, limits, adapter, hardware requirements, operation set, and
+immutable model revision to a canonical SHA-256 contract hash.
+
+Passed records are surfaced additively as `genstudio_candidate` on the matching
+`GET /api/catalog` or `GET /api/transcribe/availability` row. The sibling only
+asserts that the checkpoint passed its local audit and may be considered as a
+candidate. It never emits `approved_for_genstudio`; Studio Hub remains the
+separate authority that deliberately exposes an exact audited contract.
+
+Consumers should also require `genstudio_candidate_runtime_match: true` before
+treating the local cache as evidence for that candidate revision. Normal cache,
+runtime-ready, memory, busy, and fleet-health signals remain separate machine
+observations rather than being folded into the immutable contract.
+
 ## API
 
 Once running, the API is at `http://<your-mac-ip>:47870`. Examples:

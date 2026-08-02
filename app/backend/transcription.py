@@ -27,6 +27,9 @@ STANDARDS THIS FOLLOWS (see generation.py's module docstring):
 """
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,7 +40,13 @@ from . import cache
 # generation lock. Sharing the lock is the key safety property: a transcription
 # can't start while a TTS job holds the GPU, and vice versa. No circular import
 # risk — generation.py does not import this module.
-from .generation import _GEN_LOCK, _detect_device, _release_device_memory
+from .generation import (
+    _GEN_LOCK,
+    _detect_device,
+    _release_device_memory,
+    manager as generation_manager,
+)
+from .model_audits import candidate_summary
 
 
 # ───────────── Whisper model registry ─────────────
@@ -154,15 +163,39 @@ def availability() -> dict:
     is the STT stack importable, what device, and which whisper models are
     cached + ready right now."""
     stt_ok = _have_mlx_audio_stt()
+    worker_busy = generation_manager.has_active_jobs() or manager.is_active()
     models = []
     for m in WHISPER_MODELS:
+        cache_snapshot = cache.status_snapshot(m.repo)
+        candidate = candidate_summary(m.repo)
+        runtime_match = bool(
+            candidate
+            and cache_snapshot.get("snapshot_revision")
+            == candidate.get("runtime_revision")
+        )
+        if candidate:
+            candidate["capacity"] = {
+                **candidate.get("capacity", {}),
+                "available_slots": int(
+                    stt_ok
+                    and cache_snapshot.get("state") == "cached"
+                    and not worker_busy
+                ),
+            }
         models.append({
             "repo": m.repo,
             "label": m.label,
             "size_gb": m.size_gb,
             "note": m.note,
             "recommended": m.recommended,
-            "cached": cache.cache_state(m.repo) == "cached",
+            "cached": cache_snapshot.get("state") == "cached",
+            "cache": cache_snapshot,
+            **({"genstudio_candidate": candidate} if candidate else {}),
+            **(
+                {"genstudio_candidate_runtime_match": runtime_match}
+                if candidate
+                else {}
+            ),
         })
     return {
         "available": stt_ok,
@@ -217,6 +250,89 @@ def segments_to_vtt(segments: list[dict]) -> str:
         lines.append(text)
         lines.append("")
     return "\n".join(lines).strip() + "\n"
+
+
+def _audio_duration_seconds(path: Path) -> Optional[float]:
+    """Probe true media duration without decoding the whole upload twice."""
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        try:
+            result = subprocess.run(
+                [
+                    ffprobe,
+                    "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "json",
+                    str(path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=True,
+            )
+            duration = float(json.loads(result.stdout)["format"]["duration"])
+            if duration > 0:
+                return duration
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError, json.JSONDecodeError):
+            pass
+    try:
+        import soundfile as sf
+
+        info = sf.info(str(path))
+        if info.frames > 0 and info.samplerate > 0:
+            return info.frames / info.samplerate
+    except Exception:
+        return None
+    return None
+
+
+def _normalize_segments(
+    raw_segments: list[dict],
+    *,
+    word_timestamps: bool,
+    audio_duration: Optional[float],
+) -> tuple[str, list[dict]]:
+    """Normalize MLX Whisper output and discard padded-silence hallucinations.
+
+    Whisper analyzes 30-second windows.  The tiny checkpoint can emit tokens
+    in the zero padding after a short clip, producing impossible timestamps and
+    junk suffix text.  The media duration is the hard boundary: retain the
+    final real segment, clamp it to the file, and never publish text that begins
+    at or after the source audio ended.
+    """
+    segments: list[dict] = []
+    for seg in raw_segments or []:
+        start = max(0.0, float(seg.get("start", 0.0)))
+        end = max(start, float(seg.get("end", start)))
+        if audio_duration is not None:
+            if start >= audio_duration:
+                continue
+            end = min(end, audio_duration)
+        entry = {
+            "id": len(segments),
+            "start": start,
+            "end": end,
+            "text": (seg.get("text") or "").strip(),
+        }
+        if word_timestamps and seg.get("words"):
+            words = []
+            for word in seg["words"]:
+                word_start = max(start, float(word.get("start", start)))
+                word_end = max(word_start, float(word.get("end", word_start)))
+                if audio_duration is not None:
+                    if word_start >= audio_duration:
+                        continue
+                    word_end = min(word_end, audio_duration)
+                words.append({
+                    "word": (word.get("word") or "").strip(),
+                    "start": word_start,
+                    "end": word_end,
+                })
+            if words:
+                entry["words"] = words
+        if entry["end"] > entry["start"] and (entry["text"] or entry.get("words")):
+            segments.append(entry)
+    return " ".join(seg["text"] for seg in segments if seg["text"]).strip(), segments
 
 
 # ───────────── transcription manager ─────────────
@@ -392,6 +508,7 @@ class TranscriptionManager:
         p = Path(audio_path)
         if not p.exists():
             raise FileNotFoundError(f"audio file not found: {audio_path}")
+        audio_duration = _audio_duration_seconds(p)
 
         started = time.time()
         # Hold the SAME lock TTS generation uses — one GPU job at a time.
@@ -435,27 +552,19 @@ class TranscriptionManager:
         text = (text or "").strip()
         raw_segments = raw_segments or []
 
-        # Normalize segments to a stable, JSON-friendly shape.
-        segments: list[dict] = []
-        for i, seg in enumerate(raw_segments):
-            entry = {
-                "id": i,
-                "start": float(seg.get("start", 0.0)),
-                "end": float(seg.get("end", 0.0)),
-                "text": (seg.get("text") or "").strip(),
-            }
-            if word_timestamps and seg.get("words"):
-                entry["words"] = [
-                    {
-                        "word": (w.get("word") or "").strip(),
-                        "start": float(w.get("start", 0.0)),
-                        "end": float(w.get("end", 0.0)),
-                    }
-                    for w in seg["words"]
-                ]
-            segments.append(entry)
+        normalized_text, segments = _normalize_segments(
+            raw_segments,
+            word_timestamps=word_timestamps,
+            audio_duration=audio_duration,
+        )
+        if raw_segments:
+            text = normalized_text
 
-        duration = segments[-1]["end"] if segments else 0.0
+        duration = (
+            audio_duration
+            if audio_duration is not None
+            else (segments[-1]["end"] if segments else 0.0)
+        )
 
         return {
             "text": text,
