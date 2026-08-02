@@ -167,21 +167,41 @@ def cache_state(repo: str) -> str:
 
 
 def disk_bytes(repo: str) -> int:
-    """Total bytes used by all real blobs of this repo (excludes .incomplete)."""
-    blobs = repo_cache_dir(repo) / "blobs"
-    if not blobs.exists():
+    """Total bytes this repo occupies on disk (excludes .incomplete).
+
+    Counts blob storage *and* snapshot files that are real files rather than
+    links into ``blobs/``. A cache populated by direct file download instead of
+    ``snapshot_download`` leaves ``blobs/`` empty and keeps real files in the
+    snapshot; such a repo previously reported zero bytes while fully cached,
+    which understated its footprint to the catalog and to Studio Hub's
+    memory governor. Entries are de-duplicated by inode, so a snapshot symlink
+    or hardlink pointing at a blob is never counted twice.
+    """
+    root = repo_cache_dir(repo)
+    if not root.exists():
         return 0
     total = 0
-    try:
-        for entry in blobs.iterdir():
-            if entry.name.endswith(".incomplete"):
-                continue
-            try:
-                total += entry.stat().st_size
-            except (FileNotFoundError, PermissionError):
-                continue
-    except FileNotFoundError:
-        return 0
+    seen: set[tuple[int, int]] = set()
+    for base in (root / "blobs", root / "snapshots"):
+        if not base.exists():
+            continue
+        try:
+            for entry in base.rglob("*"):
+                if entry.name.endswith(".incomplete"):
+                    continue
+                try:
+                    if not entry.is_file():
+                        continue
+                    info = entry.stat()
+                except (FileNotFoundError, PermissionError, OSError):
+                    continue
+                key = (info.st_dev, info.st_ino)
+                if key in seen:
+                    continue
+                seen.add(key)
+                total += info.st_size
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
     return total
 
 

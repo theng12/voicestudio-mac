@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.26.3] — 2026-08-03
+
+### Fixed — accurate model-cache storage accounting
+
+- The Storage & dependencies view and whole-package cleanup now include real
+  files stored directly in Hugging Face snapshot folders, not only blob-store
+  entries. Shared snapshot symlinks and hardlinks remain counted once, and
+  unfinished files remain excluded.
+
+### Verification
+
+- Focused cache and model-storage tests cover snapshot-only and blob-only
+  caches, link de-duplication, unfinished-file exclusion, and reported cleanup
+  space.
+
+---
+
 ## [1.26.2] — 2026-08-03
 
 ### Fixed — automatic updates support linked Git worktrees

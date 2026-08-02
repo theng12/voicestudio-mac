@@ -1,4 +1,7 @@
+import os
 from pathlib import Path
+
+import pytest
 
 from backend import cache
 
@@ -36,6 +39,57 @@ def test_snapshot_revision_ignores_a_mutable_main_snapshot_folder(
     (root / "snapshots" / "main").mkdir()
 
     assert cache.snapshot_revision(REPO) == "a" * 40
+
+
+def test_disk_bytes_counts_real_snapshot_files_without_blobs(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+    snapshot = cache.repo_cache_dir(REPO) / "snapshots" / ("a" * 40)
+    snapshot.mkdir(parents=True)
+    (snapshot / "model.safetensors").write_bytes(b"snapshot-only")
+
+    assert cache.disk_bytes(REPO) == len(b"snapshot-only")
+
+
+def test_disk_bytes_counts_blob_storage_without_a_snapshot(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+    blobs = cache.repo_cache_dir(REPO) / "blobs"
+    blobs.mkdir(parents=True)
+    (blobs / "blob-hash").write_bytes(b"blob-only")
+
+    assert cache.disk_bytes(REPO) == len(b"blob-only")
+
+
+def test_disk_bytes_deduplicates_snapshot_symlink_to_blob(tmp_path, monkeypatch) -> None:
+    root = _repo(tmp_path, monkeypatch)
+    blob = root / "blobs" / "blob-hash"
+    blob.write_bytes(b"shared-data")
+    snapshot_file = root / "snapshots" / ("a" * 40) / "shared.safetensors"
+    try:
+        snapshot_file.symlink_to(blob)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    assert cache.disk_bytes(REPO) == len(b"weights") + len(b"shared-data")
+
+
+def test_disk_bytes_deduplicates_snapshot_hardlink_to_blob(tmp_path, monkeypatch) -> None:
+    root = _repo(tmp_path, monkeypatch)
+    blob = root / "blobs" / "blob-hash"
+    blob.write_bytes(b"shared-data")
+    snapshot_file = root / "snapshots" / ("a" * 40) / "shared.safetensors"
+    os.link(blob, snapshot_file)
+
+    assert cache.disk_bytes(REPO) == len(b"weights") + len(b"shared-data")
+
+
+def test_disk_bytes_excludes_incomplete_entries(tmp_path, monkeypatch) -> None:
+    root = _repo(tmp_path, monkeypatch)
+    (root / "blobs" / "blob-hash").write_bytes(b"complete")
+    (root / "blobs" / "blob-hash.incomplete").write_bytes(b"partial")
+    snapshot_partial = root / "snapshots" / ("a" * 40) / "other.incomplete"
+    snapshot_partial.write_bytes(b"also-partial")
+
+    assert cache.disk_bytes(REPO) == len(b"weights") + len(b"complete")
 
 
 def test_stale_duplicate_incomplete_does_not_block_cached_model(
