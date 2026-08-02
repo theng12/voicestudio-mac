@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.1] — 2026-08-03
+
+### Added — offline Wave 1 qualification draft foundation
+
+- Added a standard-library-only planner and validator for the exact Wave 1
+  Qwen CustomVoice, Qwen Base clone, and Chatterbox clone qualification matrix.
+  It records only draft/pending evidence and explicitly rejects passed audit
+  material, provider activity, live execution state, and non-8/16/24 GB tiers.
+
+### Verification
+
+- Focused contract tests cover the exact nine Qwen speakers, 23 Chatterbox
+  languages, required short/long/cancellation cases, deterministic manifests,
+  and audit-promotion rejection.
+
+---
+
 ## [1.27.0] — 2026-08-03
 
 ### Added — truthful structured language support in the model catalog
