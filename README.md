@@ -92,6 +92,15 @@ open so they can be inspected or restarted manually.
 Operators can inspect the current state at `GET /api/generate/memory`, or find
 the same snapshot under `GET /api/generate/diagnostics` → `memory`.
 
+Each local TTS job also carries versioned `resource_usage` evidence while it is
+running and after it becomes terminal. Voice Studio samples the host's lowest
+available unified memory, peak memory percentage and pressure level, swap
+activity, Voice Studio process-tree RSS, and MLX active/cache/peak allocation.
+The terminal summary records whether a memory failure or supervised restart was
+observed and whether the model remained loaded. These are measurements from the
+exact attempt—not an inferred minimum-RAM declaration—and persist in job
+history across restarts.
+
 `GET /api/health` reports whether Voice Studio is busy, the exact loaded model
 and runtime slot, live host memory, and read-only `restart_health` evidence with
 24-hour/seven-day watchdog restart counts and alert severity. The same restart
@@ -374,7 +383,10 @@ same final bytes; GenStudio verifies them again before durable publication.
 Live progress includes `chunk_index` and `chunk_total`, and cancellation is
 checked between private sections. A model qualifies as sellable long-form when
 the complete adapter-managed request passes; the raw checkpoint does not need
-to accept 40,000 characters in one native call. The worker-owned part of this boundary lives in
+to accept 40,000 characters in one native call. Local jobs additionally expose
+the worker-owned `voicestudio.resource-telemetry` v1 summary so fleet
+qualification can compare the same exact evidence on 8, 16, and 24 GB machines.
+The worker-owned part of this boundary lives in
 `app/backend/voicestudio_genstudio_integration.py`; add future VoiceStudio
 evidence fields there with a regression test.
 

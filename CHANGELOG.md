@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.26.0] — 2026-08-02
+
+### Added — per-job local resource evidence
+
+- Every local TTS job now samples host unified memory, Darwin memory pressure,
+  swap activity, Voice Studio process-tree RSS, and MLX allocator use while the
+  exact model attempt is running.
+- Active and terminal job responses expose a versioned
+  `voicestudio.resource-telemetry` summary with observed peaks, the lowest free
+  memory, before/after values, sample timing, and the terminal memory outcome.
+- Terminal telemetry is persisted with job history across Voice Studio
+  restarts. It reports measurements only; it does not invent or automatically
+  change a model's minimum-RAM qualification.
+
+### Verification
+
+- Focused tests cover peak/delta aggregation, unavailable platform probes,
+  local-generation publication, and restart-safe job serialization.
+- The probes are best-effort on non-macOS test runners and never prevent a
+  generation job from running.
+
 ## [1.25.2] — 2026-08-02
 
 ### Changed — Kokoro supplemental commercial evidence

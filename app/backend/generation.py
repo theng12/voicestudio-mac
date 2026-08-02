@@ -103,7 +103,7 @@ from typing import Optional
 import httpx
 from packaging.version import InvalidVersion, Version
 
-from . import catalog, cache, model_audits
+from . import catalog, cache, model_audits, resource_telemetry
 from .voicestudio_genstudio_integration import final_tts_result
 
 
@@ -1220,6 +1220,7 @@ class GenerationJob:
     audio_duration_ms: Optional[int] = None
     sample_rate_hz: Optional[int] = None
     channels: Optional[int] = None
+    resource_usage: Optional[dict] = None  # worker-owned per-job resource evidence
     provider: Optional[str] = None          # cloud provider key (None = local engine)
     client_request_params: Optional[dict] = None  # immutable idempotency comparison
     provider_account_id: Optional[str] = None  # credential bound to this paid call
@@ -1262,6 +1263,7 @@ class GenerationJob:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "duration_seconds": duration,
+            "resource_usage": self.resource_usage,
         }
         return {
             **result,
@@ -1668,6 +1670,8 @@ class GenerationManager:
             if not job.provider:
                 self._last_model_activity_at = job.started_at
             job.progress = 0.05          # move the bar off zero the moment work starts
+            telemetry = None
+            memory_failure_seen = False
             print(
                 f"[gen] starting {job.job_id}: repo={job.params.get('repo')} "
                 f"text_chars={len(str(job.params.get('text') or ''))} "
@@ -1681,6 +1685,11 @@ class GenerationManager:
                 job.finished_at = time.time()
                 self._persist()
                 return
+
+            if not job.provider:
+                telemetry = resource_telemetry.JobResourceSampler(
+                    lambda value: setattr(job, "resource_usage", value)
+                ).start()
 
             output_path: Optional[Path] = None
             memory_retries = 0
@@ -1723,6 +1732,7 @@ class GenerationManager:
                         and memory_retries < MEMORY_RETRY_LIMIT
                     ):
                         memory_retries += 1
+                        memory_failure_seen = True
                         print(
                             f"[gen] memory failure on {job.job_id}; evicting models "
                             f"and retrying once ({memory_retries}/{MEMORY_RETRY_LIMIT})",
@@ -1744,6 +1754,7 @@ class GenerationManager:
                         job.state = "error"
                         job.error = f"{type(e).__name__}: {e}"
                         if not isinstance(e, MemoryGuardError) and _is_memory_failure(e):
+                            memory_failure_seen = True
                             self._record_memory_failure(job, e)
                         print(f"[gen] error {job.job_id}: {job.error}", file=sys.stderr, flush=True)
                         traceback.print_exc()
@@ -1753,6 +1764,16 @@ class GenerationManager:
                 self._last_model_activity_at = job.finished_at
                 if job.state != "done":
                     self._evict_loaded_models("failed-or-cancelled-generation")
+                if telemetry is not None:
+                    job.resource_usage = telemetry.finish(
+                        state=job.state,
+                        memory_failure=memory_failure_seen,
+                        restart_scheduled=self._restart_scheduled,
+                        model_retained=(
+                            job.state == "done"
+                            and bool(getattr(self, "_loaded_model", None))
+                        ),
+                    )
             self._persist()
 
     @staticmethod
@@ -3066,6 +3087,7 @@ class GenerationManager:
             "audio_duration_ms": job.audio_duration_ms,
             "sample_rate_hz": job.sample_rate_hz,
             "channels": job.channels,
+            "resource_usage": job.resource_usage,
         }
 
     @staticmethod
@@ -3102,6 +3124,7 @@ class GenerationManager:
                 audio_duration_ms=raw.get("audio_duration_ms"),
                 sample_rate_hz=raw.get("sample_rate_hz"),
                 channels=raw.get("channels"),
+                resource_usage=raw.get("resource_usage"),
             )
         except Exception:
             return None
