@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.26.4] — 2026-08-03
+
+### Fixed — Kokoro catalog contract matches audited capabilities
+
+- Removed the unsupported streaming-request capability from Kokoro's catalog
+  entry. The model remains fast for local narration, but it does not expose a
+  streaming request API.
+- Made Kokoro's catalog hardware guidance explicit: Apple Silicon with at
+  least 8 GB unified memory.
+
+### Verification
+
+- Focused catalog/audit regression coverage verifies the public catalog's
+  streaming and hardware claims against the hash-bound GenStudio candidate.
+
+---
+
 ## [1.26.3] — 2026-08-03
 
 ### Fixed — accurate model-cache storage accounting

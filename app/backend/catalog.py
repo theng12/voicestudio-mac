@@ -629,8 +629,11 @@ CATALOG: tuple[ModelEntry, ...] = (
         size_gb=0.34,
         gated=False,
         min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac. Real-time on M1 base.",
-        capabilities=("tts", "streaming", "multilingual", "voice-mixing"),
+        recommended_hardware=(
+            "Any Apple Silicon Mac with at least 8 GB unified memory. "
+            "Real-time on M1 base."
+        ),
+        capabilities=("tts", "multilingual", "voice-mixing"),
         best_for="Fast local narration on any Apple Silicon Mac. This full-quality MLX build is only ~340 MB and includes all 54 Kokoro v1.0 voices across nine language variants.",
         sample_rate_hz=24000,
         languages=("en", "es", "fr", "hi", "it", "pt", "ja", "zh"),

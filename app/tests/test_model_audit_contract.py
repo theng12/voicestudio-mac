@@ -139,6 +139,12 @@ def test_catalog_exposes_candidate_evidence_without_exposure_authority(
     candidate = item["genstudio_candidate"]
     assert candidate["approved_operations"] == ["voice.tts"]
     assert candidate["capacity"] == {"max_concurrency": 1, "available_slots": 1}
+    assert "streaming" not in item["capabilities"]
+    assert item["min_unified_memory_gb"] == candidate["hardware"][
+        "minimum_unified_memory_gb"
+    ]
+    assert candidate["hardware"]["minimum_unified_memory_gb"] == 8
+    assert "8 GB" in item["recommended_hardware"]
     assert item["genstudio_candidate_runtime_match"] is True
     assert "approved_for_genstudio" not in item
 
