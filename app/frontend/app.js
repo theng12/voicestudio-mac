@@ -4,9 +4,7 @@ function studio() {
   return {
     // ──────── state ────────
     tab: "generate",
-    // Models tab sub-view: "generator" (TTS catalog) | "transcriber" (Whisper STT).
-    // Splits the two model families so the RAM planner / filters / TTS cards
-    // don't muddle together with the speech-to-text downloads.
+    // Models tab sub-view: TTS catalog, Whisper STT, or managed disk inventory.
     modelsSubtab: "generator",
     health: { ok: false },
     showWhatsNew: false,
@@ -29,6 +27,14 @@ function studio() {
     models: [],
     jobs: [],
     candidates: [],
+    modelStorage: {
+      loading: false,
+      error: "",
+      cache_root: "",
+      notice_path: "",
+      summary: { families: 0, packages: 0, models: 0, dependencies: 0, legacy: 0, unknown: 0, bytes_total: 0 },
+      groups: [],
+    },
     loras: [],
     pendingDownload: null,
     confirmDialog: null,           // in-app confirm modal (webview-safe replacement for confirm())
@@ -363,6 +369,7 @@ function studio() {
       // Also re-measure on next animation frame in case fonts/layout settle late.
       requestAnimationFrame(() => this._syncTopbarHeight());
       await this.refreshCatalog();
+      await this.refreshModelStorage();
       // After catalog loads we know whether MLX models exist — set the MLX-only
       // filter default based on that (and respect any user-saved preference).
       this._initFilterPreferences();
@@ -1431,6 +1438,82 @@ function studio() {
         this._reconcileSelectedModel();
       } catch {
         /* keep last good state */
+      }
+    },
+
+    async refreshModelStorage() {
+      this.modelStorage.loading = true;
+      this.modelStorage.error = "";
+      try {
+        const r = await fetch("/api/model-storage", { cache: "no-store" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        this.modelStorage = { ...this.modelStorage, ...data, loading: false, error: "" };
+      } catch (e) {
+        this.modelStorage.loading = false;
+        this.modelStorage.error = String(e);
+      }
+    },
+
+    storageTypeLabel(type) {
+      return {
+        model: "Model",
+        dependency: "Required dependency",
+        legacy: "Legacy",
+        unknown: "Unrecognised",
+      }[type] || type;
+    },
+
+    storageTypeClass(type) {
+      return {
+        model: "ok",
+        dependency: "info",
+        legacy: "warn",
+        unknown: "warn",
+      }[type] || "neutral";
+    },
+
+    storageParentLabel(repo) {
+      const model = (this.models || []).find(m => m.repo === repo);
+      const sttModel = (this.stt?.models || []).find(m => m.repo === repo);
+      return model?.label || sttModel?.label || repo;
+    },
+
+    completeStorageDependency(item) {
+      const parentRepo = item?.used_by?.[0];
+      if (!parentRepo) return;
+      const parent = (this.models || []).find(m => m.repo === parentRepo)
+        || (this.stt?.models || []).find(m => m.repo === parentRepo);
+      if (parent) this.confirmDownload(parent);
+    },
+
+    async removeStoragePackage(item) {
+      if (!item?.removal?.allowed) return;
+      const size = humanBytes(item.cache?.bytes_total || 0);
+      const warning = item.type === "model"
+        ? "This removes the complete local model package. You can download it again later."
+        : "This removes the complete cache package and any unfinished transfer data inside it.";
+      const accepted = await this.askConfirm(
+        `Remove ${item.label}?`,
+        `${warning}\n\n${item.repo}\nDisk space: ${size}`,
+        "Remove package",
+      );
+      if (!accepted) return;
+      try {
+        const r = await fetch("/api/model-storage/" + encodeURIComponent(item.repo), { method: "DELETE" });
+        if (!r.ok) {
+          const error = await r.json().catch(() => ({}));
+          throw new Error(error.detail || `HTTP ${r.status}`);
+        }
+        const data = await r.json();
+        this.modelStorage = { ...this.modelStorage, ...data.inventory, loading: false, error: "" };
+        await this.refreshCatalog();
+        await this.refreshTranscribe();
+        this.pushToast({ kind: "info", icon: "🧹", title: "Model package removed",
+          body: `${item.label} · ${humanBytes(data.freed_bytes || 0)} freed` });
+      } catch (e) {
+        this.pushToast({ kind: "error", icon: "✗", title: "Couldn't remove model package", body: String(e) });
+        await this.refreshModelStorage();
       }
     },
 

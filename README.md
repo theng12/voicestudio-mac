@@ -54,7 +54,11 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
    is running, including startup-service mode; it stops/restarts the appropriate
    server automatically. **What's New** is also always available in the sidebar
    and displays the installed checkout's complete release notes offline.
-5. For cloud speech, open **Settings → Cloud audio providers**. For ElevenLabs,
+5. Use **Models → Storage & dependencies** to see the actual on-disk model
+   families, required tokenizers/codecs, missing companions, legacy packages,
+   and safe removal actions. Existing Hugging Face downloads are indexed in
+   place and are never moved or downloaded again just to appear in this view.
+6. For cloud speech, open **Settings → Cloud audio providers**. For ElevenLabs,
    add each account to the pool on the main Hub Mac, check balances, and enable
    paid usage. Then use **Voices → Edit** to map that same voice separately for
    each account. Other providers continue to use one saved key.
@@ -294,6 +298,12 @@ requests.post(
 ```bash
 # Catalog
 curl http://localhost:47870/api/catalog | jq .
+
+# Dependency-aware inventory of the existing Hugging Face cache
+curl http://localhost:47870/api/model-storage | jq .
+
+# Remove one complete package after active-work and dependency safety checks
+curl -X DELETE http://localhost:47870/api/model-storage/owner/repository | jq .
 
 # Cloud provider status and current models
 curl http://localhost:47870/api/providers | jq .

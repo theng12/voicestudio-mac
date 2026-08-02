@@ -35,8 +35,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import (cache, catalog, memory_policy, providers, reference_audio,
-               settings as app_settings, storage_policy)
+from . import (cache, catalog, memory_policy, model_storage, providers,
+               reference_audio, settings as app_settings, storage_policy)
 from .generation import (
     manager as gen_manager,
     OUTPUT_DIR,
@@ -82,6 +82,7 @@ APP_VERSION = _read_app_version()
 
 app = FastAPI(title="Voice Studio KH", version="0.1.0")
 reference_audio.cleanup_expired()
+model_storage.ensure_cache_notice()
 
 # Permissive CORS so the main mac can call the mac mini over LAN.
 app.add_middleware(
@@ -550,6 +551,40 @@ def prune_stale_cache_files(repo: str) -> dict:
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {**removed, "cache": _cache_with_companions(repo)}
+
+
+@app.get("/api/model-storage")
+def get_model_storage() -> dict:
+    """Dependency-aware, in-place view of every Hugging Face cache package."""
+    return model_storage.inventory()
+
+
+@app.delete("/api/model-storage/{repo:path}")
+def remove_model_storage(repo: str) -> dict:
+    """Remove one whole cache package without breaking installed dependents."""
+    if manager.active_for_repo(repo) is not None:
+        raise HTTPException(status_code=409, detail="This model is currently downloading.")
+    if gen_manager.has_active_jobs() or stt_manager.is_active():
+        raise HTTPException(
+            status_code=409,
+            detail="Wait for voice generation and transcription jobs to finish before cleaning model storage.",
+        )
+    loaded_repos = {loaded_repo for loaded_repo, _runtime in gen_manager.loaded_model_keys()}
+    stt_loaded = stt_manager.loaded_model_key()
+    if stt_loaded:
+        loaded_repos.add(stt_loaded[0])
+    if repo in loaded_repos:
+        raise HTTPException(
+            status_code=409,
+            detail="This model is loaded in memory. Release model memory before removing it.",
+        )
+    try:
+        removed = model_storage.remove_repo(repo)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Cached package not found: {repo}") from exc
+    except model_storage.StorageConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {**removed, "inventory": model_storage.inventory()}
 
 
 # ───────────── API: downloads ─────────────

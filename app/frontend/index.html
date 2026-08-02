@@ -1188,7 +1188,7 @@
         your HF cache. Downloads resume automatically if interrupted.
       </p>
 
-      <!-- ─── Models sub-tabs: split TTS generator vs Whisper transcriber ─── -->
+      <!-- ─── Models sub-tabs: catalogue, transcription, and managed cache ─── -->
       <div class="models-subtabs">
         <button class="models-subtab" :class="{active: modelsSubtab==='generator'}"
                 @click="modelsSubtab='generator'">
@@ -1198,6 +1198,12 @@
                 @click="modelsSubtab='transcriber'">
           🎬 Audio Transcriber <span class="models-subtab-tag">Whisper · STT</span>
           <span class="models-subtab-badge" x-show="sttReadyCount > 0" x-text="sttReadyCount" x-cloak></span>
+        </button>
+        <button class="models-subtab" :class="{active: modelsSubtab==='storage'}"
+                @click="modelsSubtab='storage'; refreshModelStorage()">
+          🗂 Storage &amp; dependencies <span class="models-subtab-tag">Managed cache</span>
+          <span class="models-subtab-badge" x-show="modelStorage.summary.legacy + modelStorage.summary.unknown > 0"
+                x-text="modelStorage.summary.legacy + modelStorage.summary.unknown" x-cloak></span>
         </button>
       </div>
     </section>
@@ -1362,6 +1368,85 @@
         </div>
       </section>
     </div><!-- /transcriber sub-tab -->
+
+    <!-- ═════════ STORAGE sub-tab: physical cache grouped as logical packages ═════════ -->
+    <div x-show="modelsSubtab==='storage'" x-cloak class="model-storage-page">
+      <section class="model-storage-intro">
+        <div>
+          <span class="models-eyebrow">Indexed in place</span>
+          <h2>Your existing downloads stay exactly where they are</h2>
+          <p>Voice Studio reads Hugging Face’s existing cache without moving or downloading it again. Models, shared dependencies, legacy alternatives, and unfinished packages are labelled separately here.</p>
+        </div>
+        <div class="model-storage-actions">
+          <button class="ghost" @click="refreshModelStorage()" :disabled="modelStorage.loading"
+                  x-text="modelStorage.loading ? 'Checking…' : 'Refresh storage'"></button>
+          <button class="ghost" @click="revealInFolder(modelStorage.cache_root)" :disabled="!modelStorage.cache_root">Reveal managed cache</button>
+        </div>
+      </section>
+
+      <p class="banner bad" x-show="modelStorage.error" x-text="modelStorage.error" x-cloak></p>
+
+      <section class="model-storage-summary" x-show="modelStorage.summary.packages > 0" x-cloak>
+        <div><strong x-text="modelStorage.summary.packages"></strong><span>packages</span></div>
+        <div><strong x-text="modelStorage.summary.models"></strong><span>models</span></div>
+        <div><strong x-text="modelStorage.summary.dependencies"></strong><span>dependencies</span></div>
+        <div><strong x-text="modelStorage.summary.legacy + modelStorage.summary.unknown"></strong><span>review</span></div>
+        <div><strong x-text="humanBytes(modelStorage.summary.bytes_total)"></strong><span>on disk</span></div>
+      </section>
+
+      <section class="model-storage-empty" x-show="!modelStorage.loading && !modelStorage.error && modelStorage.summary.packages===0" x-cloak>
+        <h2>No downloaded model packages</h2>
+        <p class="muted">Download a model from Audio Generator or Audio Transcriber and it will appear here automatically.</p>
+      </section>
+
+      <section class="storage-family-stack" x-show="modelStorage.groups.length" x-cloak>
+        <template x-for="group in modelStorage.groups" :key="group.id">
+          <details class="storage-family" open>
+            <summary>
+              <span class="family-monogram" x-text="group.label.slice(0,2).toUpperCase()"></span>
+              <span class="storage-family-copy"><strong x-text="group.label"></strong><small x-text="group.summary"></small></span>
+              <span class="storage-family-total" x-text="group.items.length + (group.items.length===1?' package':' packages') + ' · ' + humanBytes(group.bytes_total)"></span>
+            </summary>
+            <div class="storage-package-list">
+              <template x-for="item in group.items" :key="item.repo">
+                <article class="storage-package" :class="'storage-' + item.type">
+                  <div class="storage-tree-mark" aria-hidden="true"></div>
+                  <div class="storage-package-copy">
+                    <div class="storage-package-title">
+                      <strong x-text="item.label"></strong>
+                      <span class="chip" :class="storageTypeClass(item.type)" x-text="storageTypeLabel(item.type)"></span>
+                      <span class="chip" :class="cacheChipClass(item.cache.state)" x-text="cacheChipLabel(item.cache.state)"></span>
+                    </div>
+                    <p x-text="item.detail"></p>
+                    <code x-text="item.repo"></code>
+                    <div class="storage-used-by" x-show="item.used_by.length">
+                      <span>Required by</span>
+                      <template x-for="parent in item.used_by" :key="parent"><strong x-text="storageParentLabel(parent)"></strong></template>
+                    </div>
+                    <p class="storage-blocked" x-show="item.removal.blocked_reason" x-text="item.removal.blocked_reason"></p>
+                  </div>
+                  <div class="storage-package-size">
+                    <strong x-text="humanBytes(item.cache.bytes_total)"></strong>
+                    <small x-show="item.cache.bytes_incomplete > 0" x-text="humanBytes(item.cache.bytes_incomplete) + ' unfinished'"></small>
+                  </div>
+                  <div class="storage-package-actions">
+                    <button class="ghost small" @click="revealInFolder(item.cache.path)" :disabled="!item.cache.path">Reveal</button>
+                    <button class="primary small" x-show="!item.present && item.used_by.length" @click="completeStorageDependency(item)">Complete model</button>
+                    <button class="danger small" x-show="item.removal.allowed" @click="removeStoragePackage(item)">Remove</button>
+                    <span class="storage-protected storage-missing" x-show="!item.present">Missing</span>
+                    <span class="storage-protected" x-show="item.present && !item.removal.allowed">Protected</span>
+                  </div>
+                </article>
+              </template>
+            </div>
+          </details>
+        </template>
+      </section>
+
+      <p class="managed-cache-note" x-show="modelStorage.notice_path">
+        A human-readable safety note is stored inside the cache at <code x-text="modelStorage.notice_path"></code>.
+      </p>
+    </div><!-- /storage sub-tab -->
   </main>
 
   <!-- ─────────── DOWNLOADS ─────────── -->

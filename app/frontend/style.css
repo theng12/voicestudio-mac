@@ -2248,6 +2248,111 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
   justify-content: center;
 }
 
+/* ─── Managed model storage and dependency tree ─────────────────────── */
+.model-storage-page { display: grid; gap: 14px; }
+.model-storage-intro {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 19px 20px;
+  border: 1px solid color-mix(in srgb, #7dd3c7 28%, var(--border));
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(125,211,199,.08), rgba(17,20,22,.92) 48%);
+}
+.model-storage-intro h2 { margin: 0; font-size: 20px; }
+.model-storage-intro p { max-width: 770px; margin: 7px 0 0; color: var(--muted); line-height: 1.5; }
+.model-storage-actions { display: flex; flex: 0 0 auto; gap: 8px; flex-wrap: wrap; }
+.model-storage-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0,1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--border);
+}
+.model-storage-summary > div { padding: 12px 14px; background: #121618; }
+.model-storage-summary strong, .model-storage-summary span { display: block; }
+.model-storage-summary strong { color: var(--library-ink); font-size: 17px; }
+.model-storage-summary span { margin-top: 3px; color: var(--muted); font-size: var(--font-caption); text-transform: uppercase; letter-spacing: .06em; }
+.model-storage-empty { padding: 28px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; }
+.model-storage-empty h2 { margin: 0 0 6px; }
+.storage-family-stack { display: grid; gap: 10px; }
+.storage-family {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: #121618;
+}
+.storage-family > summary {
+  display: grid;
+  grid-template-columns: 44px minmax(0,1fr) auto;
+  gap: 13px;
+  align-items: center;
+  padding: 13px 16px;
+  cursor: pointer;
+  list-style: none;
+  background: linear-gradient(90deg, rgba(125,211,199,.055), transparent 32%);
+}
+.storage-family > summary::-webkit-details-marker { display: none; }
+.storage-family > summary:hover { background-color: rgba(125,211,199,.035); }
+.storage-family-copy { min-width: 0; }
+.storage-family-copy strong, .storage-family-copy small { display: block; }
+.storage-family-copy strong { color: var(--library-ink); font-size: 14px; }
+.storage-family-copy small { overflow: hidden; margin-top: 3px; color: var(--muted); font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap; }
+.storage-family-total { color: var(--muted); font-size: var(--font-caption); white-space: nowrap; }
+.storage-package-list { border-top: 1px solid var(--border); }
+.storage-package {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0,1fr) 125px 155px;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #101416;
+}
+.storage-package:last-child { border-bottom: 0; }
+.storage-package.storage-dependency { background: linear-gradient(90deg, rgba(91,158,205,.055), #101416 28%); }
+.storage-package.storage-legacy, .storage-package.storage-unknown { background: linear-gradient(90deg, rgba(243,181,98,.055), #101416 28%); }
+.storage-tree-mark { align-self: stretch; border-left: 1px solid #344442; border-bottom: 1px solid #344442; border-radius: 0 0 0 7px; }
+.storage-package-copy { min-width: 0; }
+.storage-package-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.storage-package-title > strong { color: var(--text); font-size: 13px; }
+.storage-package-copy > p { margin: 5px 0; color: var(--muted); font-size: var(--font-caption); line-height: 1.45; }
+.storage-package-copy > code { display: block; overflow: hidden; color: #758681; font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap; }
+.storage-package .chip.info { color: #8bc7ea; border-color: #31506a; background: #102333; }
+.storage-used-by { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; font-size: var(--font-caption); }
+.storage-used-by > span { color: #8bc7ea; }
+.storage-used-by > strong { padding: 2px 6px; border-radius: 5px; background: rgba(91,158,205,.1); color: #a8d8f3; font-weight: 650; }
+.storage-package-copy > p.storage-blocked { color: var(--warn); }
+.storage-package-size { text-align: right; }
+.storage-package-size strong, .storage-package-size small { display: block; }
+.storage-package-size strong { color: var(--text); }
+.storage-package-size small { margin-top: 3px; color: var(--warn); font-size: var(--font-caption); }
+.storage-package-actions { display: flex; justify-content: flex-end; align-items: center; gap: 7px; }
+.storage-protected { color: #8bc7ea; font-size: var(--font-caption); font-weight: 700; }
+.managed-cache-note { margin: 0; padding: 9px 11px; color: var(--muted); font-size: var(--font-caption); }
+.managed-cache-note code { overflow-wrap: anywhere; }
+
+@media (max-width: 900px) {
+  .model-storage-intro { align-items: stretch; flex-direction: column; }
+  .model-storage-summary { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .storage-package { grid-template-columns: 18px minmax(0,1fr) 105px; }
+  .storage-package-actions { grid-column: 2 / -1; justify-content: flex-start; }
+}
+@media (max-width: 620px) {
+  .model-storage-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .model-storage-actions > button { flex: 1 1 100%; }
+  .storage-family > summary { grid-template-columns: 38px minmax(0,1fr); }
+  .storage-family > summary .family-monogram { width: 36px; height: 36px; }
+  .storage-family-total { grid-column: 2; white-space: normal; }
+  .storage-package { grid-template-columns: 14px minmax(0,1fr); }
+  .storage-package-size { grid-column: 2; text-align: left; }
+  .storage-package-actions { grid-column: 2; }
+}
+
 /* ─── Hardware-fit chips on each model card ─── */
 .chip.fit-ok      { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 .chip.fit-tight   { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }

@@ -10,6 +10,35 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.26.1] — 2026-08-02
+
+### Added — managed model storage and dependency families
+
+- Models now includes a **Storage & dependencies** view that indexes every
+  existing Hugging Face cache folder in place. Nothing is moved or downloaded
+  again: executable models, shared tokenizers/codecs, missing companions,
+  legacy alternatives, partial transfers, and unrecognised packages are
+  labelled and grouped under their real model family.
+- Shared dependencies show every installed parent that needs them and are
+  protected from deletion. Missing companions remain visible beneath their
+  parent and offer a guided **Complete model** action.
+- Whole-package removal now uses a guarded API and an in-app confirmation. It
+  refuses active downloads, active generation/transcription, loaded models,
+  paths outside the managed cache, and dependencies still in use.
+- Voice Studio writes `README-VOICE-STUDIO-CACHE.md` beside the raw Hugging
+  Face folders so Finder users know not to rename or delete individual cache
+  internals.
+
+### Verification
+
+- Focused inventory tests cover in-place discovery, dependency protection,
+  tokenizer-only companions, missing companions, legacy cleanup, unknown
+  packages, and whole-package removal.
+- The full Voice Studio suite passes, and the family tree, protected-removal
+  confirmation, missing-companion state, desktop layout, and 390 px mobile
+  layout were verified through the real web interface without horizontal
+  overflow.
+
 ## [1.26.0] — 2026-08-02
 
 ### Added — per-job local resource evidence
