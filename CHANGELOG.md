@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.26.2] — 2026-08-03
+
+### Fixed — automatic updates support linked Git worktrees
+
+- The production auto-updater now accepts Git's standard linked-worktree
+  `gitdir:` file when it points to an existing Git metadata directory. Unsafe,
+  malformed, missing, and symlinked checkout roots continue to be refused.
+
+### Verification
+
+- Focused updater tests cover accepted linked-worktree metadata plus malformed,
+  missing-target, and symlinked-root refusals.
+
+---
+
 ## [1.26.1] — 2026-08-02
 
 ### Added — managed model storage and dependency families

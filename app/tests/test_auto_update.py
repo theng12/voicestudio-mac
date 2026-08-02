@@ -40,6 +40,68 @@ def updater(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AutoUpdater:
     return item
 
 
+def _spec(root: Path) -> dict:
+    return {
+        "root": str(root), "title": "Voice Studio KH", "slug": "voicestudio-test",
+        "expected_remote": "https://github.com/theng12/voicestudio-mac.git",
+        "branch": "main", "port": 47870, "default_hour": 2,
+        "server_label": "com.kh.voicestudio.server",
+        "watchdog_label": "com.kh.voicestudio.watchdog",
+    }
+
+
+def test_linked_worktree_gitfile_is_accepted(tmp_path: Path):
+    root = tmp_path / "linked-worktree"
+    root.mkdir()
+    gitdir = tmp_path / "main-repository.git" / "worktrees" / "linked-worktree"
+    gitdir.mkdir(parents=True)
+    (root / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+
+    assert AutoUpdater(_spec(root)).root == root.resolve()
+
+
+@pytest.mark.parametrize("gitfile", [
+    "", "not a gitfile\n", "gitdir:\n", "gitdir: \n", "gitdir: first\ngitdir: second\n",
+])
+def test_malformed_linked_worktree_gitfiles_are_rejected(tmp_path: Path, gitfile: str):
+    root = tmp_path / "linked-worktree"
+    root.mkdir()
+    (root / ".git").write_text(gitfile, encoding="utf-8")
+
+    with pytest.raises(UpdateError, match="real Git checkout"):
+        AutoUpdater(_spec(root))
+
+
+def test_linked_worktree_gitfile_with_missing_target_is_rejected(tmp_path: Path):
+    root = tmp_path / "linked-worktree"
+    root.mkdir()
+    (root / ".git").write_text("gitdir: missing-worktree-metadata\n", encoding="utf-8")
+
+    with pytest.raises(UpdateError, match="real Git checkout"):
+        AutoUpdater(_spec(root))
+
+
+def test_symlinked_updater_root_is_rejected(tmp_path: Path):
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    linked_root = tmp_path / "linked-root"
+    linked_root.symlink_to(checkout, target_is_directory=True)
+
+    with pytest.raises(UpdateError, match="real Git checkout"):
+        AutoUpdater(_spec(linked_root))
+
+
+def test_symlinked_git_marker_is_rejected(tmp_path: Path):
+    root = tmp_path / "checkout"
+    root.mkdir()
+    real_gitdir = tmp_path / "real-gitdir"
+    real_gitdir.mkdir()
+    (root / ".git").symlink_to(real_gitdir, target_is_directory=True)
+
+    with pytest.raises(UpdateError, match="real Git checkout"):
+        AutoUpdater(_spec(root))
+
+
 def _save(updater: AutoUpdater, mode: str) -> dict:
     return updater.save_settings({
         "mode": mode, "frequency": "daily", "maintenance_hour": 2,

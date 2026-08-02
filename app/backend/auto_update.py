@@ -96,7 +96,8 @@ class AutoUpdater:
                  *, runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
                  now: Callable[[], dt.datetime] = _utc_now) -> None:
         self.spec = dict(spec)
-        self.root = Path(self.spec["root"]).resolve()
+        self._configured_root = Path(self.spec["root"])
+        self.root = self._configured_root.resolve()
         self.readiness = readiness
         self.runner = runner
         self.now = now
@@ -112,8 +113,27 @@ class AutoUpdater:
         self.log = self._make_logger()
 
     def _validate_spec(self) -> None:
-        if self.root.is_symlink() or not (self.root / ".git").is_dir():
+        # Keep the configured root itself real, but support Git's standard
+        # linked-worktree gitfile ("gitdir: <worktree metadata directory>").
+        # Resolving first would otherwise hide a symlinked configured root.
+        git_marker = self.root / ".git"
+        if self._configured_root.is_symlink() or git_marker.is_symlink():
             raise UpdateError("Updater root must be a real Git checkout.")
+        if not git_marker.is_dir():
+            try:
+                lines = git_marker.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                raise UpdateError("Updater root must be a real Git checkout.") from None
+            if len(lines) != 1 or not lines[0].startswith("gitdir: "):
+                raise UpdateError("Updater root must be a real Git checkout.")
+            gitdir_text = lines[0][len("gitdir: "):]
+            if not gitdir_text or "\x00" in gitdir_text:
+                raise UpdateError("Updater root must be a real Git checkout.")
+            gitdir = Path(gitdir_text)
+            if not gitdir.is_absolute():
+                gitdir = git_marker.parent / gitdir
+            if not gitdir.is_dir():
+                raise UpdateError("Updater root must be a real Git checkout.")
         branch = self.spec.get("branch", "main")
         if not BRANCH_RE.fullmatch(branch) or branch.startswith("-") or ".." in branch:
             raise UpdateError("Unsafe configured Git branch.")
