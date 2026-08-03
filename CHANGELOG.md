@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.14] — 2026-08-03
+
+### Fixed — Qwen3-TTS Base clone hallucination containment
+
+- Qwen Base references are now checked by Whisper Large with word timestamps
+  inside the durable generation job. A mismatched or unaligned transcript is
+  rejected before Qwen inference, and immutable successful checks are reused.
+- Every private Qwen section now receives an automatic model-owned acoustic
+  token and duration ceiling. Callers no longer need to supply a safety limit
+  to prevent the known 96-second no-EOS exhaustion failure.
+- Finished Qwen clone audio is transcribed and compared with the requested
+  text before it can become a successful artifact. Repetition, unrelated
+  speech, missing text, and implausible duration return stable error codes.
+- A certainly rejected local result is retried once with a different seed and
+  a shorter 230-character sentence-safe section budget. A second rejection is
+  a controlled failure; Voice Studio never silently changes the chosen model.
+- Job history now retains redacted validation evidence, retry count, and the
+  stable error code without storing customer transcript text in that evidence.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.13] — 2026-08-03
 
 ### Added — visible per-model long-form delivery policies

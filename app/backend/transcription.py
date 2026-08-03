@@ -31,6 +31,7 @@ import json
 import shutil
 import subprocess
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -488,6 +489,7 @@ class TranscriptionManager:
         model_repo: Optional[str] = None,
         language: Optional[str] = None,
         word_timestamps: bool = False,
+        _lock_already_held: bool = False,
     ) -> dict:
         """Transcribe an audio file → text + timestamped segments + SRT + VTT.
 
@@ -521,8 +523,14 @@ class TranscriptionManager:
             nonlocal telemetry_result
             telemetry_result = payload
 
-        # Hold the SAME lock TTS generation uses — one GPU job at a time.
-        with _GEN_LOCK:
+        if _lock_already_held and not _GEN_LOCK.locked():
+            raise RuntimeError("transcribe_locked requires the generation lock")
+        lock_context = nullcontext() if _lock_already_held else _GEN_LOCK
+
+        # Hold the SAME lock TTS generation uses — one GPU job at a time. The
+        # Qwen output validator is already inside that lock and uses the
+        # explicit locked entry point below to avoid a non-reentrant deadlock.
+        with lock_context:
             self._active = True
             self._last_model_activity_at = time.time()
             try:
@@ -602,6 +610,23 @@ class TranscriptionManager:
             "elapsed_seconds": round(time.time() - started, 2),
             "resource_telemetry": telemetry_result,
         }
+
+    def transcribe_locked(
+        self,
+        audio_path: str,
+        *,
+        model_repo: Optional[str] = None,
+        language: Optional[str] = None,
+        word_timestamps: bool = False,
+    ) -> dict:
+        """Transcribe while the caller already owns Voice Studio's GPU lock."""
+        return self.transcribe(
+            audio_path,
+            model_repo=model_repo,
+            language=language,
+            word_timestamps=word_timestamps,
+            _lock_already_held=True,
+        )
 
 
 manager = TranscriptionManager()

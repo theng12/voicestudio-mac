@@ -64,7 +64,7 @@ def test_kokoro_audit_inventory_exactly_matches_the_runtime_roster() -> None:
     assert limits["supports_cancellation_between_chunks"] is True
 
 
-def test_qwen_base_is_an_exact_transcript_assisted_candidate() -> None:
+def test_qwen_base_guardrail_contract_requires_requalification() -> None:
     record = model_audits.audit_record(QWEN_BASE)
     assert record is not None
     assert record["subject"]["display_name"] == "Qwen3-TTS 0.6B Base"
@@ -72,14 +72,23 @@ def test_qwen_base_is_an_exact_transcript_assisted_candidate() -> None:
         "50f45ef0047cde7e84c2ef04326acb8ada2436a7"
     )
     candidate = record["genstudio_candidate"]
-    assert candidate["audit_status"] == "passed"
-    assert candidate["candidate_for_genstudio"] is True
+    assert candidate["audit_status"] == "conditional"
+    assert candidate["candidate_for_genstudio"] is False
     assert candidate["approved_operations"] == ["voice.tts"]
     assert candidate["contract_hash"] == model_audits.contract_hash(
         record["contract"]
     )
     assert candidate["hardware"]["minimum_unified_memory_gb"] == 16
     assert candidate["hardware"]["recommended_unified_memory_gb"] == 24
+    assert candidate["adapter"]["version"] == "1.3"
+    guardrails = candidate["controls"]["quality_guardrails"]
+    assert guardrails["reference_word_alignment"] is True
+    assert guardrails["automatic_section_token_ceiling"] is True
+    assert guardrails["output_transcript_validation"] is True
+    assert guardrails["max_local_quality_retries"] == 1
+    assert guardrails["required_local_models"] == [
+        "mlx-community/whisper-large-v3-turbo"
+    ]
     limits = candidate["input_limits"]
     assert limits["text_max_characters"] == 40_000
     assert limits["private_section_max_characters"] == 288
@@ -91,7 +100,10 @@ def test_qwen_base_is_an_exact_transcript_assisted_candidate() -> None:
     assert reference["recommended_duration_seconds"] == {"minimum": 8, "maximum": 12}
     assert reference["maximum_duration_seconds"] == 15
     assert reference["transcript"] == "required"
-    assert record["evidence"]["hardware_qualification"]["8"]["eligible"] is False
+    assert record["evidence"]["supersedes_audit_id"] == (
+        "voicestudio-20260803-qwen3-tts-0.6b-base-50f45ef0-pacing288"
+    )
+    assert record["evidence"]["promotion_gate"]["candidate_for_genstudio"] is False
     assert "approved_for_genstudio" not in json.dumps(record)
 
 

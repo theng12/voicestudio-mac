@@ -103,7 +103,14 @@ from typing import Optional
 import httpx
 from packaging.version import InvalidVersion, Version
 
-from . import catalog, cache, long_form_policy, model_audits, resource_telemetry
+from . import (
+    catalog,
+    cache,
+    long_form_policy,
+    model_audits,
+    qwen_quality,
+    resource_telemetry,
+)
 from .voicestudio_genstudio_integration import final_tts_result
 
 
@@ -865,7 +872,13 @@ def _split_long_text_unit(text: str, max_chars: int) -> list[str]:
     return pieces
 
 
-def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
+def _internal_mlx_text_chunks(
+    family: str,
+    repo: str,
+    text: str,
+    *,
+    max_chars_override: Optional[int] = None,
+) -> list[str]:
     """Return safe independent synthesis sections for long-form local TTS.
 
     A passed model audit may tighten or expand the private section budget for
@@ -882,10 +895,8 @@ def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
     )
     if policy is None:
         return []
-    return _sentence_safe_text_chunks(
-        text,
-        max_chars=policy["section_max_characters"],
-    )
+    max_chars = int(max_chars_override or policy["section_max_characters"])
+    return _sentence_safe_text_chunks(text, max_chars=max_chars)
 
 
 def _long_form_join_pause_s(family: str, repo: str) -> float:
@@ -1389,6 +1400,9 @@ class GenerationJob:
     sample_rate_hz: Optional[int] = None
     channels: Optional[int] = None
     resource_usage: Optional[dict] = None  # worker-owned per-job resource evidence
+    quality_validation: Optional[dict] = None  # redacted model-owned acceptance evidence
+    quality_retry_count: int = 0
+    error_code: Optional[str] = None
     provider: Optional[str] = None          # cloud provider key (None = local engine)
     client_request_params: Optional[dict] = None  # immutable idempotency comparison
     provider_account_id: Optional[str] = None  # credential bound to this paid call
@@ -1432,6 +1446,9 @@ class GenerationJob:
             "finished_at": self.finished_at,
             "duration_seconds": duration,
             "resource_usage": self.resource_usage,
+            "quality_validation": self.quality_validation,
+            "quality_retry_count": self.quality_retry_count,
+            "error_code": self.error_code,
         }
         return {
             **result,
@@ -1818,6 +1835,150 @@ class GenerationManager:
 
     # ----- worker -----
 
+    @staticmethod
+    def _is_qwen_clone_job(job: GenerationJob) -> bool:
+        return qwen_quality.is_qwen_base_clone(
+            str(job.params.get("repo") or ""),
+            job.params,
+        )
+
+    @staticmethod
+    def _qwen_job_duration_limit(job: GenerationJob) -> float:
+        text = str(job.params.get("text") or "")
+        speed = float(job.params.get("speed") or 1.0)
+        override = job.params.get("_qwen_section_max_characters")
+        chunks = _internal_mlx_text_chunks(
+            "qwen3-tts",
+            str(job.params.get("repo") or ""),
+            text,
+            max_chars_override=int(override) if override else None,
+        ) or [text]
+        pauses = max(0, len(chunks) - 1) * _long_form_join_pause_s(
+            "qwen3-tts", str(job.params.get("repo") or "")
+        )
+        return round(
+            sum(qwen_quality.automatic_duration_limit(chunk, speed) for chunk in chunks)
+            + pauses,
+            3,
+        )
+
+    def _validate_qwen_output_locked(
+        self,
+        job: GenerationJob,
+        output_path: Path,
+    ) -> None:
+        """Accept a Qwen clone only when Whisper agrees with the request."""
+        if not self._is_qwen_clone_job(job):
+            return
+        if not job.params.get("_qwen_reference_validation"):
+            raise qwen_quality.QwenQualityError(
+                "QWEN_REFERENCE_VALIDATION_REQUIRED",
+                "Qwen3-TTS reference validation evidence is missing.",
+                {"validator_revision": qwen_quality.VALIDATOR_REVISION},
+            )
+
+        # Qwen and Whisper must never co-reside on unified memory. The rejected
+        # local artifact is certain and unpaid, so it is safe to validate and,
+        # if necessary, regenerate it once.
+        self._evict_loaded_models("qwen-output-validation")
+        from .transcription import manager as stt_manager
+
+        try:
+            result = stt_manager.transcribe_locked(
+                str(output_path),
+                model_repo=qwen_quality.WHISPER_REPO,
+                language=job.params.get("language"),
+                word_timestamps=True,
+            )
+            job.quality_validation = qwen_quality.validate_output(
+                str(job.params.get("text") or ""),
+                result,
+                max_duration_s=self._qwen_job_duration_limit(job),
+            )
+        except qwen_quality.QwenQualityError:
+            raise
+        except Exception as exc:
+            print(
+                f"[gen] Qwen output validator unavailable: {type(exc).__name__}",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise qwen_quality.QwenQualityError(
+                "QWEN_OUTPUT_VALIDATION_UNAVAILABLE",
+                "Whisper Large could not validate the Qwen output.",
+                {
+                    "validator_revision": qwen_quality.VALIDATOR_REVISION,
+                    "error_type": type(exc).__name__,
+                },
+            ) from exc
+        finally:
+            stt_manager.release_memory_locked("qwen-output-validation-complete")
+
+    def _validate_qwen_reference_locked(self, job: GenerationJob) -> None:
+        """Validate the exact reference inside the already durable local job."""
+        if not self._is_qwen_clone_job(job):
+            return
+        if job.params.get("_qwen_reference_validation"):
+            return
+        private_path = str(job.params.get("_reference_audio_path") or "").strip()
+        transcript = str(job.params.get("ref_transcript") or "").strip()
+        if private_path:
+            reference_path = Path(private_path)
+        else:
+            from . import voices as voices_module
+
+            voice_id = str(job.params.get("voice_library_id") or "").strip()
+            reference_path = voices_module.library.reference_path(voice_id)
+            if not transcript:
+                transcript = voices_module.library.transcript(voice_id) or ""
+        if reference_path is None or not reference_path.is_file():
+            raise qwen_quality.QwenQualityError(
+                "QWEN_REFERENCE_AUDIO_UNAVAILABLE",
+                "The selected Qwen reference voice is unavailable.",
+                {"validator_revision": qwen_quality.VALIDATOR_REVISION},
+            )
+        if not transcript.strip():
+            raise qwen_quality.QwenQualityError(
+                "QWEN_REFERENCE_TRANSCRIPT_REQUIRED",
+                "Qwen3-TTS Base needs the exact transcript for its reference audio.",
+                {"validator_revision": qwen_quality.VALIDATOR_REVISION},
+            )
+
+        cache_key = qwen_quality.reference_cache_key(reference_path, transcript)
+        evidence = qwen_quality.cached_reference_evidence(cache_key)
+        if evidence is None:
+            self._evict_loaded_models("qwen-reference-validation")
+            from .transcription import manager as stt_manager
+
+            try:
+                result = stt_manager.transcribe_locked(
+                    str(reference_path),
+                    model_repo=qwen_quality.WHISPER_REPO,
+                    language=job.params.get("language"),
+                    word_timestamps=True,
+                )
+                evidence = qwen_quality.validate_reference(transcript, result)
+                qwen_quality.save_reference_evidence(cache_key, evidence)
+            except qwen_quality.QwenQualityError:
+                raise
+            except Exception as exc:
+                print(
+                    f"[gen] Qwen reference validator unavailable: {type(exc).__name__}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                raise qwen_quality.QwenQualityError(
+                    "QWEN_REFERENCE_VALIDATION_UNAVAILABLE",
+                    "Whisper Large could not validate the Qwen reference.",
+                    {
+                        "validator_revision": qwen_quality.VALIDATOR_REVISION,
+                        "error_type": type(exc).__name__,
+                    },
+                ) from exc
+            finally:
+                stt_manager.release_memory_locked("qwen-reference-validation-complete")
+        job.params["_qwen_reference_validation"] = evidence
+
     def _run_txt2speech(self, job: GenerationJob) -> None:
         # NOTE: don't re-set `job.state = "queued"` here. The dataclass default
         # already initialised it to "queued", and `cancel()` may legitimately
@@ -1861,6 +2022,7 @@ class GenerationManager:
 
             output_path: Optional[Path] = None
             memory_retries = 0
+            quality_retries = 0
             while True:
                 try:
                     if job.provider:
@@ -1869,8 +2031,10 @@ class GenerationManager:
                     else:
                         final_output_path = OUTPUT_DIR / f"{job.job_id}.wav"
                         output_path = OUTPUT_DIR / f".{job.job_id}.{uuid.uuid4().hex}.partial.wav"
+                        self._validate_qwen_reference_locked(job)
                         self._dispatch_txt2speech(job, output_path)
                         _enforce_output_duration_limit(output_path, job.params)
+                        self._validate_qwen_output_locked(job, output_path)
                         self._record_local_revision_evidence(job)
                         self._record_final_audio_evidence(job, output_path)
                         if not job.cancel_event.is_set():
@@ -1894,6 +2058,39 @@ class GenerationManager:
                             output_path.unlink(missing_ok=True)
                         except OSError:
                             pass
+                    if (
+                        not job.provider
+                        and isinstance(e, qwen_quality.QwenQualityError)
+                        and e.code in qwen_quality.RETRYABLE_OUTPUT_CODES
+                        and self._is_qwen_clone_job(job)
+                        and quality_retries < 1
+                    ):
+                        quality_retries += 1
+                        job.quality_retry_count = quality_retries
+                        job.quality_validation = {
+                            **e.evidence,
+                            "accepted": False,
+                            "rejection_code": e.code,
+                        }
+                        original_seed = (
+                            job.resolved_seed
+                            if job.resolved_seed is not None
+                            else int(job.params.get("seed") or 0)
+                        )
+                        job.params["_qwen_attempt_seed"] = (
+                            int(original_seed) + 1
+                        ) % (2**32)
+                        job.params["_qwen_section_max_characters"] = (
+                            qwen_quality.RETRY_SECTION_MAX_CHARACTERS
+                        )
+                        self._evict_loaded_models("qwen-quality-retry")
+                        print(
+                            f"[gen] rejected Qwen clone {job.job_id} ({e.code}); "
+                            "retrying once with a new seed and shorter sections",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        continue
                     if (
                         not job.provider
                         and _is_memory_failure(e)
@@ -1920,6 +2117,13 @@ class GenerationManager:
                         job.state = "cancelled"
                     else:
                         job.state = "error"
+                        if isinstance(e, qwen_quality.QwenQualityError):
+                            job.error_code = e.code
+                            job.quality_validation = {
+                                **e.evidence,
+                                "accepted": False,
+                                "rejection_code": e.code,
+                            }
                         job.error = f"{type(e).__name__}: {e}"
                         if not isinstance(e, MemoryGuardError) and _is_memory_failure(e):
                             memory_failure_seen = True
@@ -2393,11 +2597,18 @@ class GenerationManager:
 
         gen_kwargs: dict = {"text": text}
         output_duration_limit = _requested_output_duration_limit(params)
-        if family == "qwen3-tts" and output_duration_limit is not None:
-            gen_kwargs["max_tokens"] = _qwen_max_tokens_for_duration(
-                output_duration_limit,
-                speed,
-            )
+        qwen_clone = qwen_quality.is_qwen_base_clone(model_entry.repo, params)
+        if qwen_clone:
+            # Model-owned default: callers no longer need to remember a safety
+            # ceiling. A supplied compatibility limit may tighten it further.
+            gen_kwargs["max_tokens"] = qwen_quality.max_tokens_for_text(text, speed)
+            if output_duration_limit is not None:
+                gen_kwargs["max_tokens"] = min(
+                    gen_kwargs["max_tokens"],
+                    _qwen_max_tokens_for_duration(output_duration_limit, speed),
+                )
+        elif family == "qwen3-tts" and output_duration_limit is not None:
+            gen_kwargs["max_tokens"] = _qwen_max_tokens_for_duration(output_duration_limit, speed)
         # VoxCPM2 has no numeric speed parameter; its natural-language prompt
         # can shape delivery, while exact requested tempo is applied to the
         # finished WAV below. Passing speed upstream would be silently ignored.
@@ -2433,7 +2644,7 @@ class GenerationManager:
 
         # MLX models sample through mlx.core.random. Apply the recorded seed
         # immediately before inference so history reuse is genuinely repeatable.
-        seed = params.get("seed")
+        seed = params.get("_qwen_attempt_seed", params.get("seed"))
         if seed is None or seed < 0:
             import random
             seed = random.randint(0, 2**32 - 1)
@@ -2462,7 +2673,10 @@ class GenerationManager:
                 flush=True,
             )
             internal_chunks = _internal_mlx_text_chunks(
-                family, model_entry.repo, text
+                family,
+                model_entry.repo,
+                text,
+                max_chars_override=params.get("_qwen_section_max_characters"),
             )
             if len(internal_chunks) > 1:
                 self._generate_mlx_long_form_sections(
@@ -2559,7 +2773,21 @@ class GenerationManager:
                 model=model,
                 output_path=str(segment_dir),
                 join_audio=True,
-                **{**gen_kwargs, "text": chunk},
+                **{
+                    **gen_kwargs,
+                    "text": chunk,
+                    **(
+                        {
+                            "max_tokens": qwen_quality.max_tokens_for_text(
+                                chunk,
+                                float(job.params.get("speed") or 1.0),
+                            )
+                        }
+                        if family == "qwen3-tts"
+                        and qwen_quality.is_qwen_base_clone(model_repo, job.params)
+                        else {}
+                    ),
+                },
             )
             if job.cancel_event.is_set():
                 return
@@ -3308,6 +3536,9 @@ class GenerationManager:
             "sample_rate_hz": job.sample_rate_hz,
             "channels": job.channels,
             "resource_usage": job.resource_usage,
+            "quality_validation": job.quality_validation,
+            "quality_retry_count": job.quality_retry_count,
+            "error_code": job.error_code,
         }
 
     @staticmethod
@@ -3345,6 +3576,9 @@ class GenerationManager:
                 sample_rate_hz=raw.get("sample_rate_hz"),
                 channels=raw.get("channels"),
                 resource_usage=raw.get("resource_usage"),
+                quality_validation=raw.get("quality_validation"),
+                quality_retry_count=int(raw.get("quality_retry_count") or 0),
+                error_code=raw.get("error_code"),
             )
         except Exception:
             return None

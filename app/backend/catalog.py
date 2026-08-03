@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import long_form_policy, model_audits
+from . import long_form_policy, model_audits, qwen_quality
 
 
 @dataclass(frozen=True)
@@ -1323,6 +1323,19 @@ def serialize_model(m: ModelEntry) -> dict:
             "private_section_max_characters"
         ),
     )
+    qwen_clone_guardrails = (
+        {
+            "validator_revision": qwen_quality.VALIDATOR_REVISION,
+            "reference_word_alignment": True,
+            "automatic_section_token_ceiling": True,
+            "output_transcript_validation": True,
+            "max_local_quality_retries": 1,
+            "retry_section_max_characters": qwen_quality.RETRY_SECTION_MAX_CHARACTERS,
+            "required_local_models": [qwen_quality.WHISPER_REPO],
+        }
+        if qwen_quality.is_qwen_base_clone(m.repo)
+        else None
+    )
     return {
         "repo": m.repo,
         "label": m.label,
@@ -1359,6 +1372,7 @@ def serialize_model(m: ModelEntry) -> dict:
                 "private_section_max_characters"
             ),
             "qualification_source": "audit" if audited_input_limits else "unverified",
+            "quality_guardrails": qwen_clone_guardrails,
         },
         "long_form_delivery": effective_long_form_policy,
         "reference_audio": {
