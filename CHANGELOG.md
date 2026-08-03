@@ -10,6 +10,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.19] — 2026-08-04
+
+### Fixed — Qwen clone retry failures retain complete redacted evidence
+
+- Qwen3-TTS Base jobs now retain redacted quality evidence for every output
+  validation attempt. The latest result remains in `quality_validation` for
+  compatibility, while `quality_retry_history` records both the initial
+  rejection and the one permitted retry.
+- A second `QWEN_OUTPUT_TEXT_MISMATCH` remains a controlled terminal failure:
+  Voice Studio never publishes an artifact whose transcript does not pass the
+  existing Whisper Large validation gate, and it does not fall back to
+  x-vector-only cloning or another model.
+
+### Verification
+
+- Added a deterministic forced-retry regression covering seeds 41 → 42,
+  unchanged Qwen Base/reference/text inputs, the retry-only 230-character
+  section cap, two recorded mismatch attempts, and no final artifact.
+- The audited production contract is unchanged: 288-character sections,
+  180 ms joins, exact revision pin, 16 GB minimum, one local retry, and
+  contract hash `sha256:818d607b274f4f9b9dc224d3f97e9ff5e423bbeb242bef8df7112c6f143d0ef7`.
+
 ## [1.27.18] — 2026-08-04
 
 ### Changed — Fish qualification wording is evidence-neutral

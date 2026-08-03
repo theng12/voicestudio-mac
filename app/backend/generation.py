@@ -1402,6 +1402,7 @@ class GenerationJob:
     resource_usage: Optional[dict] = None  # worker-owned per-job resource evidence
     quality_validation: Optional[dict] = None  # redacted model-owned acceptance evidence
     quality_retry_count: int = 0
+    quality_retry_history: list[dict] = field(default_factory=list)
     error_code: Optional[str] = None
     provider: Optional[str] = None          # cloud provider key (None = local engine)
     client_request_params: Optional[dict] = None  # immutable idempotency comparison
@@ -1448,6 +1449,7 @@ class GenerationJob:
             "resource_usage": self.resource_usage,
             "quality_validation": self.quality_validation,
             "quality_retry_count": self.quality_retry_count,
+            "quality_retry_history": self.quality_retry_history,
             "error_code": self.error_code,
         }
         return {
@@ -1845,6 +1847,32 @@ class GenerationManager:
             job.params,
         )
 
+    def _record_qwen_quality_attempt(
+        self,
+        job: GenerationJob,
+        *,
+        evidence: dict,
+        accepted: bool,
+        rejection_code: Optional[str] = None,
+    ) -> None:
+        """Keep redacted evidence for every Qwen quality attempt.
+
+        The final ``quality_validation`` field intentionally remains the
+        latest result for compatibility.  The history makes a one-retry
+        failure auditable without retaining the transcript, audio, or a
+        filesystem path.
+        """
+        if not self._is_qwen_clone_job(job):
+            return
+        record = {
+            **dict(evidence or {}),
+            "attempt": len(job.quality_retry_history) + 1,
+            "accepted": bool(accepted),
+        }
+        if rejection_code:
+            record["rejection_code"] = rejection_code
+        job.quality_retry_history.append(record)
+
     @staticmethod
     def _qwen_job_duration_limit(job: GenerationJob) -> float:
         text = str(job.params.get("text") or "")
@@ -2038,6 +2066,11 @@ class GenerationManager:
                         self._dispatch_txt2speech(job, output_path)
                         _enforce_output_duration_limit(output_path, job.params)
                         self._validate_qwen_output_locked(job, output_path)
+                        self._record_qwen_quality_attempt(
+                            job,
+                            evidence=job.quality_validation or {},
+                            accepted=True,
+                        )
                         self._record_local_revision_evidence(job)
                         self._record_final_audio_evidence(job, output_path)
                         if not job.cancel_event.is_set():
@@ -2075,6 +2108,12 @@ class GenerationManager:
                             "accepted": False,
                             "rejection_code": e.code,
                         }
+                        self._record_qwen_quality_attempt(
+                            job,
+                            evidence=e.evidence,
+                            accepted=False,
+                            rejection_code=e.code,
+                        )
                         original_seed = (
                             job.resolved_seed
                             if job.resolved_seed is not None
@@ -2127,6 +2166,12 @@ class GenerationManager:
                                 "accepted": False,
                                 "rejection_code": e.code,
                             }
+                            self._record_qwen_quality_attempt(
+                                job,
+                                evidence=e.evidence,
+                                accepted=False,
+                                rejection_code=e.code,
+                            )
                         job.error = f"{type(e).__name__}: {e}"
                         if not isinstance(e, MemoryGuardError) and _is_memory_failure(e):
                             memory_failure_seen = True
@@ -3541,6 +3586,7 @@ class GenerationManager:
             "resource_usage": job.resource_usage,
             "quality_validation": job.quality_validation,
             "quality_retry_count": job.quality_retry_count,
+            "quality_retry_history": job.quality_retry_history,
             "error_code": job.error_code,
         }
 
@@ -3581,6 +3627,7 @@ class GenerationManager:
                 resource_usage=raw.get("resource_usage"),
                 quality_validation=raw.get("quality_validation"),
                 quality_retry_count=int(raw.get("quality_retry_count") or 0),
+                quality_retry_history=raw.get("quality_retry_history") or [],
                 error_code=raw.get("error_code"),
             )
         except Exception:

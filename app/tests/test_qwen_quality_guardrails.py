@@ -207,3 +207,91 @@ def test_rejected_local_qwen_output_retries_once_with_safer_settings(
     assert job.quality_retry_count == 1
     assert job.quality_validation == {"accepted": True}
     assert attempts == [(41, None), (42, qwen_quality.RETRY_SECTION_MAX_CHARACTERS)]
+    assert [entry["accepted"] for entry in job.quality_retry_history] == [False, True]
+    assert job.quality_retry_history[0]["rejection_code"] == "QWEN_OUTPUT_TEXT_MISMATCH"
+
+
+def test_qwen_output_mismatch_on_retry_is_terminal_and_preserves_attempt_evidence(
+    monkeypatch, tmp_path: Path
+) -> None:
+    manager = object.__new__(generation.GenerationManager)
+    manager._last_model_activity_at = None
+    manager._consecutive_memory_failures = 0
+    manager._restart_scheduled = False
+    manager._loaded_model = None
+    attempts = []
+    text = " ".join(
+        f"Controlled recovery sentence {index} remains transcript bound."
+        for index in range(1, 9)
+    )
+
+    def dispatch(job, path):
+        attempts.append({
+            "seed": job.params.get("_qwen_attempt_seed", job.params.get("seed")),
+            "section_max": job.params.get("_qwen_section_max_characters"),
+            "repo": job.params["repo"],
+            "text": job.params["text"],
+            "voice_library_id": job.params.get("voice_library_id"),
+        })
+        sf.write(path, np.zeros(2400, dtype=np.float32), 24000)
+
+    def validate(_job, _path):
+        raise qwen_quality.QwenQualityError(
+            "QWEN_OUTPUT_TEXT_MISMATCH",
+            "deterministic recovery control mismatch",
+            {
+                "validator_revision": qwen_quality.VALIDATOR_REVISION,
+                "kind": "output",
+                "expected_tokens": len(text.split()),
+                "observed_tokens": 0,
+            },
+        )
+
+    monkeypatch.setattr(generation, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(generation, "TTS_AVAILABLE", True)
+    monkeypatch.setattr(generation.resource_telemetry, "JobResourceSampler", _Sampler)
+    monkeypatch.setattr(manager, "_dispatch_txt2speech", dispatch)
+    monkeypatch.setattr(manager, "_validate_qwen_reference_locked", lambda _job: None)
+    monkeypatch.setattr(manager, "_validate_qwen_output_locked", validate)
+    monkeypatch.setattr(manager, "_record_local_revision_evidence", lambda _job: None)
+    monkeypatch.setattr(manager, "_record_final_audio_evidence", lambda _job, _path: None)
+    monkeypatch.setattr(manager, "_evict_loaded_models", lambda _reason: {})
+    monkeypatch.setattr(manager, "_persist", lambda: None)
+
+    job = generation.GenerationJob(
+        job_id="quality-retry-terminal",
+        mode="txt2speech",
+        params={
+            "repo": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
+            "voice_library_id": "aiden",
+            "text": text,
+            "seed": 41,
+            "_qwen_reference_validation": {"accepted": True},
+        },
+    )
+    manager._run_txt2speech(job)
+
+    assert job.state == "error"
+    assert job.error_code == "QWEN_OUTPUT_TEXT_MISMATCH"
+    assert job.quality_retry_count == 1
+    assert job.output_path is None
+    assert list(tmp_path.iterdir()) == []
+    assert [attempt["seed"] for attempt in attempts] == [41, 42]
+    assert [attempt["section_max"] for attempt in attempts] == [
+        None,
+        qwen_quality.RETRY_SECTION_MAX_CHARACTERS,
+    ]
+    assert all(attempt["repo"] == job.params["repo"] for attempt in attempts)
+    assert all(attempt["text"] == text for attempt in attempts)
+    assert all(attempt["voice_library_id"] == "aiden" for attempt in attempts)
+    assert len(job.quality_retry_history) == 2
+    assert [entry["attempt"] for entry in job.quality_retry_history] == [1, 2]
+    assert [entry["rejection_code"] for entry in job.quality_retry_history] == [
+        "QWEN_OUTPUT_TEXT_MISMATCH",
+        "QWEN_OUTPUT_TEXT_MISMATCH",
+    ]
+    assert all("text" not in entry and "path" not in entry for entry in job.quality_retry_history)
+    assert generation.GenerationManager._to_disk(job)["quality_retry_history"] == (
+        job.quality_retry_history
+    )
+    assert job.serialize()["quality_retry_history"] == job.quality_retry_history
