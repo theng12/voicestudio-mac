@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.3] — 2026-08-03
+
+### Fixed — local TTS pathological silent tails
+
+- Voice Studio now detects and atomically removes a multi-second terminal
+  silent tail from Qwen3 CustomVoice and Chatterbox output before publishing
+  it. A tiny late blip can no longer preserve a preceding pathological silence
+  span; normal interior pauses and short natural ending pads are preserved.
+- The correction is deliberately restricted to those two local TTS adapter
+  modes. Qwen clone mode, other TTS models, transcription, and
+  source/reference recordings are untouched.
+
+### Verification
+
+- Artifact tests cover preserved normal pauses, the reported Qwen and Spanish
+  Chatterbox short-speech / long-silence shapes, late-blip rejection, short
+  valid audio unchanged byte-for-byte, Qwen clone exclusion, and corrected
+  duration/size/checksum evidence.
+
+---
+
 ## [1.27.2] — 2026-08-03
 
 ### Fixed — resilient Hugging Face download transport

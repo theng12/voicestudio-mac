@@ -975,6 +975,160 @@ _POSTPROCESSED_SPEED_FAMILIES = {
 }
 
 
+# Qwen CustomVoice and Chatterbox can occasionally continue emitting silent
+# acoustic tokens after audible speech has finished.  The defect is distinct
+# from a natural pause: it is a multi-second *terminal* tail, sometimes with
+# one tiny non-speech blip far after the real narration. Keep a short tail pad
+# for natural word decay, and never apply this repair to another family, Qwen
+# clone mode, references, or transcription.
+_TERMINAL_SILENCE_MIN_SECONDS = 2.0
+_TERMINAL_SILENCE_PAD_SECONDS = 0.25
+_TERMINAL_SILENCE_FRAME_SECONDS = 0.02
+_TERMINAL_SILENCE_RELATIVE_THRESHOLD = 0.015
+_TERMINAL_SILENCE_FLOOR = 0.0005
+_TERMINAL_BLIP_MAX_SECONDS = 0.10
+_TERMINAL_BLIP_BRIDGE_SECONDS = 0.12
+
+
+def _terminal_silence_correction_label(repo: str, family: str) -> Optional[str]:
+    """Return the explicitly audited local model modes that need this repair."""
+    if family == "qwen3-tts" and "qwen3-tts" in repo.lower() and _qwen3_mode_from_repo(repo) == "custom":
+        return "Qwen CustomVoice"
+    if family == "chatterbox-mlx":
+        return "Chatterbox"
+    return None
+
+
+def _trim_model_terminal_silence(output_path: Path, repo: str, family: str) -> float:
+    """Remove a pathological terminal silent tail from an audited local TTS WAV.
+
+    Returns seconds removed. Audio is scanned and copied in bounded blocks so a
+    long-form artifact is not loaded alongside the active MLX model. A small,
+    isolated terminal blip after a pathological silent gap is ignored rather
+    than preserving the entire gap. Normal interior pauses and short natural
+    endings are left byte-for-byte unchanged.
+    """
+    label = _terminal_silence_correction_label(repo, family)
+    if label is None:
+        return 0.0
+
+    import numpy as np
+    import soundfile as sf
+
+    info = sf.info(str(output_path))
+    if info.frames <= 0 or info.samplerate <= 0 or info.channels <= 0:
+        raise RuntimeError(f"{label} produced an invalid WAV before silence validation")
+
+    analysis_frame = max(1, round(info.samplerate * _TERMINAL_SILENCE_FRAME_SECONDS))
+    block_frames = max(analysis_frame, analysis_frame * 500)
+    peak = 0.0
+    with sf.SoundFile(str(output_path), mode="r") as reader:
+        while True:
+            samples = reader.read(block_frames, dtype="float32", always_2d=True)
+            if len(samples) == 0:
+                break
+            peak = max(peak, float(np.max(np.abs(samples))))
+
+    # A fully silent output remains a model failure rather than a misleading
+    # zero-length success.  Existing final-artifact validation will reject it
+    # only if it is empty, so make this explicit for this faulty model path.
+    if peak < _TERMINAL_SILENCE_FLOOR:
+        raise RuntimeError(f"{label} produced no audible speech")
+    threshold = max(
+        _TERMINAL_SILENCE_FLOOR,
+        peak * _TERMINAL_SILENCE_RELATIVE_THRESHOLD,
+    )
+
+    voiced_frames: list[bool] = []
+    with sf.SoundFile(str(output_path), mode="r") as reader:
+        while True:
+            samples = reader.read(block_frames, dtype="float32", always_2d=True)
+            if len(samples) == 0:
+                break
+            full_frames = len(samples) // analysis_frame
+            if full_frames:
+                framed = samples[:full_frames * analysis_frame].reshape(
+                    full_frames, analysis_frame, info.channels
+                )
+                rms = np.sqrt(np.mean(np.square(framed), axis=(1, 2)))
+                voiced_frames.extend(bool(value) for value in rms >= threshold)
+            if full_frames * analysis_frame < len(samples):
+                remainder = samples[full_frames * analysis_frame:]
+                voiced_frames.append(float(np.sqrt(np.mean(np.square(remainder)))) >= threshold)
+
+    bridge_frames = max(1, round(_TERMINAL_BLIP_BRIDGE_SECONDS / _TERMINAL_SILENCE_FRAME_SECONDS))
+    min_meaningful_frames = max(1, round(_TERMINAL_BLIP_MAX_SECONDS / _TERMINAL_SILENCE_FRAME_SECONDS))
+    tail_gap_frames = max(1, round(_TERMINAL_SILENCE_MIN_SECONDS / _TERMINAL_SILENCE_FRAME_SECONDS))
+    last_audible_end = 0
+    index = len(voiced_frames) - 1
+    while index >= 0:
+        while index >= 0 and not voiced_frames[index]:
+            index -= 1
+        if index < 0:
+            break
+        end = index + 1
+        start = index
+        voiced_count = 1
+        previous = index - 1
+        while previous >= 0:
+            while previous >= 0 and not voiced_frames[previous]:
+                previous -= 1
+            if previous < 0 or start - previous - 1 > bridge_frames:
+                break
+            voiced_count += 1
+            start = previous
+            previous -= 1
+
+        # A one- or two-frame blip after multiple seconds of silence is not
+        # narration. Ignore it and continue looking for the final meaningful
+        # speech region, while retaining a similarly short sound after a
+        # normal pause to avoid clipping natural endings.
+        if voiced_count < min_meaningful_frames and previous >= 0 and start - previous - 1 >= tail_gap_frames:
+            index = previous
+            continue
+        last_audible_end = min(info.frames, end * analysis_frame)
+        break
+
+    if not last_audible_end:
+        raise RuntimeError(f"{label} produced no audible speech")
+    keep_frames = min(
+        info.frames,
+        last_audible_end + round(info.samplerate * _TERMINAL_SILENCE_PAD_SECONDS),
+    )
+    removed_frames = info.frames - keep_frames
+    if removed_frames / info.samplerate < _TERMINAL_SILENCE_MIN_SECONDS:
+        return 0.0
+
+    temporary = output_path.with_name(
+        f".{output_path.stem}.qwen-terminal-trim-{uuid.uuid4().hex}.wav"
+    )
+    try:
+        with sf.SoundFile(str(output_path), mode="r") as source, sf.SoundFile(
+            str(temporary),
+            mode="w",
+            samplerate=info.samplerate,
+            channels=info.channels,
+            format="WAV",
+            subtype=info.subtype,
+        ) as destination:
+            remaining = keep_frames
+            while remaining > 0:
+                samples = source.read(min(block_frames, remaining), dtype="float32", always_2d=True)
+                if len(samples) == 0:
+                    raise RuntimeError(f"{label} WAV ended during silence correction")
+                destination.write(samples)
+                remaining -= len(samples)
+        os.replace(temporary, output_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return removed_frames / info.samplerate
+
+
+def _trim_qwen_custom_terminal_silence(output_path: Path, repo: str) -> float:
+    """Compatibility wrapper for the established Qwen artifact regression tests."""
+    return _trim_model_terminal_silence(output_path, repo, "qwen3-tts")
+
+
 def _apply_mlx_output_speed(output_path: Path, speed: float, family: str) -> bool:
     """Apply pitch-preserving tempo to a finished MLX-family WAV atomically.
 
@@ -2299,7 +2453,7 @@ class GenerationManager:
             if len(internal_chunks) > 1:
                 self._generate_mlx_long_form_sections(
                     job, family, model, gen_kwargs, internal_chunks, temp_dir,
-                    output_path, generate_audio,
+                    output_path, generate_audio, model_entry.repo,
                 )
                 if not job.cancel_event.is_set():
                     print(
@@ -2324,6 +2478,15 @@ class GenerationManager:
                         )
                     produced = candidates[0]
 
+                trimmed_seconds = _trim_model_terminal_silence(
+                    produced, model_entry.repo, family
+                )
+                if trimmed_seconds:
+                    print(
+                        f"[gen] {_terminal_silence_correction_label(model_entry.repo, family)} removed {trimmed_seconds:.2f}s "
+                        "of pathological terminal silence",
+                        flush=True,
+                    )
                 shutil.move(str(produced), str(output_path))
                 sr = model_entry.sample_rate_hz or family_config["default_sample_rate"]
                 print(f"[gen] {family} saved WAV at {sr} Hz: {output_path}", flush=True)
@@ -2361,7 +2524,8 @@ class GenerationManager:
 
     def _generate_mlx_long_form_sections(self, job: GenerationJob, family: str, model,
                                          gen_kwargs: dict, chunks: list[str], temp_dir: Path,
-                                         output_path: Path, generate_audio) -> None:
+                                         output_path: Path, generate_audio,
+                                         model_repo: str = "") -> None:
         """Render independently verified sections, then join them into one WAV."""
         segment_paths: list[Path] = []
         job.chunk_total = len(chunks)
@@ -2385,7 +2549,15 @@ class GenerationManager:
             )
             if job.cancel_event.is_set():
                 return
-            segment_paths.append(self._mlx_audio_output_file(segment_dir))
+            segment_path = self._mlx_audio_output_file(segment_dir)
+            trimmed_seconds = _trim_model_terminal_silence(segment_path, model_repo, family)
+            if trimmed_seconds:
+                print(
+                    f"[gen] {_terminal_silence_correction_label(model_repo, family)} section {index}/{len(chunks)} removed "
+                    f"{trimmed_seconds:.2f}s of pathological terminal silence",
+                    flush=True,
+                )
+            segment_paths.append(segment_path)
             job.progress = max(job.progress, min(0.95, 0.08 + index / len(chunks) * 0.85))
         _join_long_form_wavs(segment_paths, output_path, family)
 

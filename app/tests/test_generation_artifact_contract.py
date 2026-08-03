@@ -10,6 +10,140 @@ import soundfile as sf
 from backend import cache, generation, main, voicestudio_genstudio_integration
 
 
+QWEN_CUSTOM_REPO = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+QWEN_BASE_REPO = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+CHATTERBOX_REPO = "mlx-community/chatterbox-4bit"
+
+
+def _tone(seconds: float, sample_rate: int = 1_000) -> np.ndarray:
+    samples = round(seconds * sample_rate)
+    return 0.3 * np.sin(2 * np.pi * 110 * np.arange(samples) / sample_rate)
+
+
+def test_qwen_custom_terminal_silence_trim_preserves_normal_interior_pauses(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "qwen-custom-terminal-silence.wav"
+    sample_rate = 1_000
+    # The middle one-second pause is deliberate narration timing.  Only the
+    # pathological tail after the second audible phrase may be corrected.
+    original = np.concatenate((
+        _tone(0.5, sample_rate),
+        np.zeros(round(1.0 * sample_rate)),
+        _tone(0.5, sample_rate),
+        np.zeros(round(3.0 * sample_rate)),
+    ))
+    sf.write(output, original, sample_rate, subtype="PCM_16")
+
+    removed = generation._trim_qwen_custom_terminal_silence(output, QWEN_CUSTOM_REPO)
+    corrected, corrected_rate = sf.read(output, dtype="float32")
+
+    assert corrected_rate == sample_rate
+    assert removed == pytest.approx(2.75, abs=0.03)
+    assert len(corrected) / sample_rate == pytest.approx(2.25, abs=0.03)
+    assert np.max(np.abs(corrected[:500])) > 0.1
+    assert np.max(np.abs(corrected[500:1_500])) < 0.0001
+    assert np.max(np.abs(corrected[1_500:2_000])) > 0.1
+
+
+def test_qwen_custom_pathological_tail_updates_final_artifact_evidence(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "qwen-uncle-fu.wav"
+    sample_rate = 1_000
+    # Mirrors the reported shape: a short spoken sample followed by an
+    # implausibly long silent tail.  This test does not call a model/provider.
+    sf.write(
+        output,
+        np.concatenate((_tone(4.2295, sample_rate), np.zeros(round(91.7705 * sample_rate)))),
+        sample_rate,
+        subtype="PCM_16",
+    )
+
+    removed = generation._trim_qwen_custom_terminal_silence(output, QWEN_CUSTOM_REPO)
+    job = generation.GenerationJob(
+        job_id="uncle-fu-trim-evidence",
+        mode="txt2speech",
+        params={"repo": QWEN_CUSTOM_REPO, "preset_speaker": "Uncle_Fu"},
+    )
+    generation.GenerationManager._record_final_audio_evidence(job, output)
+
+    assert removed > 90
+    assert job.audio_duration_s == pytest.approx(4.48, abs=0.03)
+    assert job.audio_duration_ms == round(job.audio_duration_s * 1_000)
+    assert job.bytes == output.stat().st_size
+    assert job.sha256 == hashlib.sha256(output.read_bytes()).hexdigest()
+
+
+def test_chatterbox_terminal_blip_does_not_preserve_pathological_silence(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "chatterbox-spanish-terminal-blip.wav"
+    sample_rate = 1_000
+    # Matches the observed Spanish Chatterbox shape: audible speech through
+    # 3.749125s, 40.76s of silence, a ~27ms blip, then final silence to 48s.
+    speech_end = 3.749125
+    blip_start = 44.511
+    blip_end = 44.537958
+    total = 48.0
+    sf.write(
+        output,
+        np.concatenate((
+            _tone(speech_end, sample_rate),
+            np.zeros(round((blip_start - speech_end) * sample_rate)),
+            _tone(blip_end - blip_start, sample_rate),
+            np.zeros(round((total - blip_end) * sample_rate)),
+        )),
+        sample_rate,
+        subtype="PCM_16",
+    )
+
+    removed = generation._trim_model_terminal_silence(
+        output, CHATTERBOX_REPO, "chatterbox-mlx"
+    )
+    job = generation.GenerationJob(
+        job_id="chatterbox-spanish-trim-evidence",
+        mode="txt2speech",
+        params={"repo": CHATTERBOX_REPO},
+    )
+    generation.GenerationManager._record_final_audio_evidence(job, output)
+
+    assert removed > 43
+    assert job.audio_duration_s == pytest.approx(4.0, abs=0.03)
+    assert job.bytes == output.stat().st_size
+    assert job.sha256 == hashlib.sha256(output.read_bytes()).hexdigest()
+
+
+def test_qwen_custom_short_valid_tail_is_left_byte_for_byte_unchanged(tmp_path: Path) -> None:
+    output = tmp_path / "qwen-custom-short-valid.wav"
+    sample_rate = 1_000
+    sf.write(
+        output,
+        np.concatenate((_tone(0.5, sample_rate), np.zeros(round(0.2 * sample_rate)))),
+        sample_rate,
+        subtype="PCM_16",
+    )
+    before = output.read_bytes()
+
+    assert generation._trim_qwen_custom_terminal_silence(output, QWEN_CUSTOM_REPO) == 0.0
+    assert output.read_bytes() == before
+
+
+def test_terminal_silence_correction_does_not_apply_to_qwen_clone(tmp_path: Path) -> None:
+    output = tmp_path / "qwen-base.wav"
+    sample_rate = 1_000
+    sf.write(
+        output,
+        np.concatenate((_tone(0.5, sample_rate), np.zeros(round(3.0 * sample_rate)))),
+        sample_rate,
+        subtype="PCM_16",
+    )
+    before = output.read_bytes()
+
+    assert generation._trim_qwen_custom_terminal_silence(output, QWEN_BASE_REPO) == 0.0
+    assert output.read_bytes() == before
+
+
 def test_final_wav_evidence_is_derived_from_published_bytes(tmp_path: Path) -> None:
     output = tmp_path / "final.wav"
     sf.write(output, np.zeros(24_000, dtype=np.float32), 24_000, subtype="PCM_16")
