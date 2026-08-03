@@ -10,6 +10,25 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.15] — 2026-08-04
+
+### Fixed — large model downloads no longer stall forever
+
+- Hugging Face's Xet transport is now disabled for model downloads. Xet could
+  wedge mid-transfer while holding the repo file lock, so bytes stopped growing
+  on disk and `snapshot_download` never returned. The 15-minute stall watchdog
+  could then only cancel and restart the attempt.
+- Because each attempt writes its own `<blob>.<suffix>.incomplete`, a cancelled
+  attempt's bytes were not reused by the next one. Progress fragmented across
+  temp files and a large repo could loop indefinitely without completing:
+  `mlx-community/fish-audio-s2-pro-8bit` accumulated six partials of a single
+  blob (4351/629/201/201/52/31 MB) across repeated attempts and never finished.
+  With the classic HTTP transport the same repo completed in one 103-minute
+  pass, verified file-by-file against its published manifest.
+- The flag is applied before `huggingface_hub` is imported, because its
+  constants module reads it at import time and the download child process is
+  spawned rather than forked. Set `VOICESTUDIO_ENABLE_XET=1` to opt back in.
+
 ## [1.27.14] — 2026-08-03
 
 ### Fixed — Qwen3-TTS Base clone hallucination containment
