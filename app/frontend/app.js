@@ -69,6 +69,7 @@ function studio() {
       voxtral_voices: [],          // [{id, lang, gender, label}, ...]
       marvis_voices: [],           // [{id, lang, gender, label}, ...]
       orpheus_voices: [],          // [{id, lang, gender, label}, ...]
+      vibevoice_voices: [],        // exact checkpoint roster; experimental entries are labelled
       qwen3_voice_design_examples: [],  // [string, ...]
       lang_names: {},
       wired_families: [],
@@ -3060,6 +3061,7 @@ function studio() {
         this.gen.voxtral_voices = data.voxtral_voices || [];
         this.gen.marvis_voices = data.marvis_voices || [];
         this.gen.orpheus_voices = data.orpheus_voices || [];
+        this.gen.vibevoice_voices = data.vibevoice_voices || [];
         this.gen.qwen3_voice_design_examples = data.qwen3_voice_design_examples || [];
         this.gen.voxcpm_available = !!data.voxcpm_available;
         this.gen.voxcpm_emotion_examples = data.voxcpm_emotion_examples || [];
@@ -3162,12 +3164,13 @@ function studio() {
           || this.isVoxtral(repo) || this.isMarvis(repo);
     },
     /** Verified preset-voice roster for the current voice-picker family, or []
-     *  when we don't have a confirmed list (KittenTTS / VibeVoice → free-text).
+     *  when we don't have a confirmed list (KittenTTS → free-text).
      *  Drives the clickable voice buttons. Each entry: {id, label, lang, gender}. */
     presetVoiceOptions(repo) {
       if (this.isVoxtral(repo))   return this.gen.voxtral_voices || [];
       if (this.isMarvis(repo))    return this.gen.marvis_voices || [];
       if (this.isOrpheus(repo))   return this.gen.orpheus_voices || [];
+      if (this.isVibeVoice(repo)) return this.gen.vibevoice_voices || [];
       if (this.isKokoroMlx(repo)) return this.kokoroVoicesForLanguage();
       return [];
     },

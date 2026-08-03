@@ -77,6 +77,34 @@ def test_qualified_qwen_base_uses_official_identity_and_safe_hardware_floor() ->
     )
 
 
+def test_vibevoice_checkpoint_roster_is_exact_and_separates_experimental_languages() -> None:
+    voices = generation.VIBEVOICE_PRESET_VOICES
+    assert len(voices) == 25
+    assert len({voice["id"] for voice in voices}) == 25
+    assert {voice["id"] for voice in voices if not voice["experimental"]} == {
+        "en-Carter_man", "en-Davis_man", "en-Emma_woman", "en-Frank_man",
+        "en-Grace_woman", "en-Mike_man", "in-Samuel_man",
+    }
+    assert {voice["lang"] for voice in voices if voice["experimental"]} == {
+        "de", "fr", "it", "ja", "ko", "nl", "pl", "pt", "es",
+    }
+    assert generation.availability()["vibevoice_voices"] == voices
+
+
+def test_vibevoice_rejects_unverified_free_text_voice_names() -> None:
+    manager = object.__new__(generation.GenerationManager)
+    kwargs: dict = {}
+    manager._mlx_kwargs_voice_picker(
+        "vibevoice", {"voice": "en-Emma_woman"}, kwargs
+    )
+    assert kwargs["voice"] == "en-Emma_woman"
+
+    with pytest.raises(ValueError, match="Unknown VibeVoice preset"):
+        manager._mlx_kwargs_voice_picker(
+            "vibevoice", {"voice": "made-up-voice"}, {}
+        )
+
+
 def test_diagnostics_cover_every_wired_engine_and_show_package_versions() -> None:
     result = generation.diagnostics()
 

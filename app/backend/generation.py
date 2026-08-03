@@ -375,6 +375,7 @@ def availability() -> dict:
         "voxtral_voices": VOXTRAL_VOICES,
         "marvis_voices": MARVIS_VOICES,
         "orpheus_voices": ORPHEUS_VOICES,
+        "vibevoice_voices": VIBEVOICE_PRESET_VOICES,
         "lang_names": {**LANG_NAMES, **_BARK_LANGUAGES},
         "phase": 2,
         "wired_families": wired,
@@ -712,6 +713,40 @@ ORPHEUS_VOICES = [
     {"id": "dan",  "lang": "en", "gender": "m", "label": "Dan"},
     {"id": "leo",  "lang": "en", "gender": "m", "label": "Leo"},
     {"id": "zac",  "lang": "en", "gender": "m", "label": "Zac"},
+]
+
+# VibeVoice Realtime 0.5B — verified against the exact voice files shipped in
+# mlx-community/VibeVoice-Realtime-0.5B-4bit at revision
+# 550877a15358642c1e062aa38ce1fe0623beaa1b. Microsoft treats the seven
+# English / Indian-English presets as the supported roster. The additional
+# nine languages are explicitly exploratory upstream, so keep their files
+# selectable for owner research while labelling them experimental.
+VIBEVOICE_PRESET_VOICES = [
+    {"id": "en-Carter_man", "label": "Carter", "lang": "en", "gender": "m", "experimental": False},
+    {"id": "en-Davis_man", "label": "Davis", "lang": "en", "gender": "m", "experimental": False},
+    {"id": "en-Emma_woman", "label": "Emma", "lang": "en", "gender": "f", "experimental": False},
+    {"id": "en-Frank_man", "label": "Frank", "lang": "en", "gender": "m", "experimental": False},
+    {"id": "en-Grace_woman", "label": "Grace", "lang": "en", "gender": "f", "experimental": False},
+    {"id": "en-Mike_man", "label": "Mike", "lang": "en", "gender": "m", "experimental": False},
+    {"id": "in-Samuel_man", "label": "Samuel · Indian English", "lang": "en", "locale": "en-IN", "gender": "m", "experimental": False},
+    {"id": "de-Spk0_man", "label": "German speaker 0", "lang": "de", "gender": "m", "experimental": True},
+    {"id": "de-Spk1_woman", "label": "German speaker 1", "lang": "de", "gender": "f", "experimental": True},
+    {"id": "fr-Spk0_man", "label": "French speaker 0", "lang": "fr", "gender": "m", "experimental": True},
+    {"id": "fr-Spk1_woman", "label": "French speaker 1", "lang": "fr", "gender": "f", "experimental": True},
+    {"id": "it-Spk0_woman", "label": "Italian speaker 0", "lang": "it", "gender": "f", "experimental": True},
+    {"id": "it-Spk1_man", "label": "Italian speaker 1", "lang": "it", "gender": "m", "experimental": True},
+    {"id": "jp-Spk0_man", "label": "Japanese speaker 0", "lang": "ja", "gender": "m", "experimental": True},
+    {"id": "jp-Spk1_woman", "label": "Japanese speaker 1", "lang": "ja", "gender": "f", "experimental": True},
+    {"id": "kr-Spk0_woman", "label": "Korean speaker 0", "lang": "ko", "gender": "f", "experimental": True},
+    {"id": "kr-Spk1_man", "label": "Korean speaker 1", "lang": "ko", "gender": "m", "experimental": True},
+    {"id": "nl-Spk0_man", "label": "Dutch speaker 0", "lang": "nl", "gender": "m", "experimental": True},
+    {"id": "nl-Spk1_woman", "label": "Dutch speaker 1", "lang": "nl", "gender": "f", "experimental": True},
+    {"id": "pl-Spk0_man", "label": "Polish speaker 0", "lang": "pl", "gender": "m", "experimental": True},
+    {"id": "pl-Spk1_woman", "label": "Polish speaker 1", "lang": "pl", "gender": "f", "experimental": True},
+    {"id": "pt-Spk0_woman", "label": "Portuguese speaker 0", "lang": "pt", "gender": "f", "experimental": True},
+    {"id": "pt-Spk1_man", "label": "Portuguese speaker 1", "lang": "pt", "gender": "m", "experimental": True},
+    {"id": "sp-Spk0_woman", "label": "Spanish speaker 0", "lang": "es", "gender": "f", "experimental": True},
+    {"id": "sp-Spk1_man", "label": "Spanish speaker 1", "lang": "es", "gender": "m", "experimental": True},
 ]
 
 
@@ -2730,6 +2765,13 @@ class GenerationManager:
                 f"{family} needs a preset voice. Pick one from the voice dropdown — "
                 "the Voices library doesn't apply here (this family doesn't clone)."
             )
+
+        if family == "vibevoice":
+            known_voices = {item["id"] for item in VIBEVOICE_PRESET_VOICES}
+            if voice not in known_voices:
+                raise ValueError(
+                    f"Unknown VibeVoice preset: {voice!r}. Pick a verified checkpoint voice."
+                )
 
         if family == "kokoro-mlx":
             voices = [item.strip() for item in voice.split(",") if item.strip()]

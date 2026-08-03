@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.9] — 2026-08-03
+
+### Changed — grounded VibeVoice preset inventory
+
+- VibeVoice Realtime now exposes the exact 25 preset files shipped by the
+  supported MLX checkpoint instead of accepting an unrestricted voice name.
+- Its seven English and Indian-English presets are distinguished from the 18
+  upstream-labelled experimental presets across nine additional languages.
+  Experimental presets remain available for owner research but are not
+  presented as commercially qualified language support.
+- The backend rejects nonexistent VibeVoice presets before model execution,
+  and the UI shows the verified roster as selectable buttons.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.8] — 2026-08-03
 
 ### Changed — closed Group B rejections

@@ -569,7 +569,7 @@
                       class="btn ghost small voice-btn"
                       :class="{ active: gen.voice === v.id }"
                       @click="selectVoice(v.id)"
-                      x-text="(v.gender === 'm' ? '♂ ' : v.gender === 'f' ? '♀ ' : '') + (v.label || v.id)"></button>
+                      x-text="(v.gender === 'm' ? '♂ ' : v.gender === 'f' ? '♀ ' : '') + (v.label || v.id) + (v.experimental ? ' · Experimental' : '')"></button>
             </template>
           </div>
 
@@ -602,8 +602,9 @@
               Requires <code>espeak-ng</code> on the system — install with <code>brew install espeak-ng</code> if generation fails.
             </span>
             <span x-show="isVibeVoice(gen.repo)">
-              VibeVoice uses preset voices in <code>&lt;lang&gt;-&lt;name&gt;_&lt;gender&gt;</code> format —
-              <code>en-Emma_woman</code> is a known default. Check the model card on Hugging Face for the full voice list.
+              The checkpoint contains seven supported English / Indian-English presets and eighteen
+              explicitly experimental multilingual presets. Experimental voices remain available for
+              owner testing but are not treated as commercially qualified languages.
             </span>
             <span x-show="isVoxtral(gen.repo)">
               Voxtral has 20 preset voices — the name sets the language.
