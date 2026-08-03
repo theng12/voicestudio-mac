@@ -60,6 +60,23 @@ def test_priority_catalog_is_focused_and_clone_capable() -> None:
     assert catalog.get_model(fish[0]).min_unified_memory_gb == 24
 
 
+def test_qualified_qwen_base_uses_official_identity_and_safe_hardware_floor() -> None:
+    model = catalog.get_model(
+        "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+    )
+    assert model is not None
+    assert model.label == "Qwen3-TTS 0.6B Base"
+    assert model.min_unified_memory_gb == 16
+    assert model.languages == (
+        "en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it",
+    )
+    assert "24 GB preferred" in model.recommended_hardware
+    assert any(
+        kind == "avoid" and "8 GB" in text
+        for kind, text in model.use_cases
+    )
+
+
 def test_diagnostics_cover_every_wired_engine_and_show_package_versions() -> None:
     result = generation.diagnostics()
 
@@ -443,6 +460,41 @@ def test_qwen_06b_custom_voice_uses_preset_speaker_mode() -> None:
     assert generation._qwen3_mode_from_repo(
         "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
     ) == "custom"
+
+
+def test_qwen_base_requires_an_exact_reference_transcript(tmp_path: Path) -> None:
+    reference = tmp_path / "reference.wav"
+    reference.write_bytes(b"private")
+    voices = SimpleNamespace(library=_VoiceLibrary(reference, transcript=""))
+    manager = object.__new__(generation.GenerationManager)
+
+    with pytest.raises(ValueError, match="exact transcript"):
+        manager._mlx_kwargs_qwen3(
+            SimpleNamespace(
+                repo="mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+            ),
+            {"voice_library_id": "voice-1"},
+            {},
+            voices,
+        )
+
+    kwargs: dict = {}
+    label = manager._mlx_kwargs_qwen3(
+        SimpleNamespace(
+            repo="mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+        ),
+        {
+            "_reference_audio_path": str(reference),
+            "ref_transcript": "These are the exact spoken words.",
+        },
+        kwargs,
+        voices_module=None,
+    )
+    assert label == "clone (voice=private-reference)"
+    assert kwargs == {
+        "ref_audio": str(reference),
+        "ref_text": "These are the exact spoken words.",
+    }
 
 
 def test_qwen_clone_long_form_chunks_at_sentences_without_losing_text() -> None:

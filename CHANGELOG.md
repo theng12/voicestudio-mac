@@ -10,6 +10,35 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.7] — 2026-08-03
+
+### Added — qualified Qwen3-TTS voice cloning
+
+- Qwen3-TTS 0.6B Base now publishes an exact, hash-bound GenStudio candidate
+  for transcript-assisted voice cloning at its immutable MLX 8-bit revision.
+- The audited contract records 3–15 second technical reference limits, an
+  8-second default and 8–12 second preferred reference window, 40,000-character
+  adapter-managed long form, 24 kHz WAV output, and one physical execution slot.
+- Qualification evidence preserves the successful 8, 16, and 24 GB runs while
+  setting the safe commercial floor to 16 GB and the preferred tier to 24 GB.
+
+### Changed — truthful cloning and hardware requirements
+
+- The catalog uses the official **Qwen3-TTS 0.6B Base** name, advertises only
+  the ten upstream-supported languages, and no longer describes the model as
+  suitable for 8 GB production machines.
+- Qwen Base cloning now requires the exact reference transcript. Voice Studio
+  no longer substitutes a meaningless placeholder that silently selects a
+  lower-fidelity or unverifiable cloning path.
+
+### Verification
+
+- Focused audit, catalog, reference-audio, generation, release-metadata, and
+  Studio Hub contract tests cover the exact candidate, 16 GB eligibility,
+  transcript enforcement, 8–12 second guidance, and 40,000-character flow.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.6] — 2026-08-03
 
 ### Fixed — truthful repair-download progress

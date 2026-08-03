@@ -96,6 +96,29 @@ def test_timed_transcript_is_sliced_with_the_selected_reference(
     assert prepared["transcript"] == "First sentence. Second sentence."
 
 
+def test_qwen_audit_drives_reference_preparation_contract(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(reference_audio, "ROOT", tmp_path / "references")
+    model_id = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+
+    prepared = reference_audio.prepare(
+        audio_bytes=_wav(seconds=10),
+        filename="customer.wav",
+        model_id=model_id,
+        transcript="These exact words cover the selected ten second reference.",
+    )
+
+    assert 8 <= prepared["duration_seconds"] <= 10
+    assert prepared["sample_rate_hz"] == 24_000
+    assert prepared["profile"]["target_duration_seconds"] == 8
+    assert prepared["profile"]["recommended_duration_seconds"] == {
+        "minimum": 8,
+        "maximum": 12,
+    }
+    assert prepared["profile"]["transcript"] == "required"
+
+
 def test_private_reference_path_never_enters_public_job_payload(
     tmp_path: Path, monkeypatch,
 ) -> None:

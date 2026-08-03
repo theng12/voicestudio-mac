@@ -2677,7 +2677,11 @@ class GenerationManager:
                     "Voice cloning needs a reference voice or private reference upload."
                 )
             self._inject_voice_clone(voice_id, params, gen_kwargs, voices_module,
-                                     fallback_transcript=".")
+                                     fallback_transcript="")
+            if not str(gen_kwargs.get("ref_text") or "").strip():
+                raise ValueError(
+                    "Qwen3-TTS 0.6B Base needs the exact transcript for its reference audio."
+                )
             return f"clone (voice={voice_id or 'private-reference'})"
 
         raise RuntimeError(f"Unknown qwen3-tts mode {mode!r}")

@@ -1,0 +1,274 @@
+{
+  "schema": "studio.model-audit-record",
+  "schema_version": 1,
+  "audit_id": "voicestudio-20260803-qwen3-tts-0.6b-base-50f45ef0",
+  "audited_at": "2026-08-03T07:20:18Z",
+  "subject": {
+    "model_id": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
+    "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+    "display_name": "Qwen3-TTS 0.6B Base",
+    "modality": "voice",
+    "checkpoint_revision": "50f45ef0047cde7e84c2ef04326acb8ada2436a7"
+  },
+  "contract": {
+    "model_id": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
+    "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+    "display_name": "Qwen3-TTS 0.6B Base",
+    "modality": "voice",
+    "runtime_revision": "50f45ef0047cde7e84c2ef04326acb8ada2436a7",
+    "approved_operations": ["voice.tts"],
+    "adapter": {
+      "id": "voicestudio.mlx-audio.qwen3-tts-base",
+      "version": "1.1",
+      "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": true,
+        "default": "en",
+        "values": ["en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      },
+      "voice_clone": {
+        "type": "reference_audio_with_exact_transcript",
+        "required": true,
+        "x_vector_only_fallback": false
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 40000,
+      "private_section_max_characters": 360,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "reference_audio": {
+        "accepted_extensions": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"],
+        "minimum_duration_seconds": 3,
+        "target_duration_seconds": 8,
+        "recommended_duration_seconds": {"minimum": 8, "maximum": 12},
+        "maximum_duration_seconds": 15,
+        "max_audio_bytes": 25000000,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "transcript": "required",
+        "timestamped_transcript_segments": "required_when_model_specific_selection_is_needed",
+        "selection": "speech-aware and word-boundary-aligned"
+      },
+      "voice_design_supported": false,
+      "preset_voice_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 16,
+      "recommended_unified_memory_gb": 24,
+      "measured_peak_memory_gb": 9.791,
+      "ineligible_unified_memory_gb": [8]
+    },
+    "capacity": {"max_concurrency": 1},
+    "license": {"spdx": "Apache-2.0", "commercial_use": true}
+  },
+  "genstudio_candidate": {
+    "schema": "studio.model-audit",
+    "schema_version": 1,
+    "audit_id": "voicestudio-20260803-qwen3-tts-0.6b-base-50f45ef0",
+    "audit_status": "passed",
+    "candidate_for_genstudio": true,
+    "contract_hash": "sha256:3570db3ad693a511c2a0e5fb89b3be4d777cd72a8e4819446b7957939bc7707e",
+    "runtime_revision": "50f45ef0047cde7e84c2ef04326acb8ada2436a7",
+    "approved_operations": ["voice.tts"],
+    "audited_at": "2026-08-03T07:20:18Z",
+    "adapter": {
+      "id": "voicestudio.mlx-audio.qwen3-tts-base",
+      "version": "1.1",
+      "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": true,
+        "default": "en",
+        "values": ["en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      },
+      "voice_clone": {
+        "type": "reference_audio_with_exact_transcript",
+        "required": true,
+        "x_vector_only_fallback": false
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 40000,
+      "private_section_max_characters": 360,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "reference_audio": {
+        "accepted_extensions": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"],
+        "minimum_duration_seconds": 3,
+        "target_duration_seconds": 8,
+        "recommended_duration_seconds": {"minimum": 8, "maximum": 12},
+        "maximum_duration_seconds": 15,
+        "max_audio_bytes": 25000000,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "transcript": "required",
+        "timestamped_transcript_segments": "required_when_model_specific_selection_is_needed",
+        "selection": "speech-aware and word-boundary-aligned"
+      },
+      "voice_design_supported": false,
+      "preset_voice_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 16,
+      "recommended_unified_memory_gb": 24,
+      "measured_peak_memory_gb": 9.791,
+      "ineligible_unified_memory_gb": [8]
+    },
+    "capacity": {"max_concurrency": 1}
+  },
+  "evidence": {
+    "qualification_run": "2026-08-03-kts-live",
+    "cache": {
+      "state": "verified_by_live_execution",
+      "snapshot_revision": "50f45ef0047cde7e84c2ef04326acb8ada2436a7",
+      "revision_current_at_qualification": true
+    },
+    "official_sources": [
+      "https://github.com/QwenLM/Qwen3-TTS",
+      "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+      "https://arxiv.org/abs/2601.15621"
+    ],
+    "hardware_qualification": {
+      "8": {
+        "eligible": false,
+        "reason": "urgent memory pressure and swap are unsafe for production",
+        "runtime_seconds": 30.491,
+        "audio_duration_seconds": 13.76,
+        "real_time_factor": 2.216,
+        "minimum_available_gb": 0.749,
+        "peak_mlx_reported_gb": 8.335,
+        "peak_pressure": "urgent",
+        "swap_used_end_gb": 2.293,
+        "memory_failure": false
+      },
+      "16": {
+        "eligible": true,
+        "classification": "minimum",
+        "runtime_seconds": 25.481,
+        "audio_duration_seconds": 13.6,
+        "real_time_factor": 1.874,
+        "minimum_available_gb": 1.905,
+        "peak_mlx_reported_gb": 8.386,
+        "peak_pressure": "warning",
+        "swap_used_end_gb": 0.58,
+        "memory_failure": false
+      },
+      "24": {
+        "eligible": true,
+        "classification": "preferred",
+        "runtime_seconds": 14.994,
+        "audio_duration_seconds": 13.52,
+        "real_time_factor": 1.109,
+        "minimum_available_gb": 5.566,
+        "peak_mlx_reported_gb": 8.257,
+        "peak_pressure": "normal",
+        "swap_used_end_gb": 0.0,
+        "memory_failure": false
+      }
+    },
+    "long_form_endurance": {
+      "tier_gb": 16,
+      "input_characters": 40000,
+      "private_sections": 137,
+      "generation_seconds": 2075.238,
+      "output_duration_seconds": 2342.320125,
+      "real_time_factor": 0.886,
+      "sample_rate_hz": 24000,
+      "peak_mlx_reported_gb": 9.791,
+      "minimum_available_gb": 1.496,
+      "peak_pressure": "warning",
+      "swap_used_end_gb": 0.809,
+      "memory_failure": false,
+      "restart_scheduled": false,
+      "result": "passed"
+    },
+    "transcript_integrity": {
+      "verifier": "mlx-community/whisper-large-v3-turbo",
+      "source_words": 6583,
+      "transcript_words": 6583,
+      "exact_positional_word_matches": 6535,
+      "word_differences": 48,
+      "missing_duplicate_or_reordered_sections": false,
+      "result": "passed_with_spelling_number_and_nautical_term_differences"
+    },
+    "cancellation": {
+      "tier_gb": 16,
+      "cancelled_progress": 0.08,
+      "runtime_seconds": 7.336,
+      "partial_artifact_published": false,
+      "memory_failure": false,
+      "restart_scheduled": false,
+      "result": "passed"
+    },
+    "human_quality_review": {
+      "reviewer": "owner",
+      "reviewed_at": "2026-08-03T07:20:18Z",
+      "base_model_assessment": "stable and accurate",
+      "quality_gate": "passed",
+      "custom_voice_variant_assessment": "inconsistent and excluded from this audit"
+    },
+    "verified_modes": [
+      "reference_audio_clone",
+      "transcript_assisted_clone",
+      "adapter_managed_long_form",
+      "post_generation_speed",
+      "chunk_progress",
+      "cancellation_between_chunks"
+    ],
+    "excluded_modes": [
+      "x_vector_only_clone",
+      "preset_voice",
+      "voice_design",
+      "customer_streaming"
+    ],
+    "safety": {
+      "provider_calls": 0,
+      "historical_jobs_modified": 0,
+      "model_downloads_started_by_promotion": 0
+    }
+  }
+}

@@ -550,24 +550,27 @@ CATALOG: tuple[ModelEntry, ...] = (
     # transformers/diffusers), so the worker is a separate code path. Apache-2.0.
     ModelEntry(
         repo="mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
-        label="Qwen3-TTS 0.6B Base — voice cloning (MLX 8-bit)",
+        label="Qwen3-TTS 0.6B Base",
         family="qwen3-tts",
         size_gb=1.9,
         gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB. MLX-native (no PyTorch).",
+        min_unified_memory_gb=16,
+        recommended_hardware=(
+            "Apple Silicon with 16 GB unified memory minimum; 24 GB preferred "
+            "for normal memory pressure and faster generation."
+        ),
         # Base model handles voice CLONING from a reference audio clip — pair
         # with a voice from the Voices library. Not a "plain TTS" model.
         capabilities=("tts", "voice-cloning", "multilingual"),
         best_for="Fast, memory-friendly voice cloning. Pair it with a reference clip from the Voices library; use the 1.7B Base model when likeness and prosody matter more than speed.",
         sample_rate_hz=24000,
-        languages=("en", "zh", "ja", "ko", "fr", "de", "es", "it", "pt", "ru", "ar"),
+        languages=("en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"),
         use_cases=(
-            ("good",  "Smaller / faster voice cloning tier — 8 GB Mac friendly"),
-            ("good",  "Multilingual cloning across en/zh/ja/ko/fr/de/+5 more"),
+            ("good",  "Qualified transcript-assisted voice cloning on 16 GB and 24 GB Macs"),
+            ("good",  "Multilingual cloning across the ten upstream-supported languages"),
             ("good",  "MLX-native — no PyTorch install needed"),
+            ("avoid", "8 GB Macs — measured urgent memory pressure and swap make production unsafe"),
             ("weak",  "Less prosodic nuance than the 1.7B tier — voice character may sound flatter"),
-            ("avoid", "Final-quality cloning on 16 GB+ Macs — use the 1.7B Base model"),
         ),
     ),
     ModelEntry(

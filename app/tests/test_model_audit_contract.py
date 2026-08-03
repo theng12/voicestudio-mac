@@ -12,6 +12,8 @@ GROUP_A = {
     "mlx-community/whisper-tiny": "audio.transcription",
 }
 
+QWEN_BASE = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+
 
 def test_group_a_records_are_hash_bound_candidates_not_final_approvals() -> None:
     for model_id, operation in GROUP_A.items():
@@ -52,6 +54,36 @@ def test_kokoro_audit_inventory_exactly_matches_the_runtime_roster() -> None:
     assert limits["long_form_strategy"] == "adapter_managed_long_form"
     assert limits["supports_chunk_progress"] is True
     assert limits["supports_cancellation_between_chunks"] is True
+
+
+def test_qwen_base_is_an_exact_transcript_assisted_candidate() -> None:
+    record = model_audits.audit_record(QWEN_BASE)
+    assert record is not None
+    assert record["subject"]["display_name"] == "Qwen3-TTS 0.6B Base"
+    assert record["subject"]["checkpoint_revision"] == (
+        "50f45ef0047cde7e84c2ef04326acb8ada2436a7"
+    )
+    candidate = record["genstudio_candidate"]
+    assert candidate["audit_status"] == "passed"
+    assert candidate["candidate_for_genstudio"] is True
+    assert candidate["approved_operations"] == ["voice.tts"]
+    assert candidate["contract_hash"] == model_audits.contract_hash(
+        record["contract"]
+    )
+    assert candidate["hardware"]["minimum_unified_memory_gb"] == 16
+    assert candidate["hardware"]["recommended_unified_memory_gb"] == 24
+    limits = candidate["input_limits"]
+    assert limits["text_max_characters"] == 40_000
+    assert limits["private_section_max_characters"] == 360
+    assert limits["long_form_strategy"] == "adapter_managed_long_form"
+    reference = limits["reference_audio"]
+    assert reference["minimum_duration_seconds"] == 3
+    assert reference["target_duration_seconds"] == 8
+    assert reference["recommended_duration_seconds"] == {"minimum": 8, "maximum": 12}
+    assert reference["maximum_duration_seconds"] == 15
+    assert reference["transcript"] == "required"
+    assert record["evidence"]["hardware_qualification"]["8"]["eligible"] is False
+    assert "approved_for_genstudio" not in json.dumps(record)
 
 
 def test_kokoro_adapter_uses_audited_checkpoint_local_voicepacks(
