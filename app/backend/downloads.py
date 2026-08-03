@@ -96,6 +96,7 @@ class DownloadJob:
     state: str = "queued"           # queued | running | paused | done | error | cancelled
     error: Optional[str] = None
     total_bytes: int = 0            # 0 until we resolve it from HF API
+    companion_repos: tuple[str, ...] = field(default_factory=tuple)
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
@@ -106,6 +107,17 @@ class DownloadJob:
     _speed_bps: float = field(default=0.0, repr=False)
     _last_observed_bytes: int = field(default=-1, repr=False)
     _last_progress_at: Optional[float] = field(default=None, repr=False)
+    _owned_repos: set[str] = field(default_factory=set, repr=False)
+
+    def tracked_repos(self) -> tuple[str, ...]:
+        """Main plus the exact companion repositories this job downloads."""
+        return tuple(dict.fromkeys((self.repo, *self.companion_repos)))
+
+    def observed_bytes(self) -> tuple[int, int, int]:
+        """Return combined completed, resumable-partial, and observed bytes."""
+        bytes_done = sum(cache.disk_bytes(repo) for repo in self.tracked_repos())
+        bytes_partial = sum(cache.incomplete_bytes(repo) for repo in self.tracked_repos())
+        return bytes_done, bytes_partial, bytes_done + bytes_partial
 
     def observe_progress(self, observed: int, now: Optional[float] = None) -> None:
         """Record byte growth without treating an unchanged partial as progress."""
@@ -114,9 +126,7 @@ class DownloadJob:
             self._last_progress_at = time.time() if now is None else now
 
     def serialize(self) -> dict:
-        bytes_done = cache.disk_bytes(self.repo)
-        bytes_partial = cache.incomplete_bytes(self.repo)
-        observed = bytes_done + bytes_partial
+        bytes_done, bytes_partial, observed = self.observed_bytes()
 
         # Update the rolling speed estimate. Only meaningful while running;
         # cleared when the job reaches a terminal state so the UI doesn't show
@@ -140,10 +150,13 @@ class DownloadJob:
             self._speed_bps = 0.0
 
         percent = None
-        if self.total_bytes > 0:
-            percent = min(100.0, observed / self.total_bytes * 100.0)
-        elif self.state == "done":
+        if self.state == "done":
+            # A successful snapshot_download is terminal proof that every main
+            # and companion transfer completed. Disk accounting may lag cache
+            # reconciliation, but a terminal job must never display 55%.
             percent = 100.0
+        elif self.total_bytes > 0:
+            percent = min(100.0, observed / self.total_bytes * 100.0)
 
         # ETA: remaining bytes at current speed. Only show when speed is
         # nonzero and there's a known total.
@@ -221,9 +234,7 @@ class DownloadManager:
         with self._lock:
             existing = self._active_for_repo_locked(repo)
             if existing is not None:
-                existing.observe_progress(
-                    cache.disk_bytes(repo) + cache.incomplete_bytes(repo)
-                )
+                existing.observe_progress(existing.observed_bytes()[2])
                 if existing.is_stalled():
                     # snapshot_download can occasionally remain blocked on a
                     # dead transport. Mark the old attempt cancelling and let
@@ -231,7 +242,7 @@ class DownloadManager:
                     # No model bytes are removed.
                     existing.cancel_event.set()
                     existing.state = "cancelling"
-                    self._active_by_repo.pop(repo, None)
+                    self._release_job_repos_locked(existing)
                 else:
                     return existing
             job = DownloadJob(
@@ -242,6 +253,7 @@ class DownloadManager:
             )
             self._jobs[job.job_id] = job
             self._active_by_repo[repo] = job.job_id
+            job._owned_repos.add(repo)
 
         job.thread = threading.Thread(
             target=self._run, args=(job,), name=f"dl-{repo}", daemon=True
@@ -274,7 +286,9 @@ class DownloadManager:
             terminal = [jid for jid, j in self._jobs.items()
                         if j.state in ("done", "error", "cancelled")]
             for jid in terminal:
-                self._jobs.pop(jid, None)
+                job = self._jobs.pop(jid, None)
+                if job is not None:
+                    self._release_job_repos_locked(job)
             # Also prune any active_by_repo pointers that referenced removed jobs
             for repo, jid in list(self._active_by_repo.items()):
                 if jid not in self._jobs:
@@ -285,48 +299,67 @@ class DownloadManager:
         with self._lock:
             job = self._active_for_repo_locked(repo)
             if job is not None:
-                job.observe_progress(
-                    cache.disk_bytes(repo) + cache.incomplete_bytes(repo)
-                )
+                job.observe_progress(job.observed_bytes()[2])
             if job is not None and job.is_stalled():
                 # Let the caller start a replacement immediately. The old
                 # transfer retains its partial files and observes cancellation
                 # when its blocked transport returns.
                 job.cancel_event.set()
                 job.state = "cancelling"
-                self._active_by_repo.pop(repo, None)
+                self._release_job_repos_locked(job)
                 return None
             return job
 
-    def _prune_completed_stale_incomplete(self, job: DownloadJob) -> None:
-        """Remove only proven-stale partial blobs after a successful download.
+    def _release_job_repos_locked(self, job: DownloadJob) -> None:
+        """Release every mapping owned by this job without touching cache data."""
+        # Include map entries as well as the job's normal ownership record so
+        # recovery remains safe for jobs restored/constructed by an older
+        # process that predates companion ownership bookkeeping.
+        mapped_repos = {
+            repo for repo, job_id in self._active_by_repo.items() if job_id == job.job_id
+        }
+        for repo in tuple(job._owned_repos | mapped_repos):
+            if self._active_by_repo.get(repo) == job.job_id:
+                self._active_by_repo.pop(repo, None)
+        job._owned_repos.clear()
 
-        An active replacement must win over an old worker before any cleanup;
-        in that case its partials remain completely untouched.  For the owning
-        job, complete bytes must exactly match Hugging Face's current manifest
-        and the cache must contain both a snapshot and model weights before an
-        orphan partial may be removed.
+    def _claim_companion_repos_locked(self, job: DownloadJob) -> None:
+        """Claim idle companion repos so only their successful owner may prune.
+
+        A companion already being downloaded by another active job remains
+        untouched. Hugging Face's own lock coordinates the shared transfer,
+        while neither job is permitted to delete its resumable partials.
         """
-        expected_bytes = self._resolve_total_bytes(
-            job.repo, job.token, job.revision
-        )
+        for repo in job.companion_repos:
+            active_id = self._active_by_repo.get(repo)
+            if active_id in (None, job.job_id):
+                self._active_by_repo[repo] = job.job_id
+                job._owned_repos.add(repo)
+
+    def _prune_completed_stale_incomplete(self, job: DownloadJob) -> None:
+        """Remove stale partials only after this exact transfer succeeded.
+
+        `snapshot_download` returning success is the proof here, avoiding an
+        unsafe manifest-byte guess for a repo that has just completed. Manual
+        cleanup remains conservative. Every main/companion repo is checked
+        against the current owner mapping so an active replacement can never
+        lose its partial state.
+        """
+        removed_files = 0
+        removed_bytes = 0
         with self._lock:
-            if self._active_by_repo.get(job.repo) != job.job_id:
-                return
-            complete_bytes = cache.disk_bytes(job.repo)
-            verified = bool(
-                expected_bytes > 0
-                and complete_bytes == expected_bytes
-                and cache.has_any_snapshot(job.repo)
-                and cache.has_weight_files(job.repo)
-            )
-            removed = cache.prune_stale_incomplete(
-                job.repo, complete_snapshot_verified=verified
-            )
-        if removed["removed_files"]:
+            for repo in job.tracked_repos():
+                if self._active_by_repo.get(repo) != job.job_id:
+                    continue
+                removed = cache.prune_stale_incomplete(
+                    repo, complete_snapshot_verified=True
+                )
+                removed_files += removed["removed_files"]
+                removed_bytes += removed["removed_bytes"]
+        if removed_files:
             print(
-                f"[downloads] pruned {removed['removed_files']} stale partial file(s) "
-                f"for {job.repo}",
+                f"[downloads] pruned {removed_files} stale partial file(s) "
+                f"({removed_bytes} bytes) after verified completion of {job.repo}",
                 flush=True,
             )
 
@@ -366,7 +399,10 @@ class DownloadManager:
         # socket. hf_hub's internal `.locks/` directory keeps concurrent writes
         # on the same blob safe.
         if job is None or job.state in ("done", "error", "cancelled", "cancelling"):
-            self._active_by_repo.pop(repo, None)
+            if job is None:
+                self._active_by_repo.pop(repo, None)
+            else:
+                self._release_job_repos_locked(job)
             return None
         return job
 
@@ -427,12 +463,17 @@ class DownloadManager:
         # Capture the resumable starting point. Future health/catalog polls
         # compare against it, so a transfer that is actually writing bytes is
         # never mistaken for a silent stall at the first 15-minute Hub check.
-        job.observe_progress(cache.disk_bytes(job.repo) + cache.incomplete_bytes(job.repo))
+        job.observe_progress(job.observed_bytes()[2])
         # Total = main repo + every companion (codec/tokenizer) the engine pulls
         # at generation time. Counting companions here keeps the progress bar
         # honest AND makes the download complete-on-first-run (no surprise
         # second download when the user hits Generate).
         companions = catalog.companions_for(job.repo)
+        job.companion_repos = tuple(
+            dict.fromkeys(str(companion["repo"]) for companion in companions)
+        )
+        with self._lock:
+            self._claim_companion_repos_locked(job)
         total = self._resolve_total_bytes(job.repo, job.token, job.revision)
         for c in companions:
             total += self._companion_bytes(c["repo"], c.get("allow_patterns"), job.token)
@@ -480,8 +521,7 @@ class DownloadManager:
         finally:
             job.finished_at = time.time()
             with self._lock:
-                if self._active_by_repo.get(job.repo) == job.job_id:
-                    self._active_by_repo.pop(job.repo, None)
+                self._release_job_repos_locked(job)
 
     def _run_download_process(
         self,

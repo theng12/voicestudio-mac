@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.4] — 2026-08-03
+
+### Fixed — dependency-aware model download completion
+
+- Download progress, byte-rate observation, and stall detection now aggregate
+  the selected model with every required companion repository. A Chatterbox
+  transfer therefore continues to advance while S3TokenizerV2 is downloading
+  and a successful terminal job always displays 100%.
+- After a successful, still-owning `snapshot_download` job, Voice Studio now
+  safely prunes stale unresolved partials for both the main model and its
+  companions. Failed, cancelled, stalled, and replaced attempts retain their
+  resumable partial files; manual cleanup remains manifest-conservative.
+
+### Verification
+
+- Focused download tests cover companion-phase progress, companion growth
+  avoiding a false stall, terminal 100%, successful paired cleanup, failed and
+  cancelled preservation, and active-replacement protection.
+
+---
+
 ## [1.27.3] — 2026-08-03
 
 ### Fixed — local TTS pathological silent tails
