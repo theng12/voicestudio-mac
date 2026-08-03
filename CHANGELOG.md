@@ -10,6 +10,14 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.18] — 2026-08-04
+
+### Changed — Fish qualification wording is evidence-neutral
+
+- The Fish Audio S2 Pro 8-bit memory note now directs operators to controlled
+  16 GB and 24 GB qualification evidence without claiming that those tests are
+  currently running.
+
 ## [1.27.17] — 2026-08-04
 
 ### Fixed — Fish Audio S2 Pro no longer claims an unqualified 24 GB floor

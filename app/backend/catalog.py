@@ -1085,9 +1085,9 @@ CATALOG: tuple[ModelEntry, ...] = (
         gated=False,
         min_unified_memory_gb=None,
         recommended_hardware=(
-            "Unified-memory fit is not yet qualified. Controlled 16 GB and "
-            "24 GB Apple Silicon tests are in progress; do not treat this row "
-            "as a hardware-fit claim."
+            "Unified-memory fit is not yet qualified. Use controlled 16 GB "
+            "and 24 GB Apple Silicon qualification evidence before treating "
+            "this row as a hardware-fit claim."
         ),
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="The practical Fish S2 Pro MLX tier. It bundles the model and codec in about 6.73 GB, claims 80+ language coverage and supports reference-voice cloning, but the public Fish Audio research license is not a commercial-use grant.",
