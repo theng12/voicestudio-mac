@@ -1331,7 +1331,7 @@
                       </div>
                       <div class="variant-spec" data-label="Runs with"><strong x-text="modelRuntimeLabel(m)"></strong><small x-text="modelFormatLabel(m)"></small></div>
                       <div class="variant-spec" data-label="Download"><strong x-text="formatGb(m.size_gb)"></strong><small x-text="cacheChipLabel(m.cache.state)"></small></div>
-                      <div class="variant-spec" data-label="Memory"><strong x-text="m.min_unified_memory_gb+' GB+'"></strong><span class="fit-dot" :class="'fit-'+fitFor(m.min_unified_memory_gb).state" x-text="fitChipLabel(fitFor(m.min_unified_memory_gb))"></span></div>
+                      <div class="variant-spec" data-label="Memory"><strong x-text="memoryFloorLabel(m)"></strong><span class="fit-dot" :class="'fit-'+fitFor(m.min_unified_memory_gb).state" x-text="fitChipLabel(fitFor(m.min_unified_memory_gb))"></span></div>
                       <div class="variant-action">
                         <template x-if="m.cache.state!=='cached' && !m.active_download"><button class="primary" @click="confirmDownload(m)">Download</button></template>
                         <template x-if="m.cache.state==='cached'"><button class="primary use-model-button" :disabled="!isModelReady(m.repo)" @click="gen.repo=m.repo;onModelChange();tab='generate'">Use model</button></template>

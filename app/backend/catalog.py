@@ -409,7 +409,9 @@ class ModelEntry:
     family: str
     size_gb: float                       # approximate on-disk size AFTER filtering
     gated: bool
-    min_unified_memory_gb: int = 8
+    # None means the model is intentionally listed without a claimed memory
+    # floor while controlled qualification is still in progress.
+    min_unified_memory_gb: Optional[int] = 8
     recommended_hardware: str = ""
     capabilities: tuple[str, ...] = ("tts",)
     best_for: str = ""
@@ -1081,8 +1083,12 @@ CATALOG: tuple[ModelEntry, ...] = (
         family="fish-audio-mlx",
         size_gb=6.73,
         gated=False,
-        min_unified_memory_gb=24,
-        recommended_hardware="Apple Silicon with 24 GB as the practical floor; 32 GB preferred for long-form cloning.",
+        min_unified_memory_gb=None,
+        recommended_hardware=(
+            "Unified-memory fit is not yet qualified. Controlled 16 GB and "
+            "24 GB Apple Silicon tests are in progress; do not treat this row "
+            "as a hardware-fit claim."
+        ),
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="The practical Fish S2 Pro MLX tier. It bundles the model and codec in about 6.73 GB, claims 80+ language coverage and supports reference-voice cloning, but the public Fish Audio research license is not a commercial-use grant.",
         sample_rate_hz=44100,
@@ -1094,7 +1100,7 @@ CATALOG: tuple[ModelEntry, ...] = (
         use_cases=(
             ("good",  "High-quality multilingual voice cloning with natural-language style control"),
             ("good",  "Single download includes the S2 Pro model and bundled codec"),
-            ("weak",  "24 GB unified memory is the practical floor; 32 GB is safer for long-form jobs"),
+            ("weak",  "No unified-memory floor is claimed until controlled 16 GB and 24 GB qualification completes"),
             ("avoid", "Commercial customer work unless you have Fish Audio's separate commercial license"),
         ),
     ),

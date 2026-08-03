@@ -56,8 +56,28 @@ def test_priority_catalog_is_focused_and_clone_capable() -> None:
         for entry in catalog.CATALOG
         if entry.family == "fish-audio-mlx"
     )
-    assert catalog.get_model(fish[0]).sample_rate_hz == 44100
-    assert catalog.get_model(fish[0]).min_unified_memory_gb == 24
+    fish_model = catalog.get_model(fish[0])
+    assert fish_model is not None
+    assert fish_model.sample_rate_hz == 44100
+    assert fish_model.min_unified_memory_gb is None
+    assert "not yet qualified" in fish_model.recommended_hardware.lower()
+    assert all("24 GB unified memory is the practical floor" not in text
+               for _kind, text in fish_model.use_cases)
+    serialized = catalog.serialize_model(fish_model)
+    assert serialized["min_unified_memory_gb"] is None
+    assert serialized["fit"]["state"] == "unqualified"
+
+
+def test_unqualified_fish_memory_never_renders_as_a_numeric_fit_claim() -> None:
+    frontend = Path(__file__).resolve().parents[1] / "frontend"
+    markup = (frontend / "index.html").read_text(encoding="utf-8")
+    script = (frontend / "app.js").read_text(encoding="utf-8")
+    styles = (frontend / "style.css").read_text(encoding="utf-8")
+
+    assert 'x-text="memoryFloorLabel(m)"' in markup
+    assert 'state: "unqualified"' in script
+    assert 'unqualified: "⏳ test pending"' in script
+    assert ".fit-dot.fit-unqualified" in styles
 
 
 def test_qualified_qwen_base_uses_official_identity_and_safe_hardware_floor() -> None:

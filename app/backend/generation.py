@@ -1541,7 +1541,10 @@ class GenerationManager:
         required = loaded_required if loaded else cold_required
         snapshot = _memory_snapshot()
         memory_eligible = None
-        if snapshot is not None:
+        # A null catalog floor means the model is deliberately not yet memory
+        # qualified. Keep the runtime free-memory guard below, but do not
+        # manufacture a total-memory eligibility claim from missing evidence.
+        if snapshot is not None and model_entry.min_unified_memory_gb is not None:
             memory_eligible = (
                 float(snapshot["total_gb"]) >= float(model_entry.min_unified_memory_gb)
                 and float(snapshot["available_gb"]) >= required

@@ -277,6 +277,9 @@ def test_catalog_reports_runtime_cache_load_and_memory_truth(monkeypatch) -> Non
     assert vox["required_free_memory_gb"] == 2.75
     assert vox["memory_eligible"] is True
 
+    fish = models["mlx-community/fish-audio-s2-pro-8bit"]
+    assert fish["memory_eligible"] is None
+
 
 def test_local_generation_serializes_and_persists_worker_resource_evidence(
     tmp_path: Path, monkeypatch

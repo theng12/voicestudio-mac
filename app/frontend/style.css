@@ -2358,6 +2358,7 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 .chip.fit-tight   { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .chip.fit-risky   { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
 .chip.fit-unknown { background: color-mix(in srgb, #888 12%, transparent); color: var(--muted, #888); border-color: var(--border, #2a2a32); }
+.chip.fit-unqualified { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 32%, transparent); }
 
 /* ─── Structured use cases under each model card ─── */
 .use-case-list {
@@ -2859,6 +2860,7 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 .fit-dot.fit-ok { color: #59c693; }
 .fit-dot.fit-tight { color: #e0b55c; }
 .fit-dot.fit-risky { color: #dc7e70; }
+.fit-dot.fit-unqualified { color: var(--warn); }
 .variant-action { display: flex; justify-content: flex-end; }
 .variant-action .primary { min-width: 94px; padding: 7px 10px; font-size: var(--font-caption); }
 .variant-action .primary:disabled { opacity: .45; cursor: not-allowed; }

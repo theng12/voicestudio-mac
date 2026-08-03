@@ -89,7 +89,7 @@ def system_info() -> dict:
     }
 
 
-def fit_for(model_min_memory_gb: int) -> dict:
+def fit_for(model_min_memory_gb: Optional[int]) -> dict:
     """
     Compute a fit verdict for the current machine vs a model's memory floor.
 
@@ -98,6 +98,7 @@ def fit_for(model_min_memory_gb: int) -> dict:
     - "tight"   → yellow: meets the floor but no headroom — close other apps
     - "risky"   → red:    below the floor — will swap heavily or OOM
     - "unknown" → grey:   couldn't probe sysctl, surface model's own hint instead
+    - "unqualified" → grey: no audited memory floor exists yet
 
     The 1.5× threshold is empirical: on Apple Silicon, mflux + the OS itself +
     a browser usually eats 4-6 GB before the model loads, so a 16 GB Mac
@@ -105,6 +106,17 @@ def fit_for(model_min_memory_gb: int) -> dict:
     "≥16 GB" model is genuinely tight.
     """
     actual = detect_memory_gb()
+    if model_min_memory_gb is None or model_min_memory_gb <= 0:
+        return {
+            "state": "unqualified",
+            "label": "qualification pending",
+            "hint": (
+                "No unified-memory floor is published until controlled "
+                "qualification completes."
+            ),
+            "actual_gb": actual,
+            "required_gb": None,
+        }
     if actual is None:
         return {
             "state": "unknown",

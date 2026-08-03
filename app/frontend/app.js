@@ -500,7 +500,15 @@ function studio() {
      *  backend `fit` field used, so fitChipLabel() works unchanged. */
     fitFor(minGb) {
       const actual = this.effectiveRam;
-      const floor = Math.max(Number(minGb) || 0, 1);
+      const floor = Number(minGb);
+      if (!Number.isFinite(floor) || floor <= 0) {
+        return {
+          state: "unqualified",
+          actual_gb: actual,
+          required_gb: null,
+          hint: "No unified-memory floor is published until controlled qualification completes.",
+        };
+      }
       const headroom = actual / floor;
       let state;
       if (headroom >= 1.5)      state = "ok";
@@ -546,7 +554,9 @@ function studio() {
      *  (bigger memory floor → bigger params / higher precision), nudged by
      *  an explicit "recommended" label. Re-computes live as the slider moves. */
     get bestPicks() {
-      const fits  = (m) => this.fitFor(m.min_unified_memory_gb).state !== "risky";
+      const fits = (m) => ["ok", "tight"].includes(
+        this.fitFor(m.min_unified_memory_gb).state
+      );
       const score = (m) => (Number(m.min_unified_memory_gb) || 0) * 1000
                          + (Number(m.size_gb) || 0) * 10
                          + (/recommended/i.test(m.label || "") ? 5 : 0);
@@ -610,7 +620,7 @@ function studio() {
         }
         // Legacy "Fits my Mac" toggle — hide entries that would OOM/swap.
         // Now scored client-side so it tracks the RAM slider too.
-        if (f.fitsMyMac && this.fitFor(m.min_unified_memory_gb).state === "risky") return false;
+        if (f.fitsMyMac && !["ok", "tight"].includes(this.fitFor(m.min_unified_memory_gb).state)) return false;
         // Free-text search across label + repo + best_for
         if (q) {
           const hay = (
@@ -673,7 +683,7 @@ function studio() {
         .filter(f => f.models.length > 0);
       const rank = (f) => {
         const cached = f.models.some(m => m.cache?.state === "cached") ? 0 : 1;
-        const fits = f.models.some(m => this.fitFor(m.min_unified_memory_gb).state !== "risky") ? 0 : 1;
+        const fits = f.models.some(m => ["ok", "tight"].includes(this.fitFor(m.min_unified_memory_gb).state)) ? 0 : 1;
         return cached * 100 + fits * 10;
       };
       return families.sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
@@ -689,7 +699,10 @@ function studio() {
       return hasMlx && hasOther ? "MLX + PyTorch" : hasMlx ? "Apple MLX" : "PyTorch / MPS";
     },
     familyMemoryLabel(family) {
-      const floors = (family.models || []).map(m => Number(m.min_unified_memory_gb) || 0);
+      if ((family.models || []).some(m => !Number.isFinite(Number(m.min_unified_memory_gb)) || Number(m.min_unified_memory_gb) <= 0)) {
+        return "Memory qualification pending";
+      }
+      const floors = (family.models || []).map(m => Number(m.min_unified_memory_gb));
       return floors.length ? `from ${Math.min(...floors)} GB RAM` : "RAM varies";
     },
     familyCachedCount(family) { return (family.models || []).filter(m => m.cache?.state === "cached").length; },
@@ -814,7 +827,7 @@ function studio() {
     _initFamilyLibrary() {
       if (this.modelFilters.openFamilies.size) return;
       const cached = this.models.find(m => m.cache?.state === "cached");
-      const fitting = this.models.find(m => this.fitFor(m.min_unified_memory_gb).state !== "risky");
+      const fitting = this.models.find(m => ["ok", "tight"].includes(this.fitFor(m.min_unified_memory_gb).state));
       const first = cached || fitting || this.models[0];
       this.modelFilters.openFamilies = new Set(first ? [first.family] : []);
     },
@@ -4340,8 +4353,14 @@ function studio() {
         tight:   "⚠ tight",
         risky:   "✗ may not fit",
         unknown: "? fit unknown",
+        unqualified: "⏳ test pending",
       };
       return map[fit.state] || "";
+    },
+
+    memoryFloorLabel(model) {
+      const floor = Number(model?.min_unified_memory_gb);
+      return Number.isFinite(floor) && floor > 0 ? `${floor} GB+` : "Not yet qualified";
     },
 
     /** Bullet glyph for each use_case kind. */

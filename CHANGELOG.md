@@ -10,6 +10,26 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.17] — 2026-08-04
+
+### Fixed — Fish Audio S2 Pro no longer claims an unqualified 24 GB floor
+
+- Removed the invented 24 GB unified-memory floor, the matching 32 GB
+  long-form recommendation, and the matching warning from the Fish Audio S2
+  Pro 8-bit MLX catalog row. The Models UI and API now state that its memory
+  tier is unqualified and avoid presenting it as a hardware fit or recommendation.
+- Controlled 16 GB and 24 GB Apple Silicon qualification remains the source of
+  truth. Until it produces evidence, Fish stays internal-only and the public
+  research/non-commercial license warning is unchanged.
+
+### Verification
+
+- Focused catalog coverage confirms the API emits no memory floor and an
+  `unqualified` fit state; the client renders “Not yet qualified” and excludes
+  the model from automatic RAM-fit recommendations.
+- No inference, model download, cache repair, worker restart, approval,
+  routing, or publication was performed by this correction.
+
 ## [1.27.16] — 2026-08-04
 
 ### Removed — Whisper Tiny transcription offering
