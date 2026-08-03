@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from . import cache
+from . import cache, resource_telemetry
 # Reuse the TTS side's device detection, MLX cache release, and the GLOBAL
 # generation lock. Sharing the lock is the key safety property: a transcription
 # can't start while a TTS job holds the GPU, and vice versa. No circular import
@@ -43,6 +43,7 @@ from . import cache
 from .generation import (
     _GEN_LOCK,
     _detect_device,
+    _is_memory_failure,
     _release_device_memory,
     manager as generation_manager,
 )
@@ -511,11 +512,23 @@ class TranscriptionManager:
         audio_duration = _audio_duration_seconds(p)
 
         started = time.time()
+        telemetry: Optional[resource_telemetry.JobResourceSampler] = None
+        telemetry_result: Optional[dict] = None
+        telemetry_state = "failed"
+        memory_failure = False
+
+        def publish_resource_evidence(payload: dict) -> None:
+            nonlocal telemetry_result
+            telemetry_result = payload
+
         # Hold the SAME lock TTS generation uses — one GPU job at a time.
         with _GEN_LOCK:
             self._active = True
             self._last_model_activity_at = time.time()
             try:
+                telemetry = resource_telemetry.JobResourceSampler(
+                    publish_resource_evidence
+                ).start()
                 model = self._get_model(repo)
                 lang = (language or "").strip() or None
                 print(
@@ -529,7 +542,9 @@ class TranscriptionManager:
                     word_timestamps=word_timestamps,
                     return_timestamps=True,
                 )
-            except Exception:
+                telemetry_state = "completed"
+            except Exception as exc:
+                memory_failure = _is_memory_failure(exc)
                 self._evict_loaded_model("failed-transcription")
                 raise
             finally:
@@ -538,6 +553,16 @@ class TranscriptionManager:
                 _release_device_memory("mps")
                 self._active = False
                 self._last_model_activity_at = time.time()
+                if telemetry is not None:
+                    telemetry_result = telemetry.finish(
+                        state=telemetry_state,
+                        memory_failure=memory_failure,
+                        restart_scheduled=False,
+                        model_retained=(
+                            telemetry_state == "completed"
+                            and self._model is not None
+                        ),
+                    )
 
         # mlx-audio returns an STTOutput dataclass (or dict-ish) with .text,
         # .segments (list of dicts), .language. Be defensive about shape.
@@ -575,6 +600,7 @@ class TranscriptionManager:
             "srt": segments_to_srt(segments),
             "vtt": segments_to_vtt(segments),
             "elapsed_seconds": round(time.time() - started, 2),
+            "resource_telemetry": telemetry_result,
         }
 
 

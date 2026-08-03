@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.12] — 2026-08-03
+
+### Added — transcription qualification resource evidence
+
+- Successful local Whisper transcription responses now include the same
+  worker-owned resource telemetry schema used by TTS qualification: observed
+  peak memory, minimum available RAM, macOS memory pressure, swap activity,
+  MLX allocator evidence, completion state, and model-retention state.
+- Failed transcription attempts still finish their private telemetry sampler
+  and classify memory-allocation failures before the loaded model is evicted.
+  No credentials, filesystem paths, or customer audio/text are added to the
+  evidence payload.
+- Focused tests cover successful evidence publication and failure cleanup so
+  Whisper Tiny and Large v3 Turbo can be compared consistently across real
+  8, 16, and 24 GB fleet workers.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.11] — 2026-08-03
 
 ### Changed — owner-approved Qwen cloning continuity
