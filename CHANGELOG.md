@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.2] — 2026-08-03
+
+### Fixed — resilient Hugging Face download transport
+
+- Disabled the Hugging Face Xet transport before the Hub library is imported.
+  This avoids the observed stalled-transfer and held-cache-lock failure mode;
+  normal HTTP downloads continue to resume the same partial cache files.
+- Added the explicit `VOICESTUDIO_ENABLE_XET=1` opt-in for a diagnosed machine
+  that needs to use Xet.
+
+### Verification
+
+- Focused subprocess tests prove that the default, an inherited conflicting
+  Hub flag, and the explicit opt-in are all resolved before
+  `huggingface_hub` imports.
+
+---
+
 ## [1.27.1] — 2026-08-03
 
 ### Added — offline Wave 1 qualification draft foundation
