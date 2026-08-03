@@ -1,0 +1,115 @@
+{
+  "candidate_status": "not_audit",
+  "machine_tiers_gb": [
+    8,
+    16,
+    24
+  ],
+  "required_cases": [
+    {
+      "case_id": "short-clone",
+      "evidence": {
+        "adapter_revision": "50f45ef0047cde7e84c2ef04326acb8ada2436a7",
+        "conclusion": "Runs on every tested tier, but 8 GB reached urgent memory pressure and is not yet a safe commercial tier.",
+        "tiers": [
+          {
+            "audio_duration_s": 13.76,
+            "memory_failure": false,
+            "minimum_available_gb": 0.749,
+            "peak_mlx_reported_gb": 8.335,
+            "peak_pressure": "urgent",
+            "runtime_s": 30.491,
+            "swap_used_end_gb": 2.293,
+            "tier_gb": 8
+          },
+          {
+            "audio_duration_s": 13.6,
+            "memory_failure": false,
+            "minimum_available_gb": 1.905,
+            "peak_mlx_reported_gb": 8.386,
+            "peak_pressure": "warning",
+            "runtime_s": 25.481,
+            "swap_used_end_gb": 0.58,
+            "tier_gb": 16
+          },
+          {
+            "audio_duration_s": 13.52,
+            "memory_failure": false,
+            "minimum_available_gb": 5.566,
+            "peak_mlx_reported_gb": 8.257,
+            "peak_pressure": "normal",
+            "runtime_s": 14.994,
+            "swap_used_end_gb": 0.0,
+            "tier_gb": 24
+          }
+        ]
+      },
+      "kind": "short_form",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "long-adapter-managed",
+      "evidence": {
+        "adapter_revision": "50f45ef0047cde7e84c2ef04326acb8ada2436a7",
+        "artifact": {
+          "audio_duration_s": 2342.320125,
+          "characters_submitted": 40000,
+          "chunk_total": 137,
+          "format": "wav",
+          "runtime_s": 2075.238,
+          "sample_rate_hz": 24000
+        },
+        "automated_text_integrity": {
+          "assessment": "pass_pending_human_voice_review",
+          "exact_positional_word_matches": 6535,
+          "source_words": 6583,
+          "transcript_words": 6583,
+          "whisper_model": "mlx-community/whisper-large-v3-turbo",
+          "word_differences": 48
+        },
+        "resource_usage": {
+          "memory_failure": false,
+          "minimum_available_gb": 1.496,
+          "peak_mlx_reported_gb": 9.791,
+          "peak_pressure": "warning",
+          "restart_scheduled": false,
+          "swap_used_end_gb": 0.809,
+          "tier_gb": 16
+        },
+        "review_remaining": [
+          "human voice identity and drift review",
+          "human pacing, pronunciation, and stitch-boundary review"
+        ]
+      },
+      "kind": "long_form",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "cancel-long-form",
+      "evidence": {
+        "cancelled_progress": 0.08,
+        "chunk_total": 137,
+        "memory_failure": false,
+        "peak_pressure": "warning",
+        "restart_scheduled": false,
+        "runtime_s": 7.336,
+        "tier_gb": 16
+      },
+      "kind": "cancellation",
+      "status": "pending_review"
+    }
+  ],
+  "run_id": "2026-08-03-kts-live",
+  "safety": {
+    "historical_jobs_modified": 0,
+    "model_downloads_started": 0,
+    "passed_audits_written": 0,
+    "provider_calls": 0
+  },
+  "schema": "studio.wave1-qualification-draft",
+  "schema_version": 1,
+  "status": "pending_review",
+  "subject": {
+    "model_id": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+  }
+}

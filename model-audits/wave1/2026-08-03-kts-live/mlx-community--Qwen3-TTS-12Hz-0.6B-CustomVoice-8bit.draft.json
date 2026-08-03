@@ -1,0 +1,202 @@
+{
+  "candidate_status": "not_audit",
+  "machine_tiers_gb": [
+    8,
+    16,
+    24
+  ],
+  "required_cases": [
+    {
+      "case_id": "short-preset-ryan",
+      "evidence": {
+        "audio_duration_s": 13.92,
+        "runtime_s": 8.208,
+        "tier_gb": 24
+      },
+      "kind": "short_form",
+      "preset_speaker": "Ryan",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-preset-aiden",
+      "evidence": {
+        "audio_duration_s": 8.4,
+        "runtime_s": 12.29,
+        "tier_gb": 16
+      },
+      "kind": "short_form",
+      "preset_speaker": "Aiden",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-preset-serena",
+      "evidence": {
+        "audio_duration_s": 8.48,
+        "runtime_s": 5.045,
+        "tier_gb": 16
+      },
+      "kind": "short_form",
+      "preset_speaker": "Serena",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-preset-vivian",
+      "evidence": {
+        "audio_duration_s": 11.04,
+        "runtime_s": 13.316,
+        "tier_gb": 16
+      },
+      "kind": "short_form",
+      "preset_speaker": "Vivian",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-preset-uncle_fu",
+      "evidence": {
+        "audio_duration_s": 11.52,
+        "corrective_revision": "voicestudio-1.27.3",
+        "pre_correction_observation": "A prior 16 GB run contained a pathological terminal-silence tail and reached urgent memory pressure.",
+        "runtime_s": 11.603,
+        "tier_gb": 24
+      },
+      "kind": "short_form",
+      "preset_speaker": "Uncle_Fu",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-preset-dylan",
+      "evidence": {
+        "audio_duration_s": 9.76,
+        "runtime_s": 11.154,
+        "tier_gb": 24
+      },
+      "kind": "short_form",
+      "preset_speaker": "Dylan",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-preset-eric",
+      "evidence": {
+        "audio_duration_s": 7.57,
+        "minimum_available_gb": 2.369,
+        "observation": "The bounded output completed, but runtime and memory use were anomalously high and require repetition plus human review.",
+        "peak_mlx_reported_gb": 15.664,
+        "runtime_s": 49.338,
+        "tier_gb": 24
+      },
+      "kind": "short_form",
+      "preset_speaker": "Eric",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-preset-ono_anna",
+      "evidence": {
+        "audio_duration_s": 9.68,
+        "runtime_s": 11.84,
+        "tier_gb": 24
+      },
+      "kind": "short_form",
+      "preset_speaker": "Ono_Anna",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-preset-sohee",
+      "evidence": {
+        "audio_duration_s": 10.08,
+        "runtime_s": 5.297,
+        "tier_gb": 24
+      },
+      "kind": "short_form",
+      "preset_speaker": "Sohee",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "long-adapter-managed",
+      "evidence": {
+        "adapter_revision": "049ef77fe8816b536193c0c25f9a214d17921282",
+        "artifact": {
+          "audio_duration_s": 3112.56,
+          "characters_submitted": 40000,
+          "chunk_total": 137,
+          "format": "wav",
+          "preset_speaker": "Ryan",
+          "runtime_s": 1575.845,
+          "sample_rate_hz": 24000
+        },
+        "additional_tier_observations": [
+          {
+            "artifact": {
+              "audio_duration_s": 3095.2,
+              "characters_submitted": 40000,
+              "chunk_total": 137,
+              "format": "wav",
+              "preset_speaker": "Ryan",
+              "runtime_s": 1789.862,
+              "sample_rate_hz": 24000
+            },
+            "resource_usage": {
+              "memory_failure": false,
+              "minimum_available_gb": 1.058,
+              "peak_host_used_percent": 93.8,
+              "peak_mlx_reported_gb": 14.195,
+              "peak_pressure": "warning",
+              "restart_scheduled": false,
+              "swap_used_end_gb": 0.787,
+              "tier_gb": 16
+            },
+            "state": "succeeded",
+            "tier_gb": 16,
+            "voice_studio_version": "1.27.6"
+          }
+        ],
+        "automated_text_integrity": {
+          "assessment": "unresolved",
+          "reason": "The accepted Whisper analysis ended at the controller boundary without a recoverable result; it was not automatically retried."
+        },
+        "resource_usage": {
+          "memory_failure": false,
+          "minimum_available_gb": 2.742,
+          "peak_mlx_reported_gb": 11.445,
+          "peak_pressure": "normal",
+          "restart_scheduled": false,
+          "swap_used_end_gb": 0.0,
+          "tier_gb": 24
+        },
+        "review_remaining": [
+          "manual transcript-integrity rerun decision",
+          "human voice identity and drift review",
+          "human pacing, pronunciation, and stitch-boundary review"
+        ]
+      },
+      "kind": "long_form",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "cancel-long-form",
+      "evidence": {
+        "cancelled_progress": 0.08,
+        "chunk_total": 137,
+        "memory_failure": false,
+        "peak_pressure": "normal",
+        "restart_scheduled": false,
+        "runtime_s": 3.116,
+        "tier_gb": 8
+      },
+      "kind": "cancellation",
+      "status": "pending_review"
+    }
+  ],
+  "run_id": "2026-08-03-kts-live",
+  "safety": {
+    "historical_jobs_modified": 0,
+    "model_downloads_started": 0,
+    "passed_audits_written": 0,
+    "provider_calls": 0
+  },
+  "schema": "studio.wave1-qualification-draft",
+  "schema_version": 1,
+  "status": "pending_review",
+  "subject": {
+    "model_id": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+  }
+}

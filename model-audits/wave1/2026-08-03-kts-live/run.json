@@ -1,0 +1,57 @@
+{
+  "candidate_status": "not_audit",
+  "candidates": [
+    "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
+    "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+    "mlx-community/chatterbox-4bit"
+  ],
+  "corpus_manifest": {
+    "long_form_characters": 40000,
+    "long_form_policy": "adapter_managed_long_form",
+    "manifest_hash": "sha256:4b72d514ec72bfb0b4e9f832b2183ef44723d0a36b8e7fd800bd2fcc2355d488",
+    "schema": "studio.wave1-corpus-manifest",
+    "schema_version": 1,
+    "short_form_policy": "one controlled short form per required voice or language",
+    "text_material": "external-controlled-corpus-required-before-execution"
+  },
+  "execution_summary": {
+    "attempt_counts": {
+      "cancelled": 3,
+      "running": 0,
+      "succeeded": 51,
+      "total": 54
+    },
+    "brain_machine_excluded": true,
+    "controller_version": "1.73.1",
+    "remaining_active_cases": [],
+    "voice_studio_version": "1.27.6",
+    "voice_studio_versions_observed": [
+      "1.27.4",
+      "1.27.6"
+    ]
+  },
+  "machine_tiers_gb": [
+    8,
+    16,
+    24
+  ],
+  "reference_manifest": {
+    "manifest_hash": "sha256:df5c7b75c851a029b4b66fb8d8a7fc6d8acfac0a4ceb70b9ead572024733e268",
+    "public_evidence_only": true,
+    "reference_policy": "consented-private-reference-required-before-execution",
+    "schema": "studio.wave1-reference-manifest",
+    "schema_version": 1,
+    "source_sha256": null,
+    "transcript_segments_sha256": null
+  },
+  "run_id": "2026-08-03-kts-live",
+  "safety": {
+    "historical_jobs_modified": 0,
+    "model_downloads_started": 0,
+    "passed_audits_written": 0,
+    "provider_calls": 0
+  },
+  "schema": "studio.wave1-qualification-run",
+  "schema_version": 1,
+  "status": "pending_review"
+}

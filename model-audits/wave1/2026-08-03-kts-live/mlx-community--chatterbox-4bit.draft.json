@@ -1,0 +1,434 @@
+{
+  "candidate_status": "not_audit",
+  "machine_tiers_gb": [
+    8,
+    16,
+    24
+  ],
+  "required_cases": [
+    {
+      "case_id": "short-clone-ar",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 4.2,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 5.66
+      },
+      "kind": "short_form",
+      "language": "ar",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-da",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.36,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 4.793
+      },
+      "kind": "short_form",
+      "language": "da",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-de",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.64,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 5.012
+      },
+      "kind": "short_form",
+      "language": "de",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-el",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 4.52,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 5.745
+      },
+      "kind": "short_form",
+      "language": "el",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-en",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 6.84,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 21.07
+      },
+      "kind": "short_form",
+      "language": "en",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-es",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.92,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "corrective_revision": "voicestudio-1.27.3",
+        "minimum_qualified_tier_gb": 8,
+        "pre_correction_observation": "The earlier output contained a pathological terminal-silence tail.",
+        "runtime_s": 13.676
+      },
+      "kind": "short_form",
+      "language": "es",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-fi",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.52,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 4.963
+      },
+      "kind": "short_form",
+      "language": "fi",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-fr",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.6,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 4.955
+      },
+      "kind": "short_form",
+      "language": "fr",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-he",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "automated_output_assessment": "failed_quality_all_tested_tiers",
+        "commercial_language_candidate": false,
+        "tier_observations": [
+          {
+            "assessment": "pathological_silence_and_tail",
+            "audio_duration_s": 48.0,
+            "tier_gb": 8
+          },
+          {
+            "assessment": "truncated_output",
+            "audio_duration_s": 0.95,
+            "tier_gb": 16
+          },
+          {
+            "assessment": "implausibly_long_output",
+            "audio_duration_s": 36.53,
+            "tier_gb": 24
+          }
+        ]
+      },
+      "kind": "short_form",
+      "language": "he",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-hi",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 4.28,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 6.027
+      },
+      "kind": "short_form",
+      "language": "hi",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-it",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.72,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 5.061
+      },
+      "kind": "short_form",
+      "language": "it",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-ja",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "automated_output_assessment": "passes_at_16_and_24_gb",
+        "minimum_qualified_tier_gb": 16,
+        "tier_observations": [
+          {
+            "assessment": "failed_quality",
+            "audio_duration_s": 47.24,
+            "peak_pressure": "warning",
+            "tier_gb": 8
+          },
+          {
+            "assessment": "plausible_duration",
+            "audio_duration_s": 4.08,
+            "peak_pressure": "normal",
+            "tier_gb": 16
+          },
+          {
+            "assessment": "plausible_duration",
+            "audio_duration_s": 3.24,
+            "peak_pressure": "normal",
+            "tier_gb": 24
+          }
+        ]
+      },
+      "kind": "short_form",
+      "language": "ja",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-ko",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 4.28,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 14.175
+      },
+      "kind": "short_form",
+      "language": "ko",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-ms",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 4.44,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 5.785
+      },
+      "kind": "short_form",
+      "language": "ms",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-nl",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.6,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 4.948
+      },
+      "kind": "short_form",
+      "language": "nl",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-no",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.48,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 4.893
+      },
+      "kind": "short_form",
+      "language": "no",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-pl",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 4.2,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 5.436
+      },
+      "kind": "short_form",
+      "language": "pl",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-pt",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.84,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 5.1
+      },
+      "kind": "short_form",
+      "language": "pt",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-ru",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 4.36,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 5.855
+      },
+      "kind": "short_form",
+      "language": "ru",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-sv",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "automated_output_assessment": "passes_at_16_gb",
+        "minimum_qualified_tier_gb": 16,
+        "tier_observations": [
+          {
+            "assessment": "failed_quality",
+            "audio_duration_s": 48.0,
+            "peak_pressure": "warning",
+            "tier_gb": 8
+          },
+          {
+            "assessment": "plausible_duration",
+            "audio_duration_s": 3.76,
+            "peak_pressure": "normal",
+            "tier_gb": 16
+          }
+        ]
+      },
+      "kind": "short_form",
+      "language": "sv",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-sw",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 4.64,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 7.927
+      },
+      "kind": "short_form",
+      "language": "sw",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-tr",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.48,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 4.906
+      },
+      "kind": "short_form",
+      "language": "tr",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "short-clone-zh",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "audio_duration_s": 3.56,
+        "automated_output_assessment": "plausible_duration_no_pathological_silence",
+        "minimum_qualified_tier_gb": 8,
+        "runtime_s": 5.028
+      },
+      "kind": "short_form",
+      "language": "zh",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "long-adapter-managed",
+      "evidence": {
+        "adapter_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+        "characters_submitted": 40000,
+        "commercial_minimum_tier_gb": 16,
+        "content_integrity_assessment": "pending_durable_worker_local_transcription_and_human_review",
+        "review_remaining": [
+          "durable text-integrity review",
+          "human voice identity, pacing, pronunciation, and stitch-boundary review"
+        ],
+        "tier_observations": [
+          {
+            "audio_duration_s": 1383.57,
+            "chunk_total": 110,
+            "format": "wav",
+            "memory_failure": false,
+            "minimum_available_gb": 3.239,
+            "peak_mlx_reported_gb": 3.929,
+            "peak_pressure": "normal",
+            "restart_scheduled": false,
+            "runtime_s": 5159.841,
+            "sample_rate_hz": 24000,
+            "state": "succeeded",
+            "swap_used_end_gb": 0.749,
+            "tier_gb": 16
+          },
+          {
+            "audio_duration_s": 1602.57,
+            "chunk_total": 110,
+            "commercial_tier_eligible": false,
+            "format": "wav",
+            "maximum_swap_used_gb": 1.655,
+            "memory_failure": false,
+            "minimum_available_gb": 0.598,
+            "peak_mlx_reported_gb": 3.929,
+            "peak_pressure": "urgent",
+            "restart_scheduled": false,
+            "runtime_s": 4207.323,
+            "sample_rate_hz": 24000,
+            "state": "succeeded_under_unsafe_pressure",
+            "swap_used_end_gb": 0.777,
+            "tier_gb": 8
+          }
+        ]
+      },
+      "kind": "long_form",
+      "language": "en",
+      "status": "pending_review"
+    },
+    {
+      "case_id": "cancel-long-form",
+      "evidence": {
+        "cancelled_progress": 0.08,
+        "chunk_total": 110,
+        "memory_failure": false,
+        "peak_pressure": "normal",
+        "restart_scheduled": false,
+        "runtime_s": 4.113,
+        "tier_gb": 8
+      },
+      "kind": "cancellation",
+      "language": "en",
+      "status": "pending_review"
+    }
+  ],
+  "run_id": "2026-08-03-kts-live",
+  "safety": {
+    "historical_jobs_modified": 0,
+    "model_downloads_started": 0,
+    "passed_audits_written": 0,
+    "provider_calls": 0
+  },
+  "schema": "studio.wave1-qualification-draft",
+  "schema_version": 1,
+  "status": "pending_review",
+  "subject": {
+    "model_id": "mlx-community/chatterbox-4bit"
+  }
+}
