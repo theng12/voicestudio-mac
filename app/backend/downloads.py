@@ -113,11 +113,42 @@ class DownloadJob:
         """Main plus the exact companion repositories this job downloads."""
         return tuple(dict.fromkeys((self.repo, *self.companion_repos)))
 
+    def _progress_revision(self, repo: str) -> Optional[str]:
+        """Return the immutable snapshot that may contribute progress bytes."""
+        if repo == self.repo and self.revision:
+            return self.revision.lower()
+        return cache.snapshot_revision(repo)
+
+    def _byte_observation(self) -> tuple[int, int, int, int]:
+        """Return verified, partial, progress, and excluded inventory bytes.
+
+        Complete files count only after an immutable snapshot links them to
+        the requested revision.  Unversioned standalone files remain reusable
+        cache inventory, but cannot make a repair transfer look complete.
+        """
+        bytes_done = 0
+        bytes_partial = 0
+        bytes_unverified = 0
+        for repo in self.tracked_repos():
+            verified = cache.snapshot_disk_bytes(repo, self._progress_revision(repo))
+            bytes_done += verified
+            bytes_partial += cache.incomplete_bytes(repo)
+            bytes_unverified += max(0, cache.disk_bytes(repo) - verified)
+        return (
+            bytes_done,
+            bytes_partial,
+            bytes_done + bytes_partial,
+            bytes_unverified,
+        )
+
     def observed_bytes(self) -> tuple[int, int, int]:
-        """Return combined completed, resumable-partial, and observed bytes."""
-        bytes_done = sum(cache.disk_bytes(repo) for repo in self.tracked_repos())
-        bytes_partial = sum(cache.incomplete_bytes(repo) for repo in self.tracked_repos())
-        return bytes_done, bytes_partial, bytes_done + bytes_partial
+        """Return verified, resumable-partial, and progress-eligible bytes."""
+        bytes_done, bytes_partial, observed, _ = self._byte_observation()
+        return bytes_done, bytes_partial, observed
+
+    def unverified_inventory_bytes(self) -> int:
+        """Completed cache bytes excluded from this job's progress evidence."""
+        return self._byte_observation()[3]
 
     def observe_progress(self, observed: int, now: Optional[float] = None) -> None:
         """Record byte growth without treating an unchanged partial as progress."""
@@ -126,7 +157,7 @@ class DownloadJob:
             self._last_progress_at = time.time() if now is None else now
 
     def serialize(self) -> dict:
-        bytes_done, bytes_partial, observed = self.observed_bytes()
+        bytes_done, bytes_partial, observed, bytes_unverified = self._byte_observation()
 
         # Update the rolling speed estimate. Only meaningful while running;
         # cleared when the job reaches a terminal state so the UI doesn't show
@@ -156,7 +187,10 @@ class DownloadJob:
             # reconciliation, but a terminal job must never display 55%.
             percent = 100.0
         elif self.total_bytes > 0:
-            percent = min(100.0, observed / self.total_bytes * 100.0)
+            # Reserve 100% for terminal success. A transfer can have every
+            # byte on disk while snapshot_download is still reconciling the
+            # immutable snapshot and companions.
+            percent = min(99.9, observed / self.total_bytes * 100.0)
 
         # ETA: remaining bytes at current speed. Only show when speed is
         # nonzero and there's a known total.
@@ -177,6 +211,7 @@ class DownloadJob:
             and self.total_bytes > 0
             and self.started_at is not None
             and now - self.started_at >= 3.0
+            and observed < self.total_bytes
         ):
             remaining = max(0, self.total_bytes - observed)
             eta_seconds = remaining / self._speed_bps
@@ -188,7 +223,9 @@ class DownloadJob:
             "state": self.state,
             "error": self.error,
             "bytes_done": bytes_done,
+            "bytes_verified": bytes_done,
             "bytes_partial": bytes_partial,
+            "bytes_unverified_inventory": bytes_unverified,
             "bytes_observed": observed,
             "bytes_total": self.total_bytes,
             "percent": percent,

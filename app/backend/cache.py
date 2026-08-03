@@ -228,6 +228,44 @@ def disk_bytes(repo: str) -> int:
     return total
 
 
+def snapshot_disk_bytes(repo: str, revision: str | None) -> int:
+    """Bytes proven to belong to one immutable snapshot revision.
+
+    Download progress must not count every completed byte in a repository's
+    cache.  Historical ``snapshots/main`` layouts and other revisions are
+    useful inventory, but they are not evidence that the requested immutable
+    snapshot is reusable.  Walking only the exact snapshot also follows its
+    normal Hugging Face blob symlinks, while inode de-duplication prevents a
+    hardlinked file from being counted twice.
+    """
+    if revision is None or not _IMMUTABLE_REVISION.fullmatch(revision):
+        return 0
+    root = repo_cache_dir(repo) / "snapshots" / revision.lower()
+    if not root.is_dir():
+        return 0
+    total = 0
+    seen: set[tuple[int, int]] = set()
+    try:
+        entries = root.rglob("*")
+        for entry in entries:
+            if entry.name.endswith(".incomplete"):
+                continue
+            try:
+                if not entry.is_file():
+                    continue
+                info = entry.stat()
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            key = (info.st_dev, info.st_ino)
+            if key in seen:
+                continue
+            seen.add(key)
+            total += info.st_size
+    except (FileNotFoundError, PermissionError, OSError):
+        return 0
+    return total
+
+
 def incomplete_bytes(repo: str) -> int:
     """Total bytes still needed by unresolved partial blobs."""
     total = 0

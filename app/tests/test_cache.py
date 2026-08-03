@@ -132,6 +132,24 @@ def test_disk_bytes_excludes_incomplete_entries(tmp_path, monkeypatch) -> None:
     assert cache.disk_bytes(REPO) == len(b"weights") + len(b"complete")
 
 
+def test_snapshot_disk_bytes_counts_only_the_exact_immutable_snapshot(
+    tmp_path, monkeypatch
+) -> None:
+    root = _repo(tmp_path, monkeypatch)
+    (root / "snapshots" / "main").mkdir()
+    (root / "snapshots" / "main" / "model.safetensors").write_bytes(
+        b"unversioned-standalone"
+    )
+    other = root / "snapshots" / ("b" * 40)
+    other.mkdir()
+    (other / "model.safetensors").write_bytes(b"other-revision")
+
+    assert cache.snapshot_disk_bytes(REPO, "a" * 40) == len(b"weights")
+    assert cache.snapshot_disk_bytes(REPO, "b" * 40) == len(b"other-revision")
+    assert cache.snapshot_disk_bytes(REPO, "main") == 0
+    assert cache.snapshot_disk_bytes(REPO, None) == 0
+
+
 def test_stale_duplicate_incomplete_does_not_block_cached_model(
     tmp_path: Path, monkeypatch
 ) -> None:

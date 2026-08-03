@@ -55,7 +55,13 @@ def test_progress_and_terminal_percent_include_companion_repositories(monkeypatc
         "example/main": (610, 0),
         "example/companion": (0, 0),
     }
+    monkeypatch.setattr(
+        downloads.cache,
+        "snapshot_disk_bytes",
+        lambda repo, _revision: bytes_by_repo[repo][0],
+    )
     monkeypatch.setattr(downloads.cache, "disk_bytes", lambda repo: bytes_by_repo[repo][0])
+    monkeypatch.setattr(downloads.cache, "snapshot_revision", lambda _repo: "a" * 40)
     monkeypatch.setattr(downloads.cache, "incomplete_bytes", lambda repo: bytes_by_repo[repo][1])
     job = downloads.DownloadJob(
         job_id="combined-progress",
@@ -90,7 +96,13 @@ def test_companion_growth_prevents_a_false_stall(monkeypatch) -> None:
         "example/main": (610, 0),
         "example/companion": (0, 0),
     }
+    monkeypatch.setattr(
+        downloads.cache,
+        "snapshot_disk_bytes",
+        lambda repo, _revision: bytes_by_repo[repo][0],
+    )
     monkeypatch.setattr(downloads.cache, "disk_bytes", lambda repo: bytes_by_repo[repo][0])
+    monkeypatch.setattr(downloads.cache, "snapshot_revision", lambda _repo: "a" * 40)
     monkeypatch.setattr(downloads.cache, "incomplete_bytes", lambda repo: bytes_by_repo[repo][1])
     job = downloads.DownloadJob(
         job_id="companion-growth",
@@ -108,6 +120,76 @@ def test_companion_growth_prevents_a_false_stall(monkeypatch) -> None:
 
     assert job._last_progress_at == 999.0
     assert not job.is_stalled(now=1_000.0)
+
+
+def test_unversioned_inventory_is_excluded_from_running_repair_progress(monkeypatch) -> None:
+    revision = "c" * 40
+    samples = iter((100, 300))
+    monkeypatch.setattr(downloads.cache, "snapshot_disk_bytes", lambda *_args: 0)
+    monkeypatch.setattr(downloads.cache, "disk_bytes", lambda _repo: 1_970)
+    monkeypatch.setattr(downloads.cache, "incomplete_bytes", lambda _repo: next(samples))
+    job = downloads.DownloadJob(
+        job_id="unversioned-repair",
+        repo="example/model",
+        revision=revision,
+        total_bytes=2_000,
+        state="running",
+        started_at=100.0,
+    )
+
+    first = job.serialize()
+    second = job.serialize()
+
+    assert first["bytes_verified"] == 0
+    assert first["bytes_unverified_inventory"] == 1_970
+    assert first["bytes_observed"] == 100
+    assert first["percent"] == 5.0
+    assert second["bytes_observed"] == 300
+    assert second["percent"] == 15.0
+
+
+def test_repair_eta_uses_only_verified_and_resumable_bytes(monkeypatch) -> None:
+    revision = "c" * 40
+    monkeypatch.setattr(downloads.cache, "snapshot_disk_bytes", lambda *_args: 0)
+    monkeypatch.setattr(downloads.cache, "disk_bytes", lambda _repo: 1_970)
+    monkeypatch.setattr(downloads.cache, "incomplete_bytes", lambda _repo: 300)
+    monkeypatch.setattr(downloads.time, "time", lambda: 200.0)
+    job = downloads.DownloadJob(
+        job_id="repair-eta",
+        repo="example/model",
+        revision=revision,
+        total_bytes=2_000,
+        state="running",
+        started_at=190.0,
+    )
+    job._last_speed_sample = (199.0, 200)
+
+    current = job.serialize()
+
+    assert current["speed_bps"] == 30.0
+    assert current["eta_seconds"] == (2_000 - 300) / 30.0
+
+
+def test_running_download_reserves_one_hundred_percent_for_terminal_success(monkeypatch) -> None:
+    revision = "d" * 40
+    monkeypatch.setattr(downloads.cache, "snapshot_disk_bytes", lambda *_args: 2_000)
+    monkeypatch.setattr(downloads.cache, "disk_bytes", lambda _repo: 2_000)
+    monkeypatch.setattr(downloads.cache, "incomplete_bytes", lambda _repo: 0)
+    job = downloads.DownloadJob(
+        job_id="finalizing",
+        repo="example/model",
+        revision=revision,
+        total_bytes=2_000,
+        state="running",
+        started_at=100.0,
+    )
+
+    running = job.serialize()
+    assert running["percent"] == 99.9
+    assert running["eta_seconds"] is None
+
+    job.state = "done"
+    assert job.serialize()["percent"] == 100.0
 
 
 def test_verified_success_prunes_main_and_companion_stale_partials(monkeypatch) -> None:

@@ -10,6 +10,31 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.6] — 2026-08-03
+
+### Fixed — truthful repair-download progress
+
+- Repair downloads now count completed bytes only when they belong to the
+  requested immutable snapshot. Existing unversioned or other-revision cache
+  inventory remains untouched and visible as pending verification, but can no
+  longer force a running transfer to display 100% prematurely.
+- Live speed and ETA use only verified snapshot bytes plus resumable partials.
+  A running transfer stops at 99.9% while Hugging Face finalizes its snapshot;
+  100% remains the explicit signal that the download completed successfully.
+- Successful cleanup and retry behavior are unchanged: verified terminal jobs
+  still show 100%, stale partials are pruned only by their successful owner,
+  and failed or cancelled attempts keep resumable bytes.
+
+### Verification
+
+- Focused cache and download regressions cover unversioned standalone bytes,
+  exact immutable-snapshot accounting, growing resumable repairs, companion
+  progress, terminal success, and finalization without a misleading ETA.
+- The full Voice Studio test suite passes, along with release metadata and
+  frontend syntax checks.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.5] — 2026-08-03
 
 ### Fixed — immutable model-cache readiness

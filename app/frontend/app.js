@@ -4405,6 +4405,9 @@ function studio() {
         // No measured speed yet (just started). Still tell the user it's alive.
         line += " · measuring…";
       }
+      if (j.state === "running" && j.bytes_unverified_inventory > 0) {
+        line += ` · ${humanBytes(j.bytes_unverified_inventory)} existing cache pending verification`;
+      }
       return line;
     },
   };
