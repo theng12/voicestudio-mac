@@ -35,6 +35,25 @@ The executor must:
 5. report the expected, downloaded, verified, missing, and intentionally absent
    artifact counts before handing the run to a human reviewer.
 
+Every listening archive must also include a human-readable performance report
+and machine-readable evidence. For each test, record when available:
+
+- model, operation, voice or language, machine identity, and memory tier;
+- submitted character count and adapter chunk count;
+- wall-clock generation time and produced-audio duration;
+- real-time factor (`generation seconds / audio seconds`) and its inverse,
+  audio produced per generation second;
+- sample rate, output size, peak observed model memory, minimum available host
+  memory, swap, memory pressure, and memory-failure outcome; and
+- qualification warnings, cancellation state, and the matching listening-file
+  identity.
+
+The report must explain that lower real-time factor is faster, separate short
+request overhead from long-form throughput, and never treat speed as a substitute
+for transcript integrity or human quality review. It must include per-model
+aggregates plus a direct long-form comparison. Missing telemetry stays explicitly
+unknown; it must not be estimated or silently filled.
+
 Do not commit customer reference audio, generated review audio, credentials,
 private worker addresses, or absolute operator paths. The audit draft stores
 only safe machine-readable evidence; the listening archive is private review
