@@ -135,7 +135,11 @@ def _package_state(repo: str, *, dependency: bool) -> dict:
     # dependency purposes even though cache.cache_state() correctly requires
     # weights for independently executable models.
     if dependency and snapshot["state"] == "partial":
-        if cache.has_any_snapshot(repo) and not cache.has_incomplete(repo):
+        if (
+            snapshot.get("snapshot_revision")
+            and cache.has_any_snapshot(repo)
+            and not cache.has_incomplete(repo)
+        ):
             snapshot["state"] = "cached"
     snapshot["bytes_total"] = (
         int(snapshot.get("bytes_complete") or 0)

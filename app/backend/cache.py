@@ -124,16 +124,28 @@ _WEIGHT_EXTENSIONS = (
 )
 
 
-def has_weight_files(repo: str) -> bool:
-    """True if any snapshot under this repo contains at least one file with
-    a recognized weight extension. Walks subdirectories because diffusers
-    repos keep weights inside component dirs (transformer/, vae/, etc.) and
-    huge models shard weights across multiple files."""
+def has_weight_files(repo: str, *, revision: str | None = None) -> bool:
+    """True when the requested snapshot contains at least one weight file.
+
+    With no ``revision`` this retains the storage-inventory behavior of
+    inspecting every snapshot. Runtime cache checks pass the selected immutable
+    revision so a stray ``snapshots/main`` folder cannot make an unrelated or
+    metadata-only immutable snapshot look executable.
+    """
     snaps = repo_cache_dir(repo) / "snapshots"
     if not snaps.exists():
         return False
+    if revision is not None:
+        if not _IMMUTABLE_REVISION.fullmatch(revision):
+            return False
+        candidates = (snaps / revision,)
+    else:
+        try:
+            candidates = tuple(snaps.iterdir())
+        except (FileNotFoundError, PermissionError):
+            return False
     try:
-        for snap in snaps.iterdir():
+        for snap in candidates:
             if not snap.is_dir():
                 continue
             for path in snap.rglob("*"):
@@ -148,22 +160,33 @@ def has_weight_files(repo: str) -> bool:
     return False
 
 
-def cache_state(repo: str) -> str:
-    """
-    Returns one of: 'absent', 'partial', 'cached'.
-    'partial' means there are .incomplete blobs, a started but unfinished
-    snapshot, or a snapshot that has no actual weight files (the gated-repo
-    partial-download failure mode — see has_weight_files()).
-    """
+def _cache_state_for_revision(repo: str, revision: str | None) -> str:
+    """Evaluate a cache against one already-resolved immutable revision."""
     if not repo_cache_dir(repo).exists():
         return "absent"
     if has_incomplete(repo):
         return "partial"
-    if has_any_snapshot(repo):
-        # A snapshot exists, but it must contain real model weights — not
-        # just LICENSE.md / README.md / .gitattributes — to count as cached.
-        return "cached" if has_weight_files(repo) else "partial"
-    return "partial"
+    if not has_any_snapshot(repo):
+        return "partial"
+    # A mutable/synthetic layout can still contain all model bytes, but it
+    # cannot prove which checkpoint produced them. Keep every byte in place and
+    # let snapshot_download reconcile it into an official immutable snapshot.
+    if revision is None:
+        return "partial"
+    return "cached" if has_weight_files(repo, revision=revision) else "partial"
+
+
+def cache_state(repo: str) -> str:
+    """Returns one of: 'absent', 'partial', 'cached'.
+
+    'partial' means there are .incomplete blobs, a started but unfinished
+    snapshot, or a snapshot that has no actual weight files (the gated-repo
+    partial-download failure mode — see has_weight_files()).
+    A model is cached only when its selected snapshot has both an immutable
+    revision and real weight files. Mutable names such as ``main`` remain
+    resumable partial state rather than routable runtime evidence.
+    """
+    return _cache_state_for_revision(repo, snapshot_revision(repo))
 
 
 def disk_bytes(repo: str) -> int:
@@ -257,14 +280,15 @@ def prune_stale_incomplete(
 
 
 def status_snapshot(repo: str) -> dict:
-    state = cache_state(repo)
+    revision = snapshot_revision(repo)
+    state = _cache_state_for_revision(repo, revision)
     return {
         "repo": repo,
         "state": state,
         # Advertise the exact cached Hugging Face snapshot before dispatch so
         # Studio Hub can match a GenStudio-pinned request to the right worker.
         # Mutable refs such as ``main`` are never returned here.
-        "snapshot_revision": snapshot_revision(repo),
+        "snapshot_revision": revision,
         "path": str(repo_cache_dir(repo)) if state != "absent" else None,
         "bytes_complete": disk_bytes(repo),
         "bytes_incomplete": incomplete_bytes(repo),

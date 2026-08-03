@@ -200,3 +200,29 @@ def test_active_replacement_blocks_old_job_cleanup(monkeypatch) -> None:
     manager._prune_completed_stale_incomplete(old)
 
     assert pruned == []
+
+
+def test_manual_cleanup_preserves_partials_for_unversioned_snapshot(monkeypatch) -> None:
+    manager = downloads.DownloadManager()
+    monkeypatch.setattr(manager, "_resolve_total_bytes", lambda *_args: 100)
+    monkeypatch.setattr(downloads.cache, "disk_bytes", lambda _repo: 100)
+    monkeypatch.setattr(downloads.cache, "snapshot_revision", lambda _repo: None)
+    monkeypatch.setattr(downloads.cache, "has_any_snapshot", lambda _repo: True)
+    observed = {}
+
+    def prune(repo, *, complete_snapshot_verified):
+        observed.update({
+            "repo": repo,
+            "complete_snapshot_verified": complete_snapshot_verified,
+        })
+        return {"removed_files": 0, "removed_bytes": 0}
+
+    monkeypatch.setattr(downloads.cache, "prune_stale_incomplete", prune)
+
+    result = manager.prune_stale_incomplete("example/model")
+
+    assert observed == {
+        "repo": "example/model",
+        "complete_snapshot_verified": False,
+    }
+    assert result["complete_snapshot_verified"] is False

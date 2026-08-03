@@ -108,6 +108,60 @@ class FleetAuthTests(unittest.TestCase):
         self.assertEqual(response.json()["job"], {"id": "fresh", "state": "queued"})
         start.assert_called_once_with(repo, token=None, revision="b" * 40)
 
+    def test_unversioned_cache_is_reconciled_instead_of_reused(self):
+        repo = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+        unversioned = {
+            "repo": repo,
+            "state": "partial",
+            "snapshot_revision": None,
+            "bytes_complete": 123,
+            "bytes_incomplete": 0,
+        }
+        job = SimpleNamespace(serialize=lambda: {"id": "repair", "state": "queued"})
+
+        with patch.object(main.manager, "active_for_repo", return_value=None), \
+             patch.object(main.manager, "prune_stale_incomplete") as prune, \
+             patch.object(main.manager, "start", return_value=job) as start, \
+             patch.object(main, "_cache_with_companions", return_value=unversioned):
+            response = TestClient(
+                app, headers={"X-Studio-Token": FLEET_TOKEN}
+            ).post("/api/downloads", json={"repo": repo})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["job"], {"id": "repair", "state": "queued"})
+        prune.assert_called_once_with(repo)
+        start.assert_called_once_with(repo, token=None, revision=None)
+
+    def test_unversioned_cache_is_not_advertised_available(self):
+        repo = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+        runtime = {
+            "loaded": False,
+            "runtime_ready": True,
+            "cold_load_required_free_memory_gb": 1.0,
+            "loaded_required_free_memory_gb": 1.0,
+            "required_free_memory_gb": 1.0,
+            "memory_eligible": True,
+        }
+
+        with patch.object(
+            main,
+            "_cache_with_companions",
+            return_value={"state": "partial", "snapshot_revision": None},
+        ), patch.object(
+            main.gen_manager, "model_runtime_status", return_value=runtime,
+        ), patch.object(
+            main.manager, "active_for_repo", return_value=None,
+        ), patch.object(
+            main.providers, "cloud_models_for_catalog", return_value=[],
+        ):
+            item = next(row for row in main.get_catalog()["models"] if row["repo"] == repo)
+
+        # The engine dependency can be installed while the exact model bytes
+        # remain unroutable. The customer-facing availability must stay false.
+        self.assertTrue(item["runtime_ready"])
+        self.assertFalse(item["available"])
+        self.assertFalse(item.get("genstudio_candidate_runtime_match", False))
+
 
 if __name__ == "__main__":
     unittest.main()

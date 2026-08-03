@@ -41,6 +41,46 @@ def test_snapshot_revision_ignores_a_mutable_main_snapshot_folder(
     assert cache.snapshot_revision(REPO) == "a" * 40
 
 
+def test_unversioned_weight_snapshot_is_preserved_but_not_advertised_cached(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+    root = cache.repo_cache_dir(REPO)
+    snapshot = root / "snapshots" / "main"
+    snapshot.mkdir(parents=True)
+    (root / "refs").mkdir()
+    (root / "refs" / "main").write_text("main")
+    weights = snapshot / "model.safetensors"
+    weights.write_bytes(b"existing-valid-bytes")
+
+    status = cache.status_snapshot(REPO)
+
+    assert status["state"] == "partial"
+    assert status["snapshot_revision"] is None
+    assert status["bytes_complete"] == len(b"existing-valid-bytes")
+    assert weights.read_bytes() == b"existing-valid-bytes"
+
+
+def test_selected_immutable_snapshot_must_itself_contain_weights(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+    root = cache.repo_cache_dir(REPO)
+    immutable = root / "snapshots" / ("a" * 40)
+    immutable.mkdir(parents=True)
+    (immutable / "README.md").write_text("metadata only")
+    mutable = root / "snapshots" / "main"
+    mutable.mkdir()
+    (mutable / "model.safetensors").write_bytes(b"unversioned weights")
+    (root / "refs").mkdir()
+    (root / "refs" / "main").write_text("a" * 40)
+
+    status = cache.status_snapshot(REPO)
+
+    assert status["snapshot_revision"] == "a" * 40
+    assert status["state"] == "partial"
+
+
 def test_disk_bytes_counts_real_snapshot_files_without_blobs(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
     snapshot = cache.repo_cache_dir(REPO) / "snapshots" / ("a" * 40)

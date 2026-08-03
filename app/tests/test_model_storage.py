@@ -89,6 +89,23 @@ def test_whisper_processor_without_weights_is_a_complete_dependency(tmp_path, mo
     assert item["used_by"] == [parent]
 
 
+def test_unversioned_dependency_is_visible_as_partial(tmp_path, monkeypatch) -> None:
+    parent = "mlx-community/whisper-tiny"
+    companion = "openai/whisper-tiny"
+    _cached_repo(tmp_path, monkeypatch, parent)
+    root = cache.repo_cache_dir(companion)
+    snapshot = root / "snapshots" / "main"
+    snapshot.mkdir(parents=True)
+    (snapshot / "tokenizer.json").write_bytes(b"existing tokenizer")
+    (root / "refs").mkdir()
+    (root / "refs" / "main").write_text("main")
+
+    item = _item(model_storage.inventory(), companion)
+
+    assert item["cache"]["state"] == "partial"
+    assert item["cache"]["snapshot_revision"] is None
+
+
 def test_legacy_package_is_explained_and_can_be_removed_as_one_unit(tmp_path, monkeypatch) -> None:
     repo = "mlx-community/OmniVoice-fp32"
     root = _cached_repo(tmp_path, monkeypatch, repo)

@@ -370,11 +370,13 @@ class DownloadManager:
             if self._active_for_repo_locked(repo) is not None:
                 raise RuntimeError("a model download is active")
             complete_bytes = cache.disk_bytes(repo)
+            immutable_revision = cache.snapshot_revision(repo)
             complete_snapshot_verified = bool(
                 expected_bytes > 0
                 and complete_bytes == expected_bytes
                 and cache.has_any_snapshot(repo)
-                and cache.has_weight_files(repo)
+                and immutable_revision
+                and cache.has_weight_files(repo, revision=immutable_revision)
             )
             removed = cache.prune_stale_incomplete(
                 repo,

@@ -10,6 +10,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.5] — 2026-08-03
+
+### Fixed — immutable model-cache readiness
+
+- Model and dependency cache entries now become runnable only when the
+  selected snapshot has an immutable revision. Historical `snapshots/main`
+  layouts remain visible as partial and retain all existing complete and
+  resumable bytes for normal Hugging Face reconciliation.
+- Model availability also verifies that model weights belong to the selected
+  immutable snapshot, rather than accepting weights found only in a separate
+  mutable folder.
+- Manual stale-partial cleanup no longer treats an unversioned layout as a
+  verified complete snapshot, preventing repairable bytes from being removed
+  before reconciliation.
+
+### Verification
+
+- Focused cache, download, fleet API, and storage tests cover unversioned model
+  and dependency layouts, immutable-snapshot weight fencing, repair download
+  scheduling, and preservation of resumable partials.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.4] — 2026-08-03
 
 ### Fixed — dependency-aware model download completion
