@@ -784,6 +784,13 @@ _KOKORO_CHUNK_CHARS = 3000
 # for normal English narration while preserving useful long-form continuity.
 _VIBEVOICE_CHUNK_CHARS = 3000
 _VIBEVOICE_MAX_TOKENS = 4096
+# OmniVoice's diffusion runtime can accept a very large string, but a single
+# multi-minute invocation provides no useful progress/cancellation boundary
+# and makes reference-conditioned delivery increasingly difficult to audit.
+# Keep the same reference on every short, sentence-safe section and return one
+# joined artifact. This provisional budget is deliberately conservative until
+# the owner completes the long-form listening gate.
+_OMNIVOICE_CHUNK_CHARS = 288
 _LONG_FORM_JOIN_PAUSE_S = 0.12
 _QWEN_SENTENCE_ENDINGS = frozenset(".!?。！？")
 _QWEN_TRAILING_CLOSERS = frozenset("\"'”’»）】〕〉")
@@ -898,6 +905,8 @@ def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
         max_chars = _KOKORO_CHUNK_CHARS
     elif family == "vibevoice":
         max_chars = _VIBEVOICE_CHUNK_CHARS
+    elif family == "omnivoice":
+        max_chars = _OMNIVOICE_CHUNK_CHARS
     elif family == "fish-audio-mlx":
         # Fish's upstream generator can apply its own segmenting. Voice Studio
         # owns the customer-facing long-form boundary so every section gets the

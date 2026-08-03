@@ -299,8 +299,8 @@ FAMILIES: dict[str, Family] = {
         # Takes explicit duration_s or estimates via RuleDurationEstimator. No GPT-style cliff.
         text_guidance=TextGuidance(
             soft_max_chars=None,
-            chunking="unlimited",
-            note="No practical length limit. For multi-minute renders, splitting into multiple calls usually gives more consistent results.",
+            chunking="auto-split",
+            note="Long scripts are split privately into short sentence-safe sections using the same reference voice, then joined into one final file.",
         ),
     ),
     "fish-audio-mlx": Family(

@@ -559,6 +559,7 @@ def test_qwen_clone_long_sentence_falls_back_to_word_boundaries() -> None:
         ("voxcpm-mlx", "mlx-community/VoxCPM2-4bit", 400),
         ("kokoro-mlx", "mlx-community/Kokoro-82M-bf16", 3000),
         ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit", 3000),
+        ("omnivoice", "mlx-community/OmniVoice-bfloat16", 288),
         ("fish-audio-mlx", "mlx-community/fish-audio-s2-pro-8bit", 300),
     ],
 )
@@ -584,6 +585,7 @@ def test_long_form_catalogs_do_not_ask_callers_to_manually_chunk() -> None:
         "voxcpm-mlx",
         "kokoro-mlx",
         "vibevoice",
+        "omnivoice",
         "fish-audio-mlx",
     ):
         guidance = catalog.FAMILIES[family].text_guidance
@@ -596,6 +598,7 @@ def test_long_form_catalogs_do_not_ask_callers_to_manually_chunk() -> None:
     [
         ("kokoro-mlx", "mlx-community/Kokoro-82M-bf16"),
         ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit"),
+        ("omnivoice", "mlx-community/OmniVoice-bfloat16"),
         ("fish-audio-mlx", "mlx-community/fish-audio-s2-pro-8bit"),
     ],
 )

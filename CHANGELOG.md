@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.10] — 2026-08-03
+
+### Fixed — cancellable OmniVoice long-form cloning
+
+- OmniVoice cloning now privately divides long scripts into conservative,
+  sentence-safe sections while reusing the same reference voice for every
+  section, then returns one validated, joined WAV.
+- Multi-minute OmniVoice jobs now report section progress and honor
+  cancellation between sections instead of entering one opaque, hours-long
+  diffusion call.
+- Customer requests remain whole: the internal 288-character section budget
+  is an implementation detail and is not exposed as a customer text limit.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.9] — 2026-08-03
 
 ### Changed — grounded VibeVoice preset inventory
