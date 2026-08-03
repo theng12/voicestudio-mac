@@ -1322,6 +1322,12 @@
                       <div class="variant-identity">
                         <div class="variant-title-line"><h3 x-text="modelVariantLabel(m)"></h3><span class="variant-role" x-show="modelRoleLabel(m)" x-text="modelRoleLabel(m)"></span><span class="chip neutral" x-show="m.gated">Gated</span></div>
                         <div class="variant-capabilities"><template x-for="c in (m.capabilities||[]).filter(c=>c!=='tts')" :key="c"><span x-text="capabilityLabel(c)"></span></template></div>
+                        <div class="long-form-glance" x-show="m.long_form_delivery" x-cloak>
+                          <span class="long-form-label">Long-form</span>
+                          <strong x-text="m.long_form_delivery ? m.long_form_delivery.section_max_characters+' chars / section' : ''"></strong>
+                          <span x-text="m.long_form_delivery ? m.long_form_delivery.join_pause_milliseconds+' ms joins' : ''"></span>
+                          <small x-text="m.long_form_delivery ? m.long_form_delivery.note : ''"></small>
+                        </div>
                       </div>
                       <div class="variant-spec" data-label="Runs with"><strong x-text="modelRuntimeLabel(m)"></strong><small x-text="modelFormatLabel(m)"></small></div>
                       <div class="variant-spec" data-label="Download"><strong x-text="formatGb(m.size_gb)"></strong><small x-text="cacheChipLabel(m.cache.state)"></small></div>
@@ -1337,6 +1343,10 @@
                         <p class="best-for" x-show="m.best_for"><strong>Best for:</strong> <span x-text="m.best_for"></span></p>
                         <p class="hw" x-text="m.recommended_hardware"></p>
                         <p class="muted small"><span x-text="(m.sample_rate_hz/1000)+' kHz'"></span> · <span x-text="languageSupportLabel(m)"></span></p>
+                        <div class="long-form-details" x-show="m.long_form_delivery" x-cloak>
+                          <strong>Runtime delivery policy</strong>
+                          <span>Sentence-safe splitting · customer submits one complete script · policy source: <span x-text="m.long_form_delivery ? (m.long_form_delivery.source==='model_audit'?'exact model audit':'Voice Studio runtime') : ''"></span></span>
+                        </div>
                         <ul class="use-case-list" x-show="m.use_cases&&m.use_cases.length"><template x-for="uc in m.use_cases" :key="uc.text"><li :class="'use-case-'+uc.kind"><span class="use-case-icon" x-text="useCaseIcon(uc.kind)"></span><span x-text="uc.text"></span></li></template></ul>
                         <p class="saved-loc" x-show="m.cache.state==='cached'&&m.cache.path"><small>Saved at <code x-text="m.cache.path"></code></small><button class="link small" @click="revealInFolder(m.cache.path)">Reveal in Finder</button></p>
                       </div>

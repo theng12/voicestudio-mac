@@ -103,7 +103,7 @@ from typing import Optional
 import httpx
 from packaging.version import InvalidVersion, Version
 
-from . import catalog, cache, model_audits, resource_telemetry
+from . import catalog, cache, long_form_policy, model_audits, resource_telemetry
 from .voicestudio_genstudio_integration import final_tts_result
 
 
@@ -769,32 +769,11 @@ def _qwen3_mode_from_repo(repo: str) -> str:
 # tonation at a boundary while a controlled 288-character run remained stable.
 # Keep Base/ICL cloning at that verified conservative ceiling. CustomVoice is a
 # different preset-speaker path and retains its existing budget.
-_QWEN_CLONE_CHUNK_CHARS = 288
-_QWEN_PRESET_CHUNK_CHARS = 360
-_CHATTERBOX_STANDARD_CHUNK_CHARS = 500
-_CHATTERBOX_TURBO_CHUNK_CHARS = 400
-# VoxCPM2's architectural output window is much larger, but real clone
-# fidelity starts drifting around the 30-second mark. Roughly 400 characters
-# keeps each independent synthesis pass inside that practical quality window.
-_VOXCPM_CHUNK_CHARS = 400
-# Kokoro performs a second, model-native split at its 510-phoneme boundary.
-# These larger Voice Studio-owned sections provide progress, cancellation, and
-# all-or-nothing validation without making callers manage model internals.
-_KOKORO_CHUNK_CHARS = 3000
-# VibeVoice Realtime is trained for roughly ten-minute generations. A
-# sentence-safe 3,000-character section stays comfortably below that window
-# for normal English narration while preserving useful long-form continuity.
-_VIBEVOICE_CHUNK_CHARS = 3000
+_QWEN_CLONE_CHUNK_CHARS = (
+    long_form_policy.QWEN_CLONE_SECTION_MAX_CHARACTERS
+)
 _VIBEVOICE_MAX_TOKENS = 4096
-# OmniVoice's diffusion runtime can accept a very large string, but a single
-# multi-minute invocation provides no useful progress/cancellation boundary
-# and makes reference-conditioned delivery increasingly difficult to audit.
-# Keep the same reference on every short, sentence-safe section and return one
-# joined artifact. This provisional budget is deliberately conservative until
-# the owner completes the long-form listening gate.
-_OMNIVOICE_CHUNK_CHARS = 288
-_LONG_FORM_JOIN_PAUSE_S = 0.12
-_QWEN_CLONE_JOIN_PAUSE_S = 0.18
+_LONG_FORM_JOIN_PAUSE_S = long_form_policy.DEFAULT_JOIN_PAUSE_SECONDS
 _QWEN_SENTENCE_ENDINGS = frozenset(".!?。！？")
 _QWEN_TRAILING_CLOSERS = frozenset("\"'”’»）】〕〉")
 
@@ -893,51 +872,28 @@ def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
     one exact checkpoint. Until that evidence exists, the established family
     fallback remains active. Callers still submit one complete script.
     """
-    max_chars: Optional[int] = None
-    if family == "qwen3-tts":
-        max_chars = (
-            _QWEN_CLONE_CHUNK_CHARS
-            if _qwen3_mode_from_repo(repo) == "clone"
-            else _QWEN_PRESET_CHUNK_CHARS
-        )
-    elif family == "chatterbox-mlx":
-        max_chars = (
-            _CHATTERBOX_TURBO_CHUNK_CHARS
-            if "turbo" in repo.lower()
-            else _CHATTERBOX_STANDARD_CHUNK_CHARS
-        )
-    elif family == "voxcpm-mlx":
-        max_chars = _VOXCPM_CHUNK_CHARS
-    elif family == "kokoro-mlx":
-        max_chars = _KOKORO_CHUNK_CHARS
-    elif family == "vibevoice":
-        max_chars = _VIBEVOICE_CHUNK_CHARS
-    elif family == "omnivoice":
-        max_chars = _OMNIVOICE_CHUNK_CHARS
-    elif family == "fish-audio-mlx":
-        # Fish's upstream generator can apply its own segmenting. Voice Studio
-        # owns the customer-facing long-form boundary so every section gets the
-        # same reference/style controls and is joined before final postprocess.
-        max_chars = 300
-    if max_chars is None:
-        return []
     audited = model_audits.input_limits(repo).get(
         "private_section_max_characters"
     )
-    try:
-        audited_chars = int(audited)
-    except (TypeError, ValueError):
-        audited_chars = 0
-    if 40 <= audited_chars <= 20_000:
-        max_chars = audited_chars
-    return _sentence_safe_text_chunks(text, max_chars=max_chars)
+    policy = long_form_policy.policy_for(
+        family,
+        repo,
+        audited_section_max_characters=audited,
+    )
+    if policy is None:
+        return []
+    return _sentence_safe_text_chunks(
+        text,
+        max_chars=policy["section_max_characters"],
+    )
 
 
 def _long_form_join_pause_s(family: str, repo: str) -> float:
     """Return a private, model-path-specific pause between rendered sections."""
-    if family == "qwen3-tts" and _qwen3_mode_from_repo(repo) == "clone":
-        return _QWEN_CLONE_JOIN_PAUSE_S
-    return _LONG_FORM_JOIN_PAUSE_S
+    policy = long_form_policy.policy_for(family, repo)
+    if policy is None:
+        return _LONG_FORM_JOIN_PAUSE_S
+    return float(policy["join_pause_seconds"])
 
 
 def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,

@@ -19,6 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from . import long_form_policy, model_audits
+
 
 @dataclass(frozen=True)
 class TextGuidance:
@@ -1301,7 +1303,6 @@ def serialize_model(m: ModelEntry) -> dict:
     )
     apple_optimized = m.family.endswith("-mlx") or m.family in _MLX_AUDIO_FAMILIES
     try:
-        from . import model_audits
         audited_input_limits = model_audits.input_limits(m.repo)
     except Exception:
         audited_input_limits = {}
@@ -1315,6 +1316,13 @@ def serialize_model(m: ModelEntry) -> dict:
     except (TypeError, ValueError):
         audited_text_max = None
     language_support = m.language_support or LanguageSupport(codes=m.languages)
+    effective_long_form_policy = long_form_policy.policy_for(
+        m.family,
+        m.repo,
+        audited_section_max_characters=audited_input_limits.get(
+            "private_section_max_characters"
+        ),
+    )
     return {
         "repo": m.repo,
         "label": m.label,
@@ -1352,6 +1360,7 @@ def serialize_model(m: ModelEntry) -> dict:
             ),
             "qualification_source": "audit" if audited_input_limits else "unverified",
         },
+        "long_form_delivery": effective_long_form_policy,
         "reference_audio": {
             "supported": bool("voice-cloning" in m.capabilities),
             "profile_source": "audit" if reference_profile else "unverified",

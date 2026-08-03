@@ -2847,6 +2847,10 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 .variant-capabilities { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
 .variant-capabilities span { color: #70807d; font-size: var(--font-caption); text-transform: uppercase; letter-spacing: .04em; }
 .variant-capabilities span:not(:last-child)::after { content: "/"; margin-left: 5px; color: #394240; }
+.long-form-glance { display: flex; align-items: baseline; gap: 6px; margin-top: 7px; color: #81908d; font-size: var(--font-caption); line-height: 1.35; flex-wrap: wrap; }
+.long-form-glance .long-form-label { color: var(--family-accent); font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.long-form-glance strong { color: #c7d1cf; font-size: inherit; }
+.long-form-glance small { flex-basis: 100%; color: #6f7d7a; font-size: inherit; }
 .variant-spec { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .variant-spec > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .variant-spec strong { color: #c7d1cf; font-size: var(--font-caption); font-weight: 700; }
@@ -2874,6 +2878,8 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 .variant-repo { margin: 0 0 8px; }
 .variant-repo code { color: #71817e; font-size: var(--font-caption); word-break: break-all; }
 .variant-details .hw { color: var(--muted); font-size: var(--font-caption); }
+.long-form-details { display: flex; gap: 6px; margin-top: 9px; color: #71817e; font-size: var(--font-caption); flex-wrap: wrap; }
+.long-form-details strong { color: var(--family-accent); }
 .variant-readiness { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
 .empty-orbit { display: grid; width: 42px; height: 42px; margin: 0 auto 9px; place-items: center; border: 1px solid #41504d; border-radius: 50%; color: #7dd3c7; }
 

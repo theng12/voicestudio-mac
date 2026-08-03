@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.13] — 2026-08-03
+
+### Added — visible per-model long-form delivery policies
+
+- Every model using Voice Studio-managed long-form delivery now shows its
+  effective sentence-safe section ceiling, join pause, and model-specific note
+  directly in the Models library.
+- Generation and catalog display now consume one shared policy, including exact
+  model-audit overrides, so the visible values cannot drift from runtime
+  behavior.
+- The catalog API publishes whether the customer submits one complete script,
+  the split method, and whether the effective ceiling came from the runtime
+  default or an exact model audit.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.12] — 2026-08-03
 
 ### Added — transcription qualification resource evidence
