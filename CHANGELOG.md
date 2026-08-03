@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.11] — 2026-08-03
+
+### Changed — owner-approved Qwen cloning continuity
+
+- Qwen3-TTS Base voice cloning now uses a verified 288-character private
+  sentence-safe section ceiling after owner listening found it free of the
+  tonation change heard with the previous 360-character ceiling.
+- Qwen Base clone joins now use a slightly more relaxed 180 ms narration pause
+  instead of 120 ms. Other model families and Qwen CustomVoice retain their
+  existing section budgets and pauses.
+- The public customer request remains one complete script and returns one
+  validated WAV; these pacing controls remain private adapter details.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.10] — 2026-08-03
 
 ### Fixed — cancellable OmniVoice long-form cloning

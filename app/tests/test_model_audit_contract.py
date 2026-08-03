@@ -82,7 +82,8 @@ def test_qwen_base_is_an_exact_transcript_assisted_candidate() -> None:
     assert candidate["hardware"]["recommended_unified_memory_gb"] == 24
     limits = candidate["input_limits"]
     assert limits["text_max_characters"] == 40_000
-    assert limits["private_section_max_characters"] == 360
+    assert limits["private_section_max_characters"] == 288
+    assert limits["private_join_pause_milliseconds"] == 180
     assert limits["long_form_strategy"] == "adapter_managed_long_form"
     reference = limits["reference_audio"]
     assert reference["minimum_duration_seconds"] == 3

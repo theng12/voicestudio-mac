@@ -1,8 +1,8 @@
 {
   "schema": "studio.model-audit-record",
   "schema_version": 1,
-  "audit_id": "voicestudio-20260803-qwen3-tts-0.6b-base-50f45ef0",
-  "audited_at": "2026-08-03T07:20:18Z",
+  "audit_id": "voicestudio-20260803-qwen3-tts-0.6b-base-50f45ef0-pacing288",
+  "audited_at": "2026-08-03T08:45:00Z",
   "subject": {
     "model_id": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
     "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
@@ -19,7 +19,7 @@
     "approved_operations": ["voice.tts"],
     "adapter": {
       "id": "voicestudio.mlx-audio.qwen3-tts-base",
-      "version": "1.1",
+      "version": "1.2",
       "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
     },
     "controls": {
@@ -45,7 +45,8 @@
     "input_limits": {
       "text_min_characters": 1,
       "text_max_characters": 40000,
-      "private_section_max_characters": 360,
+      "private_section_max_characters": 288,
+      "private_join_pause_milliseconds": 180,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
       "supports_cancellation_between_chunks": true,
@@ -87,16 +88,16 @@
   "genstudio_candidate": {
     "schema": "studio.model-audit",
     "schema_version": 1,
-    "audit_id": "voicestudio-20260803-qwen3-tts-0.6b-base-50f45ef0",
+    "audit_id": "voicestudio-20260803-qwen3-tts-0.6b-base-50f45ef0-pacing288",
     "audit_status": "passed",
     "candidate_for_genstudio": true,
-    "contract_hash": "sha256:3570db3ad693a511c2a0e5fb89b3be4d777cd72a8e4819446b7957939bc7707e",
+    "contract_hash": "sha256:efd129750346eed914e3efea03a85cdc2cde8e74f27bfde38fea91b102d1d730",
     "runtime_revision": "50f45ef0047cde7e84c2ef04326acb8ada2436a7",
     "approved_operations": ["voice.tts"],
-    "audited_at": "2026-08-03T07:20:18Z",
+    "audited_at": "2026-08-03T08:45:00Z",
     "adapter": {
       "id": "voicestudio.mlx-audio.qwen3-tts-base",
-      "version": "1.1",
+      "version": "1.2",
       "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
     },
     "controls": {
@@ -122,7 +123,8 @@
     "input_limits": {
       "text_min_characters": 1,
       "text_max_characters": 40000,
-      "private_section_max_characters": 360,
+      "private_section_max_characters": 288,
+      "private_join_pause_milliseconds": 180,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
       "supports_cancellation_between_chunks": true,
@@ -246,8 +248,9 @@
     },
     "human_quality_review": {
       "reviewer": "owner",
-      "reviewed_at": "2026-08-03T07:20:18Z",
-      "base_model_assessment": "stable and accurate",
+      "reviewed_at": "2026-08-03T08:45:00Z",
+      "base_model_assessment": "stable and accurate at a 288-character private section ceiling; the earlier 360-character test had an audible boundary tonation change",
+      "pacing_decision": "use a model-specific 180 ms join pause; the controlled 120 ms join was judged too fast",
       "quality_gate": "passed",
       "custom_voice_variant_assessment": "inconsistent and excluded from this audit"
     },

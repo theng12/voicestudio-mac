@@ -140,7 +140,7 @@ FAMILIES: dict[str, Family] = {
         text_guidance=TextGuidance(
             soft_max_chars=None,
             chunking="auto-split",
-            note="Long voice-clone scripts are split at sentence boundaries, rendered with the same reference, and joined into one chapter. No manual splitting needed.",
+            note="Long voice-clone scripts are split into short sentence-safe sections, rendered with the same reference, and joined with relaxed narration pauses into one chapter. No manual splitting needed.",
         ),
     ),
     "kokoro-mlx": Family(

@@ -765,10 +765,12 @@ def _qwen3_mode_from_repo(repo: str) -> str:
 
 
 # Qwen's Base / ICL clone path does not use the model's built-in newline
-# splitting. Keeping each independent clone invocation below roughly half a
-# minute avoids the long-context pacing collapse while preserving the same
-# reference voice on every section.
-_QWEN_CLONE_CHUNK_CHARS = 360
+# splitting. Owner listening found the 360-character setting could change
+# tonation at a boundary while a controlled 288-character run remained stable.
+# Keep Base/ICL cloning at that verified conservative ceiling. CustomVoice is a
+# different preset-speaker path and retains its existing budget.
+_QWEN_CLONE_CHUNK_CHARS = 288
+_QWEN_PRESET_CHUNK_CHARS = 360
 _CHATTERBOX_STANDARD_CHUNK_CHARS = 500
 _CHATTERBOX_TURBO_CHUNK_CHARS = 400
 # VoxCPM2's architectural output window is much larger, but real clone
@@ -792,6 +794,7 @@ _VIBEVOICE_MAX_TOKENS = 4096
 # the owner completes the long-form listening gate.
 _OMNIVOICE_CHUNK_CHARS = 288
 _LONG_FORM_JOIN_PAUSE_S = 0.12
+_QWEN_CLONE_JOIN_PAUSE_S = 0.18
 _QWEN_SENTENCE_ENDINGS = frozenset(".!?。！？")
 _QWEN_TRAILING_CLOSERS = frozenset("\"'”’»）】〕〉")
 
@@ -892,7 +895,11 @@ def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
     """
     max_chars: Optional[int] = None
     if family == "qwen3-tts":
-        max_chars = _QWEN_CLONE_CHUNK_CHARS
+        max_chars = (
+            _QWEN_CLONE_CHUNK_CHARS
+            if _qwen3_mode_from_repo(repo) == "clone"
+            else _QWEN_PRESET_CHUNK_CHARS
+        )
     elif family == "chatterbox-mlx":
         max_chars = (
             _CHATTERBOX_TURBO_CHUNK_CHARS
@@ -924,6 +931,13 @@ def _internal_mlx_text_chunks(family: str, repo: str, text: str) -> list[str]:
     if 40 <= audited_chars <= 20_000:
         max_chars = audited_chars
     return _sentence_safe_text_chunks(text, max_chars=max_chars)
+
+
+def _long_form_join_pause_s(family: str, repo: str) -> float:
+    """Return a private, model-path-specific pause between rendered sections."""
+    if family == "qwen3-tts" and _qwen3_mode_from_repo(repo) == "clone":
+        return _QWEN_CLONE_JOIN_PAUSE_S
+    return _LONG_FORM_JOIN_PAUSE_S
 
 
 def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,
@@ -2603,7 +2617,12 @@ class GenerationManager:
                 )
             segment_paths.append(segment_path)
             job.progress = max(job.progress, min(0.95, 0.08 + index / len(chunks) * 0.85))
-        _join_long_form_wavs(segment_paths, output_path, family)
+        _join_long_form_wavs(
+            segment_paths,
+            output_path,
+            family,
+            pause_s=_long_form_join_pause_s(family, model_repo),
+        )
 
     def _generate_qwen_clone_long_form(self, job: GenerationJob, model, gen_kwargs: dict,
                                        chunks: list[str], temp_dir: Path, output_path: Path,
@@ -2612,6 +2631,7 @@ class GenerationManager:
         self._generate_mlx_long_form_sections(
             job, "qwen3-tts", model, gen_kwargs, chunks, temp_dir,
             output_path, generate_audio,
+            "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
         )
 
     def _resolve_mlx_kwargs(self, mode: str, family: str, model_entry, params: dict,

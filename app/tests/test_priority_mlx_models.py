@@ -552,7 +552,7 @@ def test_qwen_clone_long_sentence_falls_back_to_word_boundaries() -> None:
 @pytest.mark.parametrize(
     ("family", "repo", "expected_limit"),
     [
-        ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit", 360),
+        ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit", 288),
         ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit", 360),
         ("chatterbox-mlx", "mlx-community/chatterbox-8bit", 500),
         ("chatterbox-mlx", "mlx-community/chatterbox-turbo-4bit", 400),
@@ -636,6 +636,18 @@ def test_qwen_clone_join_preserves_segment_audio_and_pause(tmp_path: Path) -> No
     assert np.allclose(audio[:10], 0.25, atol=1e-3)
     assert np.allclose(audio[10:20], 0.0, atol=1e-6)
     assert np.allclose(audio[20:], -0.25, atol=1e-3)
+
+
+def test_qwen_clone_uses_relaxed_join_pause_without_changing_other_models() -> None:
+    assert generation._long_form_join_pause_s(
+        "qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+    ) == pytest.approx(0.18)
+    assert generation._long_form_join_pause_s(
+        "qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+    ) == pytest.approx(0.12)
+    assert generation._long_form_join_pause_s(
+        "omnivoice", "mlx-community/OmniVoice-bfloat16"
+    ) == pytest.approx(0.12)
 
 
 def test_qwen_speed_is_pitch_preserving_and_changes_duration(tmp_path: Path) -> None:
