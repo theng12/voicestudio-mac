@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.16] — 2026-08-04
+
+### Removed — Whisper Tiny transcription offering
+
+- Whisper Tiny is no longer advertised, downloadable, or accepted as a Voice
+  Studio transcription model. Fleet qualification against the same 42-minute
+  control found only 68.10–73.02% source-word coverage, compared with
+  99.32–99.35% for Whisper Large v3 Turbo.
+- Whisper Large v3 Turbo is the sole GenStudio-qualified transcription model
+  and remains qualified on 8, 16, and 24 GB Apple Silicon workers. Voice
+  Studio does not silently fall back to Tiny.
+- Existing Tiny model and tokenizer cache folders are preserved and shown as
+  retired, safely removable packages in Models → Storage & dependencies. This
+  release does not delete cached data or alter historical jobs.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.15] — 2026-08-04
 
 ### Fixed — large model downloads no longer stall forever

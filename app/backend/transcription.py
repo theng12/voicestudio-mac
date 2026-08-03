@@ -98,12 +98,6 @@ WHISPER_MODELS: tuple[WhisperModel, ...] = (
         size_gb=0.15,
         note="Very fast, lower accuracy. Quick drafts / very clean audio.",
     ),
-    WhisperModel(
-        repo="mlx-community/whisper-tiny",
-        label="Whisper tiny",
-        size_gb=0.07,
-        note="Smallest. Fastest. Lowest accuracy — testing / latency-critical only.",
-    ),
 )
 
 _BY_REPO = {m.repo: m for m in WHISPER_MODELS}
@@ -113,8 +107,8 @@ _BY_REPO = {m.repo: m for m in WHISPER_MODELS}
 # whisper post-load hook does `WhisperProcessor.from_pretrained(<local snapshot>)`,
 # which therefore fails → model._processor = None → at transcribe time you get
 # "Processor not found. Make sure the model was loaded with a HuggingFace
-# processor." This affects ALL six repos (turbo, turbo-q4, large-v3, small,
-# base, tiny) equally — it is NOT specific to the quantized one.
+# processor." This affects all five repos (turbo, turbo-q4, large-v3, small,
+# and base) equally — it is NOT specific to the quantized one.
 #
 # Fix (v1.4.3): mlx-audio computes the mel spectrogram itself from the model's
 # own config (`log_mel_spectrogram(audio, n_mels=self.dims.n_mels)`) and uses
@@ -127,7 +121,6 @@ _PROCESSOR_BASE = {
     "mlx-community/whisper-large-v3-mlx":      "openai/whisper-large-v3",
     "mlx-community/whisper-small-mlx":         "openai/whisper-small",
     "mlx-community/whisper-base-mlx":          "openai/whisper-base",
-    "mlx-community/whisper-tiny":              "openai/whisper-tiny",
 }
 
 

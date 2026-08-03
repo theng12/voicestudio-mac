@@ -77,8 +77,8 @@ def test_missing_companion_stays_visible_beneath_its_installed_parent(tmp_path, 
 
 
 def test_whisper_processor_without_weights_is_a_complete_dependency(tmp_path, monkeypatch) -> None:
-    parent = "mlx-community/whisper-tiny"
-    companion = "openai/whisper-tiny"
+    parent = "mlx-community/whisper-large-v3-turbo-q4"
+    companion = "openai/whisper-large-v3-turbo"
     _cached_repo(tmp_path, monkeypatch, parent)
     _cached_repo(tmp_path, monkeypatch, companion, weight=False)
 
@@ -90,8 +90,8 @@ def test_whisper_processor_without_weights_is_a_complete_dependency(tmp_path, mo
 
 
 def test_unversioned_dependency_is_visible_as_partial(tmp_path, monkeypatch) -> None:
-    parent = "mlx-community/whisper-tiny"
-    companion = "openai/whisper-tiny"
+    parent = "mlx-community/whisper-large-v3-turbo-q4"
+    companion = "openai/whisper-large-v3-turbo"
     _cached_repo(tmp_path, monkeypatch, parent)
     root = cache.repo_cache_dir(companion)
     snapshot = root / "snapshots" / "main"
@@ -119,6 +119,23 @@ def test_legacy_package_is_explained_and_can_be_removed_as_one_unit(tmp_path, mo
     assert result["removed"] is True
     assert result["freed_bytes"] == len(b"cache-data")
     assert not root.exists()
+
+
+def test_retired_whisper_tiny_packages_are_explained_and_removable(tmp_path, monkeypatch) -> None:
+    model = "mlx-community/whisper-tiny"
+    processor = "openai/whisper-tiny"
+    _cached_repo(tmp_path, monkeypatch, model)
+    _cached_repo(tmp_path, monkeypatch, processor, weight=False)
+
+    payload = model_storage.inventory()
+    model_item = _item(payload, model)
+    processor_item = _item(payload, processor)
+
+    assert model_item["type"] == "legacy"
+    assert processor_item["type"] == "legacy"
+    assert model_item["removal"]["allowed"] is True
+    assert processor_item["removal"]["allowed"] is True
+    assert "only GenStudio-qualified transcription model" in model_item["detail"]
 
 
 def test_unknown_cache_is_visible_instead_of_silently_ignored(tmp_path, monkeypatch) -> None:

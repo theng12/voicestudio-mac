@@ -50,6 +50,16 @@ LEGACY_REPOS: dict[str, dict[str, str]] = {
         "label": "VoxCPM2 8-bit (older alternative)",
         "reason": "Not referenced by Voice Studio's current 4-bit and bf16 catalogue options.",
     },
+    "mlx-community/whisper-tiny": {
+        "family": "whisper-stt",
+        "label": "Whisper Tiny (retired)",
+        "reason": "Retired after fleet qualification found materially incomplete transcripts; Whisper Large v3 Turbo is the only GenStudio-qualified transcription model.",
+    },
+    "openai/whisper-tiny": {
+        "family": "whisper-stt",
+        "label": "Whisper Tiny tokenizer (retired dependency)",
+        "reason": "No longer required because its Whisper Tiny parent model is retired.",
+    },
 }
 
 

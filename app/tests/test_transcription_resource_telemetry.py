@@ -65,7 +65,7 @@ def test_successful_transcription_returns_worker_resource_evidence(
 
     result = manager.transcribe(
         str(audio),
-        model_repo="mlx-community/whisper-tiny",
+        model_repo="mlx-community/whisper-large-v3-turbo",
         language="en",
         word_timestamps=True,
     )
@@ -107,3 +107,17 @@ def test_failed_transcription_finishes_resource_sampler(
         "restart_scheduled": False,
         "model_retained": False,
     }
+
+
+def test_retired_whisper_tiny_is_rejected_without_fallback(tmp_path: Path) -> None:
+    audio = tmp_path / "control.wav"
+    audio.write_bytes(b"audio")
+    manager = transcription.TranscriptionManager()
+
+    with pytest.raises(ValueError, match="Unknown whisper model"):
+        manager.transcribe(
+            str(audio),
+            model_repo="mlx-community/whisper-tiny",
+        )
+
+    assert manager._model_repo is None

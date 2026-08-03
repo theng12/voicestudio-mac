@@ -9,7 +9,6 @@ from backend import generation, main, model_audits, transcription
 GROUP_A = {
     "mlx-community/Kokoro-82M-bf16": "voice.tts",
     "mlx-community/whisper-large-v3-turbo": "audio.transcription",
-    "mlx-community/whisper-tiny": "audio.transcription",
 }
 
 QWEN_BASE = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
@@ -263,10 +262,7 @@ def test_transcription_availability_exposes_exact_audited_revisions(
     )
 
     models = {row["repo"]: row for row in transcription.availability()["models"]}
-    for repo in (
-        "mlx-community/whisper-large-v3-turbo",
-        "mlx-community/whisper-tiny",
-    ):
+    for repo in ("mlx-community/whisper-large-v3-turbo",):
         assert models[repo]["cached"] is True
         assert models[repo]["genstudio_candidate_runtime_match"] is True
         assert models[repo]["genstudio_candidate"]["approved_operations"] == [
@@ -279,6 +275,7 @@ def test_transcription_availability_exposes_exact_audited_revisions(
     assert "genstudio_candidate" not in models[
         "mlx-community/whisper-small-mlx"
     ]
+    assert "mlx-community/whisper-tiny" not in models
 
 
 def test_whisper_postroll_is_bounded_by_the_source_media() -> None:
