@@ -1,0 +1,182 @@
+{
+  "schema": "studio.model-audit-record",
+  "schema_version": 1,
+  "audit_id": "voicestudio-20260803-chatterbox-4bit-f1d7b969",
+  "audited_at": "2026-08-03T08:20:58Z",
+  "subject": {
+    "model_id": "mlx-community/chatterbox-4bit",
+    "upstream_model_id": "ResembleAI/chatterbox",
+    "display_name": "Chatterbox 4-bit",
+    "modality": "voice",
+    "checkpoint_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8"
+  },
+  "contract": {
+    "model_id": "mlx-community/chatterbox-4bit",
+    "upstream_model_id": "ResembleAI/chatterbox",
+    "display_name": "Chatterbox 4-bit",
+    "modality": "voice",
+    "runtime_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+    "approved_operations": ["voice.tts"],
+    "adapter": {
+      "id": "voicestudio.mlx-audio.chatterbox",
+      "version": "1.1",
+      "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": true,
+        "default": "en",
+        "values": ["ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh"]
+      },
+      "exaggeration": {"type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.5},
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      },
+      "voice_clone": {"type": "reference_audio", "required": true, "transcript": "not_used"}
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 40000,
+      "private_section_max_characters": 500,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "reference_audio": {
+        "accepted_extensions": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"],
+        "max_audio_bytes": 25000000,
+        "transcript": "not_used"
+      },
+      "preset_voice_supported": false,
+      "voice_design_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 16,
+      "recommended_unified_memory_gb": 24,
+      "measured_peak_memory_gb": 3.929,
+      "ineligible_unified_memory_gb": [8]
+    },
+    "capacity": {"max_concurrency": 1},
+    "license": {"spdx": "MIT", "commercial_use": true}
+  },
+  "genstudio_candidate": {
+    "schema": "studio.model-audit",
+    "schema_version": 1,
+    "audit_id": "voicestudio-20260803-chatterbox-4bit-f1d7b969",
+    "audit_status": "failed",
+    "candidate_for_genstudio": false,
+    "contract_hash": "sha256:15e3769dc580681e49a7d68a1b4e39b3d796d2ddca19fd9817bd5c58db2c1595",
+    "runtime_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+    "approved_operations": ["voice.tts"],
+    "audited_at": "2026-08-03T08:20:58Z",
+    "adapter": {
+      "id": "voicestudio.mlx-audio.chatterbox",
+      "version": "1.1",
+      "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": true,
+        "default": "en",
+        "values": ["ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh"]
+      },
+      "exaggeration": {"type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.5},
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      },
+      "voice_clone": {"type": "reference_audio", "required": true, "transcript": "not_used"}
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 40000,
+      "private_section_max_characters": 500,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "reference_audio": {
+        "accepted_extensions": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"],
+        "max_audio_bytes": 25000000,
+        "transcript": "not_used"
+      },
+      "preset_voice_supported": false,
+      "voice_design_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 16,
+      "recommended_unified_memory_gb": 24,
+      "measured_peak_memory_gb": 3.929,
+      "ineligible_unified_memory_gb": [8]
+    },
+    "capacity": {"max_concurrency": 1}
+  },
+  "evidence": {
+    "qualification_run": "2026-08-03-kts-live",
+    "cache": {
+      "state": "verified_by_live_execution",
+      "snapshot_revision": "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8",
+      "revision_current_at_qualification": true
+    },
+    "language_qualification": {
+      "tested_language_count": 23,
+      "hebrew": "failed_quality_on_8_16_and_24_gb",
+      "japanese": "failed_on_8_gb_and_plausible_on_16_and_24_gb",
+      "swedish": "failed_on_8_gb_and_plausible_on_16_gb",
+      "english_runtime_seconds": 21.07,
+      "english_audio_duration_seconds": 6.84
+    },
+    "long_form_endurance": {
+      "input_characters": 40000,
+      "private_sections": 110,
+      "tiers": {
+        "8": {"runtime_seconds": 4207.323, "audio_duration_seconds": 1602.57, "real_time_factor": 2.626, "peak_pressure": "urgent", "minimum_available_gb": 0.598, "maximum_swap_used_gb": 1.655, "result": "unsafe"},
+        "16": {"runtime_seconds": 5159.841, "audio_duration_seconds": 1383.57, "real_time_factor": 3.729, "peak_pressure": "normal", "minimum_available_gb": 3.239, "swap_used_end_gb": 0.749, "result": "technically_completed"}
+      },
+      "text_integrity": "not_durably_qualified",
+      "result": "failed_commercial_latency_and_quality_gate"
+    },
+    "cancellation": {"cancelled_progress": 0.08, "partial_artifact_published": false, "result": "passed"},
+    "human_quality_review": {
+      "reviewer": "owner",
+      "reviewed_at": "2026-08-03T08:20:58Z",
+      "assessment": "generation latency is unsuitable for production",
+      "quality_gate": "failed",
+      "commercial_decision": "rejected"
+    },
+    "rejection_reasons": [
+      "owner listening and timing review rejected production suitability",
+      "40,000-character generation was substantially slower than real time",
+      "8 GB long-form execution reached urgent memory pressure",
+      "the claimed multilingual roster did not pass consistently across tested tiers"
+    ],
+    "safety": {"provider_calls": 0, "historical_jobs_modified": 0, "model_downloads_started_by_closure": 0}
+  }
+}

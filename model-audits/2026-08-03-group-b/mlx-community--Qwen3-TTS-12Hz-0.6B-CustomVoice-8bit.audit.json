@@ -1,0 +1,183 @@
+{
+  "schema": "studio.model-audit-record",
+  "schema_version": 1,
+  "audit_id": "voicestudio-20260803-qwen3-tts-0.6b-customvoice-049ef77f",
+  "audited_at": "2026-08-03T08:20:58Z",
+  "subject": {
+    "model_id": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+    "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+    "display_name": "Qwen3-TTS 0.6B CustomVoice",
+    "modality": "voice",
+    "checkpoint_revision": "049ef77fe8816b536193c0c25f9a214d17921282"
+  },
+  "contract": {
+    "model_id": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+    "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+    "display_name": "Qwen3-TTS 0.6B CustomVoice",
+    "modality": "voice",
+    "runtime_revision": "049ef77fe8816b536193c0c25f9a214d17921282",
+    "approved_operations": ["voice.tts"],
+    "adapter": {
+      "id": "voicestudio.mlx-audio.qwen3-tts-customvoice",
+      "version": "1.1",
+      "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": true,
+        "default": "en",
+        "values": ["en", "zh", "ja", "ko", "fr", "de", "es", "it", "pt", "ru"]
+      },
+      "preset_speaker": {
+        "type": "enum",
+        "required": true,
+        "values": ["Ryan", "Aiden", "Serena", "Vivian", "Uncle_Fu", "Dylan", "Eric", "Ono_Anna", "Sohee"]
+      },
+      "style_instruction": {"type": "string", "required": false},
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 40000,
+      "private_section_max_characters": 360,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "voice_clone_supported": false,
+      "preset_voice_supported": true,
+      "preset_voice_count": 9,
+      "voice_design_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 16,
+      "recommended_unified_memory_gb": 24,
+      "measured_peak_memory_gb": 15.664,
+      "unqualified_unified_memory_gb": [8]
+    },
+    "capacity": {"max_concurrency": 1},
+    "license": {"spdx": "Apache-2.0", "commercial_use": true}
+  },
+  "genstudio_candidate": {
+    "schema": "studio.model-audit",
+    "schema_version": 1,
+    "audit_id": "voicestudio-20260803-qwen3-tts-0.6b-customvoice-049ef77f",
+    "audit_status": "failed",
+    "candidate_for_genstudio": false,
+    "contract_hash": "sha256:3227006f4c875883c5e50c305a1b0f88a03c3a0321621d9ad04b4a0f10e8a74e",
+    "runtime_revision": "049ef77fe8816b536193c0c25f9a214d17921282",
+    "approved_operations": ["voice.tts"],
+    "audited_at": "2026-08-03T08:20:58Z",
+    "adapter": {
+      "id": "voicestudio.mlx-audio.qwen3-tts-customvoice",
+      "version": "1.1",
+      "runtime": "mlx-audio 0.4.6+d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": true,
+        "default": "en",
+        "values": ["en", "zh", "ja", "ko", "fr", "de", "es", "it", "pt", "ru"]
+      },
+      "preset_speaker": {
+        "type": "enum",
+        "required": true,
+        "values": ["Ryan", "Aiden", "Serena", "Vivian", "Uncle_Fu", "Dylan", "Eric", "Ono_Anna", "Sohee"]
+      },
+      "style_instruction": {"type": "string", "required": false},
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 40000,
+      "private_section_max_characters": 360,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "voice_clone_supported": false,
+      "preset_voice_supported": true,
+      "preset_voice_count": 9,
+      "voice_design_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 16,
+      "recommended_unified_memory_gb": 24,
+      "measured_peak_memory_gb": 15.664,
+      "unqualified_unified_memory_gb": [8]
+    },
+    "capacity": {"max_concurrency": 1}
+  },
+  "evidence": {
+    "qualification_run": "2026-08-03-kts-live",
+    "cache": {
+      "state": "verified_by_live_execution",
+      "snapshot_revision": "049ef77fe8816b536193c0c25f9a214d17921282",
+      "revision_current_at_qualification": true
+    },
+    "preset_voice_inventory": ["Ryan", "Aiden", "Serena", "Vivian", "Uncle_Fu", "Dylan", "Eric", "Ono_Anna", "Sohee"],
+    "short_form": {
+      "completed_voice_count": 9,
+      "eric_runtime_seconds": 49.338,
+      "eric_audio_duration_seconds": 7.57,
+      "eric_peak_mlx_reported_gb": 15.664,
+      "result": "technically_completed_with_quality_and_performance_anomalies"
+    },
+    "long_form_endurance": {
+      "input_characters": 40000,
+      "private_sections": 137,
+      "tiers": {
+        "16": {"runtime_seconds": 1789.862, "audio_duration_seconds": 3095.2, "peak_pressure": "warning", "minimum_available_gb": 1.058, "swap_used_end_gb": 0.787},
+        "24": {"runtime_seconds": 1575.845, "audio_duration_seconds": 3112.56, "peak_pressure": "normal", "minimum_available_gb": 2.742, "swap_used_end_gb": 0.0}
+      },
+      "automated_text_integrity": "unresolved_after_uncertain_controller_boundary_result",
+      "result": "not_qualified"
+    },
+    "cancellation": {"cancelled_progress": 0.08, "partial_artifact_published": false, "result": "passed"},
+    "human_quality_review": {
+      "reviewer": "owner",
+      "reviewed_at": "2026-08-03T08:20:58Z",
+      "assessment": "preset voice output was inconsistent",
+      "quality_gate": "failed",
+      "commercial_decision": "rejected"
+    },
+    "rejection_reasons": [
+      "owner listening review found inconsistent preset-voice quality",
+      "one preset showed anomalous runtime and memory use",
+      "long-form transcript integrity did not produce durable conclusive evidence"
+    ],
+    "safety": {"provider_calls": 0, "historical_jobs_modified": 0, "model_downloads_started_by_closure": 0}
+  }
+}

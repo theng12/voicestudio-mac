@@ -13,6 +13,14 @@ GROUP_A = {
 }
 
 QWEN_BASE = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+REJECTED_GROUP_B = {
+    "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit": (
+        "049ef77fe8816b536193c0c25f9a214d17921282"
+    ),
+    "mlx-community/chatterbox-4bit": (
+        "f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8"
+    ),
+}
 
 
 def test_group_a_records_are_hash_bound_candidates_not_final_approvals() -> None:
@@ -84,6 +92,50 @@ def test_qwen_base_is_an_exact_transcript_assisted_candidate() -> None:
     assert reference["transcript"] == "required"
     assert record["evidence"]["hardware_qualification"]["8"]["eligible"] is False
     assert "approved_for_genstudio" not in json.dumps(record)
+
+
+def test_rejected_group_b_qualifications_are_closed_and_never_candidates() -> None:
+    for model_id, revision in REJECTED_GROUP_B.items():
+        record = model_audits.audit_record(model_id)
+        assert record is not None
+        assert record["subject"]["checkpoint_revision"] == revision
+        candidate = record["genstudio_candidate"]
+        assert candidate["audit_status"] == "failed"
+        assert candidate["candidate_for_genstudio"] is False
+        assert candidate["runtime_revision"] == revision
+        assert candidate["approved_operations"] == ["voice.tts"]
+        assert candidate["contract_hash"] == model_audits.contract_hash(
+            record["contract"]
+        )
+        assert record["evidence"]["human_quality_review"][
+            "commercial_decision"
+        ] == "rejected"
+        assert "approved_for_genstudio" not in json.dumps(record)
+
+
+def test_rejected_qwen_customvoice_records_exact_preset_roster() -> None:
+    record = model_audits.audit_record(
+        "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+    )
+    assert record is not None
+    assert record["contract"]["controls"]["preset_speaker"]["values"] == [
+        "Ryan", "Aiden", "Serena", "Vivian", "Uncle_Fu", "Dylan",
+        "Eric", "Ono_Anna", "Sohee",
+    ]
+    assert record["contract"]["input_limits"]["voice_clone_supported"] is False
+
+
+def test_rejected_chatterbox_records_grounded_language_and_latency_failures() -> None:
+    record = model_audits.audit_record("mlx-community/chatterbox-4bit")
+    assert record is not None
+    assert len(record["contract"]["controls"]["language"]["values"]) == 23
+    evidence = record["evidence"]
+    assert evidence["language_qualification"]["hebrew"] == (
+        "failed_quality_on_8_16_and_24_gb"
+    )
+    assert evidence["long_form_endurance"]["tiers"]["16"][
+        "real_time_factor"
+    ] == 3.729
 
 
 def test_kokoro_adapter_uses_audited_checkpoint_local_voicepacks(

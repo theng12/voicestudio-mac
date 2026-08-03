@@ -10,6 +10,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.27.8] — 2026-08-03
+
+### Changed — closed Group B rejections
+
+- Qwen3-TTS 0.6B CustomVoice and Chatterbox 4-bit now carry durable,
+  hash-bound failed qualification records. Both remain usable for local
+  internal testing, but neither is a GenStudio candidate and neither can be
+  promoted by Studio Hub from these records.
+- The CustomVoice record preserves its exact nine-speaker roster, completed
+  tier evidence, unresolved long-form text-integrity result, and the owner's
+  inconsistent-quality rejection.
+- The Chatterbox record preserves all 23 tested language cases, unsafe 8 GB
+  long-form pressure, substantially slower-than-real-time 16 GB endurance,
+  and the owner's production-latency rejection.
+
+### Verification
+
+- Audit-contract tests prove both exact immutable revisions are closed as
+  `failed`, `candidate_for_genstudio` is false, contract hashes are valid, and
+  no sibling record claims final exposure authority.
+
+No dependency reinstall is required. Run **Update**, then restart Voice Studio.
+
 ## [1.27.7] — 2026-08-03
 
 ### Added — qualified Qwen3-TTS voice cloning
