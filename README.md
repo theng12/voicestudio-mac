@@ -6,9 +6,10 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 
 ## What it does
 
-- **Catalog of focused local models** across 14 families, including Qwen3-TTS,
+- **Catalog of focused local models** across 16 families, including Qwen3-TTS,
   Chatterbox, OmniVoice, Fish Audio S2 Pro, VoxCPM2, Kokoro, F5-TTS, Spark-TTS,
-  Bark, Orpheus, KittenTTS, VibeVoice, Voxtral, and Marvis.
+  Bark, Orpheus, KittenTTS, VibeVoice, Voxtral, Marvis, Audio8 TTS Preview, and
+  MOSS-TTS-Nano.
 - **Apple Silicon first** — the priority families use curated MLX tiers instead
   of presenting every redundant precision. Qwen3 includes 0.6B and 1.7B Base
   voice cloning, preset speakers, and VoiceDesign. Long Qwen scripts are
@@ -371,12 +372,11 @@ or generation start log.
 ### Final TTS artifact contract
 
 Qwen3-TTS (preset, clone, and VoiceDesign), VoxCPM2, Kokoro, Chatterbox,
-OmniVoice, VibeVoice, and Fish
-Audio S2 Pro
+OmniVoice, VibeVoice, Fish Audio S2 Pro, Audio8 TTS Preview, and MOSS-TTS-Nano
 accept one logical long-form request. Voice Studio alone splits it at
 sentence-safe boundaries, renders private temporary sections, validates every
-section, and joins them into one WAV. Qwen, VoxCPM2, VibeVoice, and Fish Audio
-S2 Pro apply the
+section, and joins them into one WAV. Qwen, VoxCPM2, VibeVoice, Fish Audio
+S2 Pro, Audio8, and MOSS-TTS-Nano apply the
 requested pitch-preserving speed adjustment once to that joined WAV; Kokoro
 uses its native synthesis-speed control consistently in every private section.
 Temporary section files never have an API route and are deleted before the job
@@ -467,7 +467,8 @@ The service files ship inside this launcher, so on each Mac you just click **Ins
 The launcher scripts in this repo are MIT. Each TTS model has its own license — see the catalog for per-model notes. The big restrictions to remember:
 
 - **F5-TTS**: non-commercial
-- **Chatterbox, OmniVoice, Qwen3-TTS, Bark, Spark-TTS, Kokoro**: permissive
+- **Chatterbox, OmniVoice, Qwen3-TTS, Bark, Spark-TTS, Kokoro, Audio8 TTS
+  Preview, MOSS-TTS-Nano**: permissive
   (MIT / Apache-2.0; check each catalog entry for exact terms)
 - **VoxCPM2**: Apache-2.0
 

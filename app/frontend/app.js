@@ -123,6 +123,16 @@ function studio() {
       fish_top_p: 0.7,
       fish_top_k: 30,
       fish_max_tokens: 1024,
+      // Audio8 TTS Preview (MLX / arktts)
+      audio8_temperature: 0.7,
+      audio8_top_p: 0.9,
+      audio8_top_k: 50,
+      audio8_max_tokens: 512,
+      // MOSS-TTS-Nano (MLX)
+      moss_temperature: 0.8,
+      moss_top_p: 0.95,
+      moss_top_k: 25,
+      moss_repetition_penalty: 1.2,
       // F5-TTS (SWivid flow-matching, voice-cloning only — no zero-shot mode)
       f5_tts_available: false,
       // Batch / queue — Level 2 of the queue UX. Pinning a seed makes each
@@ -850,6 +860,8 @@ function studio() {
       "bark_temperature", "bark_max_coarse_history", "bark_sliding_window_len", "bark_allow_early_stop",
       "omnivoice_num_steps", "omnivoice_guidance_scale", "omnivoice_duration_s",
       "fish_temperature", "fish_top_p", "fish_top_k", "fish_max_tokens",
+      "audio8_temperature", "audio8_top_p", "audio8_top_k", "audio8_max_tokens",
+      "moss_temperature", "moss_top_p", "moss_top_k", "moss_repetition_penalty",
     ],
 
     _loadAllGenPresets() {
@@ -3148,6 +3160,14 @@ function studio() {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "fish-audio-mlx";
     },
+    isAudio8(repo) {
+      const m = (this.models || []).find(x => x.repo === repo);
+      return m?.family === "arktts";
+    },
+    isMossTtsNano(repo) {
+      const m = (this.models || []).find(x => x.repo === repo);
+      return m?.family === "moss-tts-nano";
+    },
     isF5TTS(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "f5-tts";
@@ -3206,7 +3226,7 @@ function studio() {
     isMlxCloner(repo) {
       return this.isVoxCPMMlx(repo) || this.isChatterboxMlx(repo)
           || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo)
-          || this.isFishAudio(repo);
+          || this.isFishAudio(repo) || this.isAudio8(repo) || this.isMossTtsNano(repo);
     },
     /** Group Bark voice presets by language for the optgroup picker. */
     barkPresetsByLang() {
@@ -3249,7 +3269,7 @@ function studio() {
           || this.isChatterboxMlx(repo) || this.isSparkTtsMlx(repo) || this.isOrpheus(repo)
           || this.isKittenTts(repo) || this.isVibeVoice(repo)
           || this.isVoxtral(repo) || this.isMarvis(repo) || this.isOmniVoice(repo)
-          || this.isFishAudio(repo)
+          || this.isFishAudio(repo) || this.isAudio8(repo) || this.isMossTtsNano(repo)
           || this.isBark(repo);
     },
     setVoxcpmEmotionExample(text) {
@@ -3388,6 +3408,13 @@ function studio() {
       if (!repo) return false;
       const model = (this.models || []).find(item => item.repo === repo);
       return model?.kind === "cloud" || repo.startsWith("provider:");
+    },
+
+    huggingFaceUrl(repo) {
+      // Cloud/gateway models use a synthetic "provider:key:model_id" repo id —
+      // there's no Hugging Face page to link to for those.
+      if (!repo || this.isCloudModel(repo)) return "";
+      return `https://huggingface.co/${repo}`;
     },
 
     cloudProviderKey(repo) {
@@ -3700,6 +3727,14 @@ function studio() {
           fish_top_p: Number(this.gen.fish_top_p),
           fish_top_k: Number(this.gen.fish_top_k),
           fish_max_tokens: Number(this.gen.fish_max_tokens),
+          audio8_temperature: Number(this.gen.audio8_temperature),
+          audio8_top_p: Number(this.gen.audio8_top_p),
+          audio8_top_k: Number(this.gen.audio8_top_k),
+          audio8_max_tokens: Number(this.gen.audio8_max_tokens),
+          moss_temperature: Number(this.gen.moss_temperature),
+          moss_top_p: Number(this.gen.moss_top_p),
+          moss_top_k: Number(this.gen.moss_top_k),
+          moss_repetition_penalty: Number(this.gen.moss_repetition_penalty),
           bark_voice_preset: this.isBark(repo)
                              ? (this.gen.bark_voice_preset || null)
                              : null,
@@ -4180,6 +4215,14 @@ function studio() {
       if (typeof p.fish_top_p === "number") this.gen.fish_top_p = p.fish_top_p;
       if (typeof p.fish_top_k === "number") this.gen.fish_top_k = p.fish_top_k;
       if (typeof p.fish_max_tokens === "number") this.gen.fish_max_tokens = p.fish_max_tokens;
+      if (typeof p.audio8_temperature === "number") this.gen.audio8_temperature = p.audio8_temperature;
+      if (typeof p.audio8_top_p === "number") this.gen.audio8_top_p = p.audio8_top_p;
+      if (typeof p.audio8_top_k === "number") this.gen.audio8_top_k = p.audio8_top_k;
+      if (typeof p.audio8_max_tokens === "number") this.gen.audio8_max_tokens = p.audio8_max_tokens;
+      if (typeof p.moss_temperature === "number") this.gen.moss_temperature = p.moss_temperature;
+      if (typeof p.moss_top_p === "number") this.gen.moss_top_p = p.moss_top_p;
+      if (typeof p.moss_top_k === "number") this.gen.moss_top_k = p.moss_top_k;
+      if (typeof p.moss_repetition_penalty === "number") this.gen.moss_repetition_penalty = p.moss_repetition_penalty;
     },
 
     async copyImageUrl(job) {

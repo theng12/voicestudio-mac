@@ -22,6 +22,15 @@ KOKORO_SECTION_MAX_CHARACTERS = 3000
 VIBEVOICE_SECTION_MAX_CHARACTERS = 3000
 OMNIVOICE_SECTION_MAX_CHARACTERS = 288
 FISH_AUDIO_SECTION_MAX_CHARACTERS = 300
+# Audio8's native cap is 512 frames (~2048 samples/frame @ 44.1 kHz ≈ 23.8 sec)
+# per call, no internal chunking. 280 chars leaves headroom under that budget
+# at typical narration pacing (~15 chars/sec).
+AUDIO8_SECTION_MAX_CHARACTERS = 280
+# MOSS-TTS-Nano already auto-splits internally (~75 text-tokens/chunk) inside
+# one generate() call, but Voice Studio still owns the outer boundary for
+# progress reporting and mid-script cancellation. 300 chars keeps each owned
+# section close to the model's own internal chunk size.
+MOSS_TTS_NANO_SECTION_MAX_CHARACTERS = 300
 
 
 @dataclass(frozen=True)
@@ -130,6 +139,24 @@ def _runtime_default(family: str, repo: str) -> Optional[LongFormPolicy]:
             note=(
                 "Voice Studio owns the outer delivery boundary so clone and style "
                 "controls remain identical across the final joined artifact."
+            ),
+        )
+    if family == "arktts":
+        return LongFormPolicy(
+            section_max_characters=AUDIO8_SECTION_MAX_CHARACTERS,
+            join_pause_seconds=DEFAULT_JOIN_PAUSE_SECONDS,
+            note=(
+                "Keeps each synthesis pass safely under Audio8's ~24-second-per-call "
+                "budget while preserving the selected clone or zero-shot setting."
+            ),
+        )
+    if family == "moss-tts-nano":
+        return LongFormPolicy(
+            section_max_characters=MOSS_TTS_NANO_SECTION_MAX_CHARACTERS,
+            join_pause_seconds=DEFAULT_JOIN_PAUSE_SECONDS,
+            note=(
+                "Voice Studio owns the outer delivery boundary for progress and "
+                "cancellation, on top of the model's own internal sentence splitting."
             ),
         )
     return None

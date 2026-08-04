@@ -65,6 +65,7 @@
         <div class="workspace-stat">
           <span>Model</span>
           <strong x-text="selectedModel?.label || (generationModels.length ? 'Choose a model' : 'No model ready')"></strong>
+          <a x-show="selectedModel && huggingFaceUrl(selectedModel.repo)" x-cloak class="link-accent small" :href="huggingFaceUrl(selectedModel?.repo)" target="_blank" rel="noopener" title="Open this model's page on Hugging Face">View on Hugging Face ↗</a>
         </div>
         <div class="workspace-stat">
           <span>Voice</span>
@@ -622,11 +623,11 @@
         </section>
 
         <!-- Chatterbox-MLX / Spark-TTS-MLX / Fish S2 Pro: voice cloning from the library. -->
-        <section class="control-block" x-show="isChatterboxMlx(gen.repo) || isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo)" x-cloak>
+        <section class="control-block" x-show="isChatterboxMlx(gen.repo) || isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo) || isAudio8(gen.repo) || isMossTtsNano(gen.repo)" x-cloak>
           <label>
             Reference voice
-            <span x-show="isChatterboxMlx(gen.repo)" class="required">*</span>
-            <span x-show="isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo)" class="muted small">(optional — zero-shot if blank)</span>
+            <span x-show="isChatterboxMlx(gen.repo) || isMossTtsNano(gen.repo)" class="required">*</span>
+            <span x-show="isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo) || isAudio8(gen.repo)" class="muted small">(optional — zero-shot if blank)</span>
           </label>
           <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
             <option value="">— pick a voice from your library —</option>
@@ -648,6 +649,14 @@
             <span x-show="isFishAudio(gen.repo)">
               Fish S2 Pro can clone the selected clip or generate zero-shot. A clean 3–10 second clip is best;
               commercial use requires a separate Fish Audio license.
+            </span>
+            <span x-show="isAudio8(gen.repo)">
+              Audio8 can clone the selected clip or generate zero-shot with its single built-in default voice.
+              There's no named preset roster — just the default plus whatever you clone.
+            </span>
+            <span x-show="isMossTtsNano(gen.repo)">
+              MOSS-TTS-Nano has no zero-shot mode — a reference clip is always required. No saved
+              transcript is needed for the clip.
             </span>
           </p>
         </section>
@@ -735,6 +744,59 @@
             <label class="advanced-label">Maximum audio tokens</label>
             <input type="number" class="num-input" min="128" max="4096" step="1" x-model.number="gen.fish_max_tokens">
             <p class="muted hint">Defaults mirror Fish S2 Pro's current MLX-Audio API. Voice Studio keeps the public speed control as one final pitch-preserving tempo pass after sections are joined.</p>
+          </div>
+        </details>
+
+        <!-- Audio8 TTS Preview: sampling controls only — no style/instruct field. -->
+        <details class="control-block" x-show="isAudio8(gen.repo)" x-cloak>
+          <summary>Advanced Audio8 controls</summary>
+          <div class="advanced-inner">
+            <label>Sampling temperature</label>
+            <div class="slider-row">
+              <input type="range" min="0.05" max="2" step="0.05" x-model.number="gen.audio8_temperature">
+              <input type="number" class="num-input" min="0.05" max="2" step="0.05" x-model.number="gen.audio8_temperature">
+            </div>
+            <label class="advanced-label">Top-p</label>
+            <div class="slider-row">
+              <input type="range" min="0.05" max="1" step="0.05" x-model.number="gen.audio8_top_p">
+              <input type="number" class="num-input" min="0.05" max="1" step="0.05" x-model.number="gen.audio8_top_p">
+            </div>
+            <label class="advanced-label">Top-k</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="200" step="1" x-model.number="gen.audio8_top_k">
+              <input type="number" class="num-input" min="0" max="200" step="1" x-model.number="gen.audio8_top_k">
+            </div>
+            <label class="advanced-label">Maximum audio tokens</label>
+            <input type="number" class="num-input" min="128" max="2048" step="1" x-model.number="gen.audio8_max_tokens">
+            <p class="muted hint">Defaults mirror Audio8's published model card. Its native cap is ~24 sec of audio per call — Voice Studio auto-splits longer scripts and applies the public speed control as one final pitch-preserving tempo pass.</p>
+          </div>
+        </details>
+
+        <!-- MOSS-TTS-Nano: sampling controls only — no style/instruct field. -->
+        <details class="control-block" x-show="isMossTtsNano(gen.repo)" x-cloak>
+          <summary>Advanced MOSS-TTS-Nano controls</summary>
+          <div class="advanced-inner">
+            <label>Sampling temperature</label>
+            <div class="slider-row">
+              <input type="range" min="0.05" max="2" step="0.05" x-model.number="gen.moss_temperature">
+              <input type="number" class="num-input" min="0.05" max="2" step="0.05" x-model.number="gen.moss_temperature">
+            </div>
+            <label class="advanced-label">Top-p</label>
+            <div class="slider-row">
+              <input type="range" min="0.05" max="1" step="0.05" x-model.number="gen.moss_top_p">
+              <input type="number" class="num-input" min="0.05" max="1" step="0.05" x-model.number="gen.moss_top_p">
+            </div>
+            <label class="advanced-label">Top-k</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="200" step="1" x-model.number="gen.moss_top_k">
+              <input type="number" class="num-input" min="0" max="200" step="1" x-model.number="gen.moss_top_k">
+            </div>
+            <label class="advanced-label">Repetition penalty</label>
+            <div class="slider-row">
+              <input type="range" min="1" max="2" step="0.05" x-model.number="gen.moss_repetition_penalty">
+              <input type="number" class="num-input" min="1" max="2" step="0.05" x-model.number="gen.moss_repetition_penalty">
+            </div>
+            <p class="muted hint">Defaults mirror MOSS-TTS-Nano's mlx-audio API. Output is 48 kHz stereo — the only stereo model in this catalog. Voice Studio applies the public speed control as one final pitch-preserving tempo pass.</p>
           </div>
         </details>
 
@@ -1339,7 +1401,7 @@
                       </div>
                       <button class="variant-details-toggle" @click="toggleModelExpanded(m.repo)" x-text="isModelExpanded(m.repo)?'Hide details':'Details'"></button>
                       <div class="variant-details" x-show="isModelExpanded(m.repo)" x-cloak>
-                        <p class="variant-repo"><code x-text="m.repo"></code></p>
+                        <p class="variant-repo"><code x-text="m.repo"></code> <a class="link-accent small" :href="huggingFaceUrl(m.repo)" target="_blank" rel="noopener" title="Open this model's page on Hugging Face">View on Hugging Face ↗</a></p>
                         <p class="best-for" x-show="m.best_for"><strong>Best for:</strong> <span x-text="m.best_for"></span></p>
                         <p class="hw" x-text="m.recommended_hardware"></p>
                         <p class="muted small"><span x-text="(m.sample_rate_hz/1000)+' kHz'"></span> · <span x-text="languageSupportLabel(m)"></span></p>

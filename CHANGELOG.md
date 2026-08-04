@@ -10,6 +10,66 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.28.0] — 2026-08-05
+
+### Added — Audio8 TTS Preview + MOSS-TTS-Nano
+
+- Two new MLX-native families, both verified with real local generations
+  (Aiden's reference clip) before shipping:
+  - **Audio8 TTS Preview** (`mlx-community/Audio8-TTS-Preview-0.6b-bf16`,
+    family `arktts`) — DualAR preview model in the style of Fish Audio S2 Pro.
+    Zero-shot with the model's single built-in default voice, or clone a
+    reference clip (no named preset roster). 44.1 kHz, 11-language preview
+    scope, Apache-2.0.
+  - **MOSS-TTS-Nano** (`mlx-community/MOSS-TTS-Nano-100M`, family
+    `moss-tts-nano`) — OpenMOSS's 100M-parameter voice-cloning TTS. No
+    zero-shot mode — a reference clip is always required, but no saved
+    transcript is needed. 48 kHz **stereo** output, the only stereo family in
+    the catalog; pulls a companion codec repo
+    (`OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano`, ~84 MB) at first generation.
+    Apache-2.0.
+- Both engines landed in mlx-audio v0.4.7 (bumped from the v0.4.6 pin).
+  Bumping also required `transformers` 5.9.0 → 5.14.1 (the floor mlx-audio
+  v0.4.7 declares); `tokenizers==0.22.2` and `mlx`/`mlx-lm` were already
+  within range. Re-verified the whole generation stack before shipping: the
+  full import-verify chain, a real Kokoro generation, a real Fish Audio S2
+  Pro generation, and a real Whisper transcription through the app's actual
+  tokenizer-fallback path (the exact spot that broke once before over a
+  similar version mismatch) — all still pass.
+- Neither new model ships named preset voices — checked the actual
+  maintainer-authored mlx-audio source/READMEs rather than guessing.
+
+### Fixed — Audio8 generation crashed before saving audio
+
+- `mlx-audio`'s `arktts` engine builds `GenerationResult.prompt` with a
+  different shape (`{"text", "ref_text"}`) than every other engine
+  (`{"tokens", "tokens-per-sec"}`). `generate_audio()`'s verbose logging
+  (on by default) reads the `tokens-per-sec` key unconditionally and raised
+  `KeyError` before the WAV was written — silently discarding every Audio8
+  generation. Caught only because generation was verified for real, not just
+  imported. Voice Studio now passes `verbose=False` for this family
+  specifically; every other family is unaffected.
+
+### Added — Hugging Face link on every model
+
+- Every catalog model (local and, where applicable, in the Generate
+  workspace) now links out to its Hugging Face page — in the Models tab's
+  expanded model details, and next to the selected model in the Generate
+  workspace header. Derived generically from each model's `repo` field, so
+  it applies to the full catalog, not just the two new families. Hidden for
+  cloud/gateway models, which use a synthetic `provider:key:model_id` id with
+  no Hugging Face page to link to.
+
+### Verification
+
+- Real local generations for both new families (zero-shot + Aiden voice
+  clone for Audio8; Aiden voice clone for MOSS-TTS-Nano, which has no
+  zero-shot mode), confirmed via `ffprobe` (sample rate, channels, duration
+  match the engine's reported output).
+- Confirmed via direct DOM inspection that the new Hugging Face links resolve
+  correctly for local models (including non-`mlx-community` repos like
+  `SWivid/F5-TTS`) and correctly disappear for a selected cloud model.
+
 ## [1.27.19] — 2026-08-04
 
 ### Fixed — Qwen clone retry failures retain complete redacted evidence

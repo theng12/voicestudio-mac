@@ -370,6 +370,47 @@ FAMILIES: dict[str, Family] = {
             note="Conversational streaming model with 2 built-in voices. Best on shorter turns; long text auto-segments and may drift on very long single takes.",
         ),
     ),
+    "arktts": Family(
+        id="arktts",
+        label="Audio8 TTS Preview (MLX)",
+        summary=(
+            "Audio8's DualAR preview model, built in the style of Fish Audio S2 Pro, "
+            "ported to MLX for native Apple Silicon inference via mlx-audio. Zero-shot "
+            "generation with the model's own default voice, or clone a reference clip. "
+            "44.1 kHz output, 11 languages, Apache-2.0. A preview release from a small "
+            "0.6B model — expect rough edges outside English."
+        ),
+        how_to_use=(
+            "Leave the reference voice blank for zero-shot with Audio8's single "
+            "built-in default voice, or pick a reference voice from your library to "
+            "clone it. There is no named preset roster — just the one default voice "
+            "plus whatever you clone."
+        ),
+        text_guidance=TextGuidance(
+            soft_max_chars=None,
+            chunking="auto-split",
+            note="Long scripts are split privately at sentence-safe ~280-character sections (the model's native cap is ~24 sec/call), rendered with the same clone/zero-shot setting, joined, and tempo-adjusted once.",
+        ),
+    ),
+    "moss-tts-nano": Family(
+        id="moss-tts-nano",
+        label="MOSS-TTS-Nano (MLX)",
+        summary=(
+            "OpenMOSS's MOSS-TTS-Nano — a 100M-parameter voice-cloning TTS ported to "
+            "MLX for native Apple Silicon inference via mlx-audio. Tiny (under 400 MB "
+            "including its companion codec), 48 kHz stereo output. Apache-2.0."
+        ),
+        how_to_use=(
+            "Pick a reference voice from your library — MOSS-TTS-Nano has no "
+            "zero-shot mode, a reference clip is always required. No saved "
+            "transcript is needed for the clip."
+        ),
+        text_guidance=TextGuidance(
+            soft_max_chars=None,
+            chunking="auto-split",
+            note="Long scripts are split privately at sentence-safe ~300-character sections using the same reference clip, then joined into one final file.",
+        ),
+    ),
 }
 
 
@@ -399,6 +440,13 @@ CHATTERBOX_LANGUAGE_CODES = (
     "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi",
     "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv",
     "sw", "tr", "zh",
+)
+
+# Audio8 preview scope per its mlx-audio README: Cantonese, Chinese, Dutch,
+# English, French, German, Italian, Japanese, Korean, Polish, Spanish. "yue"
+# (ISO 639-3) is the standard code for Cantonese — there is no 639-1 code.
+AUDIO8_LANGUAGE_CODES = (
+    "yue", "zh", "nl", "en", "fr", "de", "it", "ja", "ko", "pl", "es",
 )
 
 
@@ -1192,6 +1240,78 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("avoid", "Voice cloning — uses its 2 built-in voices (clone support is roadmap upstream)"),
         ),
     ),
+
+    # ──────────── Audio8 TTS Preview (MLX) ────────────
+    # DualAR preview model, built in the style of Fish Audio S2 Pro, added to
+    # mlx-audio v0.4.7 as the "arktts" engine. Zero-shot with the model's own
+    # single default voice, or clone from a reference clip — no named preset
+    # roster. Self-contained: the repo bundles its own 44.1 kHz codec, no
+    # companion download. Verified with a real local generation (v1.27.20).
+    ModelEntry(
+        repo="mlx-community/Audio8-TTS-Preview-0.6b-bf16",
+        label="Audio8 TTS Preview 0.6B bf16 (MLX)",
+        family="arktts",
+        size_gb=2.55,
+        gated=False,
+        min_unified_memory_gb=8,
+        recommended_hardware="Any Apple Silicon Mac with 8 GB.",
+        capabilities=("tts", "voice-cloning", "multilingual"),
+        best_for="A DualAR preview TTS in the style of Fish Audio S2 Pro. Zero-shot with the model's single built-in default voice, or clone a reference clip. Apache-2.0, 44.1 kHz. Preview release — 11 languages, parity-verified by the mlx-audio maintainer against the PyTorch reference.",
+        sample_rate_hz=44100,
+        languages=AUDIO8_LANGUAGE_CODES,
+        language_support=LanguageSupport(
+            input_selection="none",
+            enumeration_status="exact",
+            codes=AUDIO8_LANGUAGE_CODES,
+        ),
+        use_cases=(
+            ("good",  "Zero-shot generation — no reference clip needed"),
+            ("good",  "Voice cloning from a short reference clip + matching transcript"),
+            ("good",  "Apache-2.0 — commercial use OK"),
+            ("weak",  "Preview release from a small 0.6B model — only one built-in default voice, no named preset roster"),
+            ("weak",  "11-language preview scope — narrower than VoxCPM2 or Chatterbox"),
+            ("avoid", "Production audiobook narration — this is a preview checkpoint, not a mature release"),
+        ),
+    ),
+
+    # ──────────── MOSS-TTS-Nano (MLX) ────────────
+    # OpenMOSS's 100M-parameter voice-cloning TTS, added to mlx-audio as the
+    # "moss_tts_nano" engine. voice_clone is the model's only generation mode
+    # (no zero-shot) — a reference clip is always required, but no saved
+    # transcript is needed. Pulls a companion codec repo at first generation
+    # (see FAMILY_COMPANIONS below) — true first-run download is ~360 MB, not
+    # just this repo's 285 MB. 48 kHz STEREO output — the only stereo family
+    # in this catalog. Verified with a real local generation (v1.27.20).
+    ModelEntry(
+        repo="mlx-community/MOSS-TTS-Nano-100M",
+        label="MOSS-TTS-Nano 100M (MLX)",
+        family="moss-tts-nano",
+        size_gb=0.36,
+        gated=False,
+        min_unified_memory_gb=8,
+        recommended_hardware="Any Apple Silicon Mac with 8 GB. Trivial RAM footprint — under 1.5 GB peak in local testing.",
+        capabilities=("tts", "voice-cloning", "multilingual"),
+        best_for="The smallest voice-cloning model in the catalog. Pick a reference voice and clone it — no transcript required. 48 kHz stereo output. Apache-2.0.",
+        sample_rate_hz=48000,
+        languages=(),
+        language_support=LanguageSupport(
+            # The HF card claims 20 named languages, but that claim reads like it
+            # describes the broader MOSS-TTS family rather than something
+            # verified against this specific 100M Nano checkpoint — only English
+            # has been confirmed locally. Report it as a claim, not an audited list.
+            enumeration_status="claimed_count",
+            claimed_count=20,
+        ),
+        use_cases=(
+            ("good",  "Smallest voice-cloning TTS in the catalog (~360 MB total incl. codec)"),
+            ("good",  "No saved transcript needed for the reference clip"),
+            ("good",  "48 kHz stereo output — highest sample rate + only stereo family in the catalog"),
+            ("good",  "Apache-2.0 — commercial use OK"),
+            ("weak",  "Only English is locally verified — the card's 20-language claim is unaudited for this checkpoint"),
+            ("weak",  "No zero-shot mode — a reference voice is always required"),
+            ("avoid", "Voice design or preset speakers — cloning only"),
+        ),
+    ),
 )
 
 
@@ -1234,8 +1354,12 @@ def ignore_patterns_for(repo: str) -> tuple[str, ...]:
 #                         filename="tokenizer-e351c8d8-checkpoint125.safetensors")
 #   - orpheus (llama)   → llama.py loads mlx-community/snac_24khz
 #   - chatterbox-mlx    → chatterbox.py loads mlx-community/S3TokenizerV2
-# OmniVoice / Spark / Fish S2 Pro load their codecs from inside their own repo
-# (no companion).
+#   - moss-tts-nano     → moss_tts_nano.py's _ensure_audio_tokenizer() falls
+#                         back to config.audio_tokenizer_pretrained_name_or_path
+#                         (OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano) — confirmed
+#                         via a real local generation, ~84 MB.
+# OmniVoice / Spark / Fish S2 Pro / Audio8 (arktts) load their codecs from
+# inside their own repo (no companion).
 FAMILY_COMPANIONS: dict[str, tuple[dict, ...]] = {
     "bark": (
         {
@@ -1276,6 +1400,13 @@ FAMILY_COMPANIONS: dict[str, tuple[dict, ...]] = {
             "label": "S3 speech tokenizer",
         },
     ),
+    "moss-tts-nano": (
+        {
+            "repo": "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano",
+            "allow_patterns": None,
+            "label": "MOSS audio codec",
+        },
+    ),
 }
 
 
@@ -1306,6 +1437,7 @@ def serialize_model(m: ModelEntry) -> dict:
     _MLX_AUDIO_FAMILIES = (
         "qwen3-tts", "orpheus", "kittentts", "vibevoice",
         "omnivoice", "fish-audio-mlx", "voxtral-tts", "marvis", "bark",
+        "arktts", "moss-tts-nano",
     )
     apple_optimized = m.family.endswith("-mlx") or m.family in _MLX_AUDIO_FAMILIES
     try:

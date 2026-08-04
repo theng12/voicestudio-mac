@@ -18,7 +18,7 @@
 
 torch>=2.6
 torchaudio>=2.6
-# transformers + tokenizers PINNED (v1.6.3). These are a coupled, version-
+# transformers + tokenizers PINNED (v1.27.20). These are a coupled, version-
 # sensitive pair shared by every transformers-assisted engine (Bark tokenizer,
 # F5-TTS, Voxtral) AND the Whisper STT processor fallback. Floating them
 # (`>=4.55`) let different Macs resolve different latest versions at different
@@ -26,9 +26,11 @@ torchaudio>=2.6
 # commit below surfaced as `ImportError: cannot import name 'ReasoningEffort'
 # from 'transformers'` during Whisper transcription on some machines. Pinning
 # this exact pair (the known-good combo verified end-to-end with mlx-audio
-# @14add66) makes every server converge to one working environment. Bump these
+# @2c9461f) makes every server converge to one working environment. Bump these
 # + the mlx-audio commit together, as a matched set, after verifying.
-transformers==5.9.0
+# 5.14.1 is the floor mlx-audio v0.4.7 (Audio8/arktts) declares; tokenizers
+# 0.22.2 is still inside its accepted <=0.23.0,>=0.22.0 range, so it holds.
+transformers==5.14.1
 tokenizers==0.22.2
 diffusers>=0.30
 accelerate>=0.30
@@ -63,22 +65,24 @@ jaconv>=0.4,<1
 mojimoji>=0.0.13,<1
 pyopenjtalk>=0.4,<1
 
-# ─── MLX stack (mlx-audio + friends) — PINNED (Voice Studio 1.23.0) ───
+# ─── MLX stack (mlx-audio + friends) — PINNED (Voice Studio 1.27.20) ───
 # mlx-audio is a git install (not on PyPI) and tracks master, so an unpinned
 # `@ git+…` floats to whatever the latest commit is at install time. Different
 # Macs installing on different days got different mlx-audio code — and a newer
 # mlx-audio against an older transformers (or vice versa) is what produced the
 # `ReasoningEffort` ImportError. Pinning mlx-audio to an exact commit + mlx /
-# mlx-lm to exact versions, together with transformers==5.9.0 above, locks the
+# mlx-lm to exact versions, together with transformers==5.14.1 above, locks the
 # whole stack to one verified-working set. To upgrade: bump the commit + the
 # transformers pin together, run Install Generation, verify TTS + STT, then
 # commit the new known-good pins.
 mlx==0.31.2
 mlx-lm==0.31.3
-# v0.4.6: Fish Audio S2 Pro support, OmniVoice loader, and current Chatterbox
-# fixes. Keep the exact release commit so every fleet worker uses the same
-# model loader and quantization behavior.
-mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb
+# v0.4.7: adds arktts (Audio8-TTS-Preview) — DualAR zero-shot/clone TTS — on
+# top of v0.4.6's Fish Audio S2 Pro, OmniVoice loader, and Chatterbox fixes.
+# Keep the exact release commit so every fleet worker uses the same model
+# loader and quantization behavior. Declares transformers>=5.14.0 (see above);
+# mlx/mlx-lm floors (>=0.31.1) are already satisfied by the pins above.
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@2c9461f5d8315fa8e7013ab2729495b2bb83d384
 
 # ─── v1.5.0: Voxtral-4B-TTS (MLX) ───
 # Voxtral's tekken tokenizer is loaded via mistral-common, and the audio path
