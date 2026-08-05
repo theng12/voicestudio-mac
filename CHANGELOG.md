@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.29.1] — 2026-08-05
+
+### Fixed — Audio8's memory floor was an estimate, and it was too low
+
+- Audio8 shipped in 1.28.0 with `min_unified_memory_gb=8`, inferred from its
+  2.55 GB download rather than measured — the `verbose=False` workaround added
+  for its crash bug also suppressed the line that reports peak memory, so the
+  number was never observed.
+- Measured now: peak scales with **output length**, because activations
+  dominate rather than weights — 2.55 GB after load, **5.39 GB** on a short
+  line, **9.44 GB at 246 characters**. Voice Studio renders 280-character
+  sections, so the production peak is ~10 GB and an 8 GB Mac would swap or
+  fail. Floor corrected to **16 GB**, with the measurement recorded inline.
+- Runtime measured at the same time (model cached, warm): 2.2 s load;
+  1.65x slower than real time on a full section (27.7 s of compute for 16.76 s
+  of audio), versus 3-4x on short lines — Audio8 is markedly more efficient
+  per second of audio when a section is filled.
+
 ## [1.29.0] — 2026-08-05
 
 ### Added — Echo-TTS
