@@ -133,6 +133,11 @@ function studio() {
       moss_top_p: 0.95,
       moss_top_k: 25,
       moss_repetition_penalty: 1.2,
+      // Echo-TTS (MLX diffusion) — only real SamplerConfig fields; the engine
+      // silently drops anything else (including temperature and speed).
+      echo_num_steps: 40,
+      echo_cfg_scale_text: 3.0,
+      echo_cfg_scale_speaker: 8.0,
       // F5-TTS (SWivid flow-matching, voice-cloning only — no zero-shot mode)
       f5_tts_available: false,
       // Batch / queue — Level 2 of the queue UX. Pinning a seed makes each
@@ -862,6 +867,7 @@ function studio() {
       "fish_temperature", "fish_top_p", "fish_top_k", "fish_max_tokens",
       "audio8_temperature", "audio8_top_p", "audio8_top_k", "audio8_max_tokens",
       "moss_temperature", "moss_top_p", "moss_top_k", "moss_repetition_penalty",
+      "echo_num_steps", "echo_cfg_scale_text", "echo_cfg_scale_speaker",
     ],
 
     _loadAllGenPresets() {
@@ -3168,6 +3174,10 @@ function studio() {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "moss-tts-nano";
     },
+    isEchoTts(repo) {
+      const m = (this.models || []).find(x => x.repo === repo);
+      return m?.family === "echo-tts";
+    },
     isF5TTS(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "f5-tts";
@@ -3226,7 +3236,8 @@ function studio() {
     isMlxCloner(repo) {
       return this.isVoxCPMMlx(repo) || this.isChatterboxMlx(repo)
           || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo)
-          || this.isFishAudio(repo) || this.isAudio8(repo) || this.isMossTtsNano(repo);
+          || this.isFishAudio(repo) || this.isAudio8(repo) || this.isMossTtsNano(repo)
+          || this.isEchoTts(repo);
     },
     /** Group Bark voice presets by language for the optgroup picker. */
     barkPresetsByLang() {
@@ -3270,6 +3281,7 @@ function studio() {
           || this.isKittenTts(repo) || this.isVibeVoice(repo)
           || this.isVoxtral(repo) || this.isMarvis(repo) || this.isOmniVoice(repo)
           || this.isFishAudio(repo) || this.isAudio8(repo) || this.isMossTtsNano(repo)
+          || this.isEchoTts(repo)
           || this.isBark(repo);
     },
     setVoxcpmEmotionExample(text) {
@@ -3735,6 +3747,9 @@ function studio() {
           moss_top_p: Number(this.gen.moss_top_p),
           moss_top_k: Number(this.gen.moss_top_k),
           moss_repetition_penalty: Number(this.gen.moss_repetition_penalty),
+          echo_num_steps: Number(this.gen.echo_num_steps),
+          echo_cfg_scale_text: Number(this.gen.echo_cfg_scale_text),
+          echo_cfg_scale_speaker: Number(this.gen.echo_cfg_scale_speaker),
           bark_voice_preset: this.isBark(repo)
                              ? (this.gen.bark_voice_preset || null)
                              : null,
@@ -4223,6 +4238,9 @@ function studio() {
       if (typeof p.moss_top_p === "number") this.gen.moss_top_p = p.moss_top_p;
       if (typeof p.moss_top_k === "number") this.gen.moss_top_k = p.moss_top_k;
       if (typeof p.moss_repetition_penalty === "number") this.gen.moss_repetition_penalty = p.moss_repetition_penalty;
+      if (typeof p.echo_num_steps === "number") this.gen.echo_num_steps = p.echo_num_steps;
+      if (typeof p.echo_cfg_scale_text === "number") this.gen.echo_cfg_scale_text = p.echo_cfg_scale_text;
+      if (typeof p.echo_cfg_scale_speaker === "number") this.gen.echo_cfg_scale_speaker = p.echo_cfg_scale_speaker;
     },
 
     async copyImageUrl(job) {

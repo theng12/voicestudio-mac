@@ -623,11 +623,11 @@
         </section>
 
         <!-- Chatterbox-MLX / Spark-TTS-MLX / Fish S2 Pro: voice cloning from the library. -->
-        <section class="control-block" x-show="isChatterboxMlx(gen.repo) || isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo) || isAudio8(gen.repo) || isMossTtsNano(gen.repo)" x-cloak>
+        <section class="control-block" x-show="isChatterboxMlx(gen.repo) || isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo) || isAudio8(gen.repo) || isMossTtsNano(gen.repo) || isEchoTts(gen.repo)" x-cloak>
           <label>
             Reference voice
             <span x-show="isChatterboxMlx(gen.repo) || isMossTtsNano(gen.repo)" class="required">*</span>
-            <span x-show="isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo) || isAudio8(gen.repo)" class="muted small">(optional — zero-shot if blank)</span>
+            <span x-show="isSparkTtsMlx(gen.repo) || isFishAudio(gen.repo) || isAudio8(gen.repo) || isEchoTts(gen.repo)" class="muted small">(optional — zero-shot if blank)</span>
           </label>
           <select x-model="gen.voice_library_id" @change="onReferenceVoiceChange()">
             <option value="">— pick a voice from your library —</option>
@@ -657,6 +657,11 @@
             <span x-show="isMossTtsNano(gen.repo)">
               MOSS-TTS-Nano has no zero-shot mode — a reference clip is always required. No saved
               transcript is needed for the clip.
+            </span>
+            <span x-show="isEchoTts(gen.repo)">
+              Echo clones from the clip alone — no transcript needed, so a voice without one works fine.
+              Cloning is the heavy path (measured 18.4&nbsp;GB peak vs 8.9&nbsp;GB zero-shot): use a 24&nbsp;GB Mac,
+              and expect minutes per section. Non-commercial license.
             </span>
           </p>
         </section>
@@ -797,6 +802,33 @@
               <input type="number" class="num-input" min="1" max="2" step="0.05" x-model.number="gen.moss_repetition_penalty">
             </div>
             <p class="muted hint">Defaults mirror MOSS-TTS-Nano's mlx-audio API. Output is 48 kHz stereo — the only stereo model in this catalog. Voice Studio applies the public speed control as one final pitch-preserving tempo pass.</p>
+          </div>
+        </details>
+
+        <!-- Echo-TTS: diffusion sampler controls. No temperature/speed — the engine drops them. -->
+        <details class="control-block" x-show="isEchoTts(gen.repo)" x-cloak>
+          <summary>Advanced Echo-TTS controls</summary>
+          <div class="advanced-inner">
+            <label>Diffusion steps</label>
+            <div class="slider-row">
+              <input type="range" min="4" max="128" step="1" x-model.number="gen.echo_num_steps">
+              <input type="number" class="num-input" min="4" max="128" step="1" x-model.number="gen.echo_num_steps">
+            </div>
+            <label class="advanced-label">Text guidance (CFG)</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="10" step="0.1" x-model.number="gen.echo_cfg_scale_text">
+              <input type="number" class="num-input" min="0" max="10" step="0.1" x-model.number="gen.echo_cfg_scale_text">
+            </div>
+            <label class="advanced-label">Speaker guidance (CFG)</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="20" step="0.1" x-model.number="gen.echo_cfg_scale_speaker">
+              <input type="number" class="num-input" min="0" max="20" step="0.1" x-model.number="gen.echo_cfg_scale_speaker">
+            </div>
+            <p class="muted hint">
+              Defaults mirror Echo's published sampler config. More steps means slower but cleaner output —
+              this model is already minutes-per-section, so raise it deliberately. Echo has no temperature or
+              native speed control; the public speed slider is applied as one final pitch-preserving tempo pass.
+            </p>
           </div>
         </details>
 

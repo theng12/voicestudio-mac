@@ -392,6 +392,29 @@ FAMILIES: dict[str, Family] = {
             note="Long scripts are split privately at sentence-safe ~280-character sections (the model's native cap is ~24 sec/call), rendered with the same clone/zero-shot setting, joined, and tempo-adjusted once.",
         ),
     ),
+    "echo-tts": Family(
+        id="echo-tts",
+        label="Echo-TTS (MLX)",
+        summary=(
+            "Jordan Darefsky's Echo-TTS — a diffusion (DiT) text-to-speech model that "
+            "clones a voice from a reference clip alone, with no transcript required. "
+            "Built on Fish Audio's S1 codec and ported to MLX via mlx-audio. 44.1 kHz. "
+            "Excellent fidelity, but heavy: measured 18.4 GB peak during cloning, so it "
+            "needs a 24 GB Mac. Non-commercial license (CC-BY-NC-SA-4.0)."
+        ),
+        how_to_use=(
+            "Pick a reference voice to clone it — Echo needs only the audio, so a voice "
+            "with no saved transcript works fine. Leave the reference blank for zero-shot "
+            "with the model's own default voice. Cloning is by far the heavier path: it "
+            "measured 18.4 GB peak versus 8.9 GB zero-shot, so run it on a 24 GB Mac. "
+            "Expect minutes, not seconds, per section."
+        ),
+        text_guidance=TextGuidance(
+            soft_max_chars=None,
+            chunking="auto-split",
+            note="Long scripts are split privately at sentence-safe ~300-character sections (verified end-to-end at 287 characters), rendered with the same reference, joined, and tempo-adjusted once.",
+        ),
+    ),
     "moss-tts-nano": Family(
         id="moss-tts-nano",
         label="MOSS-TTS-Nano (MLX)",
@@ -1274,6 +1297,51 @@ CATALOG: tuple[ModelEntry, ...] = (
         ),
     ),
 
+    # ──────────── Echo-TTS (MLX) ────────────
+    # Diffusion (DiT) TTS on top of Fish Audio's S1 codec, added to mlx-audio as
+    # the "echo_tts" engine. Clones from a reference clip ALONE — ref_text is
+    # accepted by the wrapper but ignored by the engine. Pulls the S1 DAC codec
+    # from a separate repo (see FAMILY_COMPANIONS) — true first-run download is
+    # ~7.5 GB, not the model repo's 5.6 GB.
+    #
+    # Memory is the deciding constraint, measured locally (v1.29.0), not guessed:
+    #   zero-shot  →  8.93 GB peak
+    #   cloning    → 18.35 GB peak   ← does NOT fit a 16 GB Mac
+    # The 16 GB machine used for the measurement only completed the clone by
+    # swapping, which is also why the observed speed there is not representative.
+    # Hence a 24 GB floor. Word coverage verified at 100% (short) and semantically
+    # complete at 287 characters via Whisper transcribe-back.
+    ModelEntry(
+        repo="mlx-community/echo-tts-base",
+        label="Echo-TTS base (MLX) — 24 GB, non-commercial",
+        family="echo-tts",
+        size_gb=7.5,
+        gated=False,
+        min_unified_memory_gb=24,
+        recommended_hardware=(
+            "Apple Silicon with 24 GB or more. Cloning measured 18.35 GB peak — a "
+            "16 GB Mac only completes it by swapping, which makes it far slower."
+        ),
+        capabilities=("tts", "voice-cloning"),
+        best_for="Highest-fidelity cloning in the catalog when you have the memory: it reproduced test scripts word-for-word and needs no reference transcript at all. Pick it for final renders on a 24 GB Mac where quality outranks speed. Non-commercial license — personal projects only.",
+        sample_rate_hz=44100,
+        languages=("en",),
+        language_support=LanguageSupport(
+            input_selection="none",
+            enumeration_status="exact",
+            codes=("en",),
+        ),
+        use_cases=(
+            ("good",  "Clones from a reference clip alone — no transcript needed, unlike F5-TTS or Fish S2 Pro"),
+            ("good",  "Verified word-for-word accurate on both short text and a 287-character section"),
+            ("good",  "44.1 kHz output"),
+            ("weak",  "Slow — minutes per section, not seconds"),
+            ("weak",  "~7.5 GB on disk once its companion codec is included"),
+            ("avoid", "16 GB and 8 GB Macs — cloning measured 18.35 GB peak and will swap"),
+            ("avoid", "Commercial work — CC-BY-NC-SA-4.0 is non-commercial and ShareAlike"),
+        ),
+    ),
+
     # ──────────── MOSS-TTS-Nano (MLX) ────────────
     # OpenMOSS's 100M-parameter voice-cloning TTS, added to mlx-audio as the
     # "moss_tts_nano" engine. voice_clone is the model's only generation mode
@@ -1358,6 +1426,9 @@ def ignore_patterns_for(repo: str) -> tuple[str, ...]:
 #                         back to config.audio_tokenizer_pretrained_name_or_path
 #                         (OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano) — confirmed
 #                         via a real local generation, ~84 MB.
+#   - echo-tts          → echo_tts.py post_load_hook loads
+#                         config.fish_codec_repo (jordand/fish-s1-dac-min),
+#                         ~1.87 GB — confirmed via a real local generation.
 # OmniVoice / Spark / Fish S2 Pro / Audio8 (arktts) load their codecs from
 # inside their own repo (no companion).
 FAMILY_COMPANIONS: dict[str, tuple[dict, ...]] = {
@@ -1407,6 +1478,16 @@ FAMILY_COMPANIONS: dict[str, tuple[dict, ...]] = {
             "label": "MOSS audio codec",
         },
     ),
+    "echo-tts": (
+        {
+            # echo_tts.py post_load_hook → FishS1DAC.from_pretrained(
+            #   config.fish_codec_repo), default "jordand/fish-s1-dac-min".
+            # ~1.87 GB, confirmed by a real local load.
+            "repo": "jordand/fish-s1-dac-min",
+            "allow_patterns": None,
+            "label": "Fish S1 DAC codec",
+        },
+    ),
 }
 
 
@@ -1437,7 +1518,7 @@ def serialize_model(m: ModelEntry) -> dict:
     _MLX_AUDIO_FAMILIES = (
         "qwen3-tts", "orpheus", "kittentts", "vibevoice",
         "omnivoice", "fish-audio-mlx", "voxtral-tts", "marvis", "bark",
-        "arktts", "moss-tts-nano",
+        "arktts", "moss-tts-nano", "echo-tts",
     )
     apple_optimized = m.family.endswith("-mlx") or m.family in _MLX_AUDIO_FAMILIES
     try:

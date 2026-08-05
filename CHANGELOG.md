@@ -10,6 +10,62 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.29.0] — 2026-08-05
+
+### Added — Echo-TTS
+
+- **Echo-TTS** (`mlx-community/echo-tts-base`, family `echo-tts`) — a diffusion
+  (DiT) TTS built on Fish Audio's S1 codec, via mlx-audio's `echo_tts` engine.
+  44.1 kHz, CC-BY-NC-SA-4.0 (non-commercial **and** ShareAlike — the most
+  restrictive license in the catalog).
+- **Clones from a reference clip alone — no transcript required.** Verified
+  against the installed engine source: `generate()` has no `ref_text` parameter
+  at all, so a library voice without a saved transcript works. That makes it
+  the only clone-capable family with no transcript dependency.
+- Pulls the Fish S1 DAC codec (`jordand/fish-s1-dac-min`, ~1.87 GB) as a
+  companion download, so the honest first-run cost is ~7.5 GB, not the model
+  repo's 5.6 GB. Registered in `FAMILY_COMPANIONS` so the cached badge stays
+  truthful.
+- Voice Studio's seed is threaded into Echo's own `rng_seed` sampler argument —
+  it does not draw from `mlx.core.random`, so seeding that alone would not have
+  made a history reuse repeatable.
+
+### Hardware floor is measured, not estimated
+
+- Declared `min_unified_memory_gb=24`, derived from a real local run rather
+  than the file size: **zero-shot peaked at 8.93 GB, cloning at 18.35 GB.**
+  Cloning therefore does **not** fit a 16 GB Mac — the 16 GB machine used for
+  the measurement only finished by swapping, which is also why its observed
+  speed is not representative. The existing memory guard was confirmed to
+  enforce this end-to-end: submitting an Echo job on a 17.2 GB Mac is refused
+  with an actionable message instead of swapping or failing mid-generation.
+- Quality verified by transcribing output back and measuring word coverage:
+  100% on short zero-shot and clone samples, and semantically complete on a
+  287-character section (the only diffs were Whisper's own spelling variants).
+  Long-form sections are capped at 300 characters, inside Echo's ~30-second
+  acoustic window.
+
+### Evaluated and rejected — Ming-omni-tts 0.5B
+
+- `mlx-community/Ming-omni-tts-0.5B-4bit` was evaluated and **not added**. It
+  looked strong on every shallow metric (loads in 9 s, runs faster than real
+  time, ~1.4 GB peak, clean non-silent audio) but transcribe-back showed it
+  silently drops text: 93% word coverage at 91 characters, 86% at 140,
+  **63% at 174**, and **0% at 191** — where it emitted 1.6 s of gibberish
+  instead of the sentence. Not a token cap: raising `max_tokens` 200→600 and
+  varying temperature changed nothing; the model's learned stop head fires
+  early. Silently dropping words is the worst TTS failure mode, and Voice
+  Studio's long-form joiner would have stitched quietly-incomplete sections
+  together, so no per-section cap could make it safe.
+- Note for anyone revisiting: mlx-audio's `dense` README names
+  `mlx-community/Ming-omni-tts-0.5B-bf16` as its supported model, but that repo
+  **was never published** — the 4-bit build tested here is the only 0.5B
+  variant on the Hub. The properly-supported model is the 16.8B flagship
+  (`mlx-community/Ming-omni-tts-16.8B-A3B-4bit`, 10.1 GB), which was not
+  evaluated. `onnx`/`onnxruntime` were installed locally for the evaluation but
+  deliberately **not** added to `requirements-generation.txt`, since no shipped
+  family needs them.
+
 ## [1.28.0] — 2026-08-05
 
 ### Added — Audio8 TTS Preview + MOSS-TTS-Nano

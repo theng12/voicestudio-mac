@@ -31,6 +31,11 @@ AUDIO8_SECTION_MAX_CHARACTERS = 280
 # progress reporting and mid-script cancellation. 300 chars keeps each owned
 # section close to the model's own internal chunk size.
 MOSS_TTS_NANO_SECTION_MAX_CHARACTERS = 300
+# Echo's config caps one call at sequence_length=640 latents ×
+# audio_downsample_factor=2048 @ 44.1 kHz ≈ 29.7 s of audio (and max_text_length
+# is 768 characters). 300 sits comfortably inside both, and a 287-character
+# section was verified end-to-end as semantically complete via transcribe-back.
+ECHO_TTS_SECTION_MAX_CHARACTERS = 300
 
 
 @dataclass(frozen=True)
@@ -157,6 +162,15 @@ def _runtime_default(family: str, repo: str) -> Optional[LongFormPolicy]:
             note=(
                 "Voice Studio owns the outer delivery boundary for progress and "
                 "cancellation, on top of the model's own internal sentence splitting."
+            ),
+        )
+    if family == "echo-tts":
+        return LongFormPolicy(
+            section_max_characters=ECHO_TTS_SECTION_MAX_CHARACTERS,
+            join_pause_seconds=DEFAULT_JOIN_PAUSE_SECONDS,
+            note=(
+                "Keeps each diffusion pass inside Echo's ~30-second acoustic window "
+                "while reusing the same reference clip for every section."
             ),
         )
     return None

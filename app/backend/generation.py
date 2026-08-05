@@ -471,6 +471,9 @@ _ENGINE_REQUIREMENTS = {
     # rather than a Python package.
     "arktts":         ["mlx", "mlx_audio", "soundfile", "numpy"],
     "moss-tts-nano":  ["mlx", "mlx_lm", "mlx_audio", "soundfile", "numpy"],
+    # Echo-TTS bundles its DiT + sampling in mlx-audio and pulls the Fish S1 DAC
+    # codec as a runtime companion download, so no extra Python package.
+    "echo-tts":       ["mlx", "mlx_audio", "soundfile", "numpy"],
     # F5-TTS (PyTorch, flow-matching). Wired in v1.3.0.
     "f5-tts":     ["f5_tts", "torch", "torchaudio", "vocos", "soundfile"],
 }
@@ -485,7 +488,7 @@ _WIRED_FAMILIES = {
     "chatterbox-mlx", "spark-tts-mlx", "orpheus",
     "kittentts", "vibevoice", "voxtral-tts", "marvis",
     "omnivoice", "fish-audio-mlx",
-    "arktts", "moss-tts-nano",
+    "arktts", "moss-tts-nano", "echo-tts",
     # Its own loader (f5_tts.api.F5TTS) — separate worker.
     "f5-tts",
 }
@@ -605,6 +608,12 @@ MLX_AUDIO_FAMILIES: dict[str, dict] = {
         "uses_cfg": False,
         "mode": "moss_tts_nano",
         "label": "MOSS-TTS-Nano (MLX)",
+    },
+    "echo-tts": {
+        "default_sample_rate": 44100,
+        "uses_cfg": False,
+        "mode": "echo_tts",
+        "label": "Echo-TTS (MLX)",
     },
 }
 
@@ -1021,6 +1030,7 @@ _POSTPROCESSED_SPEED_FAMILIES = {
     # as one pitch-preserving tempo pass on the finished WAV, same as Fish.
     "arktts": "Audio8 TTS Preview",
     "moss-tts-nano": "MOSS-TTS-Nano",
+    "echo-tts": "Echo-TTS",
 }
 
 
@@ -2684,7 +2694,7 @@ class GenerationManager:
         # VoxCPM2 has no numeric speed parameter; its natural-language prompt
         # can shape delivery, while exact requested tempo is applied to the
         # finished WAV below. Passing speed upstream would be silently ignored.
-        if family not in {"voxcpm-mlx", "bark", "vibevoice", "fish-audio-mlx", "arktts", "moss-tts-nano"}:
+        if family not in {"voxcpm-mlx", "bark", "vibevoice", "fish-audio-mlx", "arktts", "moss-tts-nano", "echo-tts"}:
             # Qwen accepts this argument but does not apply it upstream. Keep
             # native generation at 1.0 and adjust the finished WAV below.
             gen_kwargs["speed"] = 1.0 if family == "qwen3-tts" else speed
@@ -2733,6 +2743,13 @@ class GenerationManager:
             import random
             seed = random.randint(0, 2**32 - 1)
         job.resolved_seed = int(seed)
+
+        if family == "echo-tts":
+            # Echo's diffusion sampler draws from its OWN rng_seed kwarg rather
+            # than mlx.core.random, so seeding mx alone would not make a reuse
+            # repeatable. Feed it the same resolved seed (its own range is a
+            # plain int; keep it inside 2**32 like the mx seed below).
+            gen_kwargs["rng_seed"] = int(seed) % (2**32)
 
         if job.cancel_event.is_set():
             return
@@ -2919,6 +2936,7 @@ class GenerationManager:
         - "fish_audio"        — optional ref_audio + optional instruct + full sampling
         - "audio8"            — optional ref_audio (zero-shot otherwise), full sampling, no instruct/language
         - "moss_tts_nano"     — ref_audio REQUIRED (no zero-shot), full sampling, no instruct/language
+        - "echo_tts"          — optional ref_audio, NO ref_text at all, diffusion sampler knobs
         """
         from . import voices as voices_module
 
@@ -2942,6 +2960,8 @@ class GenerationManager:
             return self._mlx_kwargs_audio8(params, gen_kwargs, voices_module)
         if mode == "moss_tts_nano":
             return self._mlx_kwargs_moss_tts_nano(params, gen_kwargs, voices_module)
+        if mode == "echo_tts":
+            return self._mlx_kwargs_echo_tts(params, gen_kwargs, voices_module)
         raise RuntimeError(f"Unknown mlx-audio mode {mode!r} for family {family!r}")
 
     # --- per-mode kwarg builders ---
@@ -3326,6 +3346,40 @@ class GenerationManager:
             1.0, min(float(params.get("moss_repetition_penalty", 1.2)), 2.0)
         )
         return f"clone (voice={voice_id or 'private-reference'})"
+
+    def _mlx_kwargs_echo_tts(self, params, gen_kwargs, voices_module) -> str:
+        """Echo-TTS: optional reference clone, otherwise the model's own voice.
+
+        Cloning is AUDIO-ONLY — verified against the installed mlx-audio source:
+        Model.generate(text, voice, ref_audio, stream, **kwargs) has no ref_text
+        parameter, and everything else (speed, temperature, instruct, lang_code,
+        ref_text) falls into **kwargs where generate_latents() filters it against
+        the SamplerConfig field names and silently drops non-matches. So a
+        reference voice with no saved transcript works fine here, and the public
+        speed control is applied as one pitch-preserving tempo pass afterwards.
+        """
+        voice_id = (params.get("voice_library_id") or "").strip()
+        has_reference = bool(voice_id or params.get("_reference_audio_path"))
+        if has_reference:
+            self._inject_voice_clone(
+                voice_id, params, gen_kwargs, voices_module, fallback_transcript=""
+            )
+            # Echo ignores ref_text; drop it so the kwargs reflect what is used.
+            gen_kwargs.pop("ref_text", None)
+
+        # Real SamplerConfig fields (echo_tts/config.py). Anything else is dropped
+        # by the engine, so only expose knobs that actually take effect.
+        gen_kwargs["num_steps"] = max(
+            4, min(int(params.get("echo_num_steps", 40)), 128)
+        )
+        gen_kwargs["cfg_scale_text"] = max(
+            0.0, min(float(params.get("echo_cfg_scale_text", 3.0)), 10.0)
+        )
+        gen_kwargs["cfg_scale_speaker"] = max(
+            0.0, min(float(params.get("echo_cfg_scale_speaker", 8.0)), 20.0)
+        )
+        reference_label = voice_id or "private-reference"
+        return f"clone (voice={reference_label})" if has_reference else "zero-shot (default voice)"
 
     def _mlx_kwargs_voice_or_clone(self, params, gen_kwargs, voices_module) -> str:
         """Spark-TTS (MLX): EITHER a voice picker (preset) OR a reference
