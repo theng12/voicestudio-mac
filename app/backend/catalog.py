@@ -1276,32 +1276,26 @@ CATALOG: tuple[ModelEntry, ...] = (
         family="arktts",
         size_gb=2.55,
         gated=False,
-        # ┌─────────────────────────────────────────────────────────────────┐
-        # │ TEMPORARY — floor lowered 16 → 8 GB on 2026-08-07 ONLY so the   │
-        # │ fleet's 8 GB Macs (terranash-0002 M1, -0006 M2) will accept a   │
-        # │ dispatched job and settle whether the 16 GB floor is real.      │
-        # │ The memory guard is what refuses under-spec jobs, so it has to  │
-        # │ be relaxed for the experiment to run at all.                    │
-        # │                                                                 │
-        # │ REVERT TO 16 once the 8 GB results are in — unless they show    │
-        # │ it genuinely fits, in which case update this comment with the   │
-        # │ measurement instead of quietly leaving 8 in place.              │
-        # │                                                                 │
-        # │ While this is 8, nothing stops an ordinary Audio8 job running   │
-        # │ on an 8 GB Mac and swapping hard. That is the accepted cost of  │
-        # │ the experiment, not a claim that it fits.                       │
-        # └─────────────────────────────────────────────────────────────────┘
-        # Measured (v1.29.1), and the reason the real floor is believed to be 16:
-        #   2.55 GB after load → 5.39 GB on a short line → 9.44 GB at 246 chars.
-        # Voice Studio renders 280-character sections, so the production peak is
-        # ~10 GB. The 8 GB floor originally shipped in 1.28.0 was an unmeasured
-        # estimate; this 8 is a deliberate test setting, not a return to it.
-        min_unified_memory_gb=8,
+        # 16 GB, now confirmed on the fleet rather than inferred. Peak scales
+        # with output length because activations dominate, not weights, and it
+        # has landed in the same place on four independent runs at a production
+        # section size:
+        #   9.44 GB  local M4 16 GB   (246 chars)
+        #   8.22 GB  terranash-0200   (25.8 GB, clean run)
+        #   8.39 GB  terranash-0200
+        #   8.61 GB  terranash-0201   (17.2 GB) — and that run drove free memory
+        #                              down to 1.44 GB, hit `warning` pressure,
+        #                              and added 0.21 GB of swap ON A 16 GB MAC.
+        # An 8.6 GB machine has less headroom than that run consumed, so 8 GB
+        # was ruled out on the numbers without needing to run it there. The
+        # floor was temporarily set to 8 on 2026-08-07 to allow that test and
+        # is now restored.
+        min_unified_memory_gb=16,
         recommended_hardware=(
-            "Apple Silicon with 16 GB. Peak grows with section length — measured "
-            "9.44 GB at 246 characters, so 8 GB Macs are expected to swap or "
-            "fail. The declared floor is temporarily 8 GB while that is being "
-            "verified on the fleet; it is not a fit claim."
+            "Apple Silicon with 16 GB, and 16 GB is genuinely the floor rather "
+            "than a comfortable target: a full-length section measured 8.6 GB "
+            "peak on a 16 GB Mac, leaving 1.4 GB free and touching memory "
+            "pressure. 24 GB is the comfortable tier."
         ),
         capabilities=("tts", "voice-cloning", "multilingual"),
         best_for="A DualAR preview TTS in the style of Fish Audio S2 Pro. Zero-shot with the model's single built-in default voice, or clone a reference clip. Apache-2.0, 44.1 kHz. Preview release — 11 languages, parity-verified by the mlx-audio maintainer against the PyTorch reference.",

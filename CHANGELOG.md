@@ -10,6 +10,30 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.29.4] — 2026-08-07
+
+### Fixed — Audio8 floor restored to 16 GB, now confirmed on the fleet
+
+- The temporary 8 GB test setting from 1.29.3 is reverted. Fleet measurements
+  put Audio8's peak at **8.22 / 8.39 GB on a 24 GB Mac** and **8.61 GB on a
+  16 GB Mac**, matching the 9.44 GB measured locally. The 16 GB run left only
+  **1.44 GB free**, reached `warning` memory pressure and added 0.21 GB of
+  swap — so 16 GB is the genuine floor, not a comfortable target.
+- An 8.6 GB machine has less total headroom than that run consumed, so the
+  8 GB tier was ruled out on the numbers rather than by running it there.
+
+### Added — OmniVoice is the small-machine option, with evidence
+
+- Measured on the fleet for comparison: OmniVoice peaks at **2.75 GB** (16 GB
+  Mac) at **1.73x** real time, against Audio8's 8.61 GB at 1.79x — comparable
+  speed for roughly a third of the memory.
+- Wave-2 qualification (2026-08-03) had already completed an OmniVoice clone on
+  an **8 GB** machine (`terranash-0206`, 3.68 GB peak, RTF 3.26) — but it
+  reached `urgent` pressure with 0.71 GB free and added 0.76 GB swap, and that
+  review concluded the production floor should stay at 16 GB. That conclusion
+  is unchanged; the catalogue's 8 GB floor for OmniVoice reflects that it
+  *completes* there, not that it is comfortable.
+
 ## [1.29.3] — 2026-08-07
 
 ### Changed — Audio8 memory floor temporarily lowered to 8 GB (TEST SETTING)
