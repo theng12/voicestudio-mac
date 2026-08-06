@@ -204,8 +204,9 @@ def do_copy(dst_root: Path, host: str, plan_only: bool) -> None:
     print("    python tools/organize_models.py --restore --src <ssd>/voicestudio-models")
 
 
-def do_restore(src_root: Path) -> None:
-    """Flatten <family>/models--*/ back into this machine's HF cache."""
+def do_restore(src_root: Path, restore_all: bool = False) -> None:
+    """Flatten <family>/models--*/ back into this machine's HF cache, restoring
+    only the models this Mac has the memory to run (unless restore_all)."""
     if not src_root.is_dir():
         sys.exit(f"not found: {src_root}")
     HUB.mkdir(parents=True, exist_ok=True)
@@ -215,14 +216,60 @@ def do_restore(src_root: Path) -> None:
     if not pkgs:
         sys.exit(f"no models--* packages under {src_root}")
 
-    print(f"restoring {len(pkgs)} packages into {HUB}\n")
-    for i, src in enumerate(pkgs, 1):
+    machine_gb = round(int(subprocess.run(
+        ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True
+    ).stdout.strip() or 0) / 1e9, 1)
+
+    keep, skip = pkgs, []
+    if not restore_all:
+        # Only restore what this Mac can actually run. The memory floor is read
+        # from this machine's own catalog.py (every fleet Mac has the repo), so
+        # the SSD manifest doesn't need to carry it and stays valid as floors
+        # are corrected — Audio8's went 8 -> 16 GB after being measured.
+        wanted, floors = set(), {}
+        try:
+            sys.path.insert(0, str(REPO_ROOT / "app"))
+            from backend import catalog as cat  # type: ignore
+            for m in cat.CATALOG:
+                floor = m.min_unified_memory_gb
+                floors[m.repo] = floor
+                # floor None = "not yet qualified"; include it and let the run decide.
+                if floor is None or floor <= machine_gb:
+                    wanted.add(m.repo)
+                    for c in cat.FAMILY_COMPANIONS.get(m.family, ()):
+                        wanted.add(c["repo"])  # a model without its codec is useless
+            # Whisper is needed by the benchmark's transcribe-back check.
+            wanted.update(r for r in
+                          (dirname_to_repo(p.name) for p in pkgs)
+                          if r and "whisper" in r.lower())
+        except Exception as e:
+            print(f"could not read catalog ({type(e).__name__}) — restoring everything")
+            wanted = None
+
+        if wanted is not None:
+            keep, skip = [], []
+            for p in pkgs:
+                repo = dirname_to_repo(p.name)
+                (keep if repo in wanted else skip).append((p, repo, floors.get(repo)))
+            keep = [p for p, _, _ in keep]
+
+    print(f"machine: {machine_gb} GB unified memory")
+    print(f"restoring {len(keep)} of {len(pkgs)} packages into {HUB}\n")
+
+    for i, src in enumerate(keep, 1):
         dst = HUB / src.name
         if dst.exists():
-            print(f"[{i}/{len(pkgs)}] {src.name} — already present, skipped")
+            print(f"[{i}/{len(keep)}] {src.name} — already present, skipped")
             continue
-        print(f"[{i}/{len(pkgs)}] {src.name}")
+        print(f"[{i}/{len(keep)}] {src.name}")
         shutil.copytree(src, dst, symlinks=True)
+
+    if skip:
+        print("\nskipped — needs more memory than this Mac has:")
+        for _, repo, floor in skip:
+            need = f"needs {floor} GB" if floor else "not in this catalogue"
+            print(f"    {repo}  ({need})")
+        print("  (--all restores them anyway, e.g. to stage a machine you'll upgrade)")
     print("\nDone. Restart Voice Studio (or click Update) so it rescans the cache.")
 
 
@@ -233,10 +280,12 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1:47870")
     ap.add_argument("--plan", action="store_true", help="show the plan, write nothing")
     ap.add_argument("--restore", action="store_true")
+    ap.add_argument("--all", action="store_true",
+                    help="restore every package, ignoring this Mac's memory tier")
     args = ap.parse_args()
 
     if args.restore:
-        do_restore(args.src)
+        do_restore(args.src, args.all)
     else:
         if not HUB.is_dir():
             sys.exit(f"HF cache not found at {HUB}")
