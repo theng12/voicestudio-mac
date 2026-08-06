@@ -10,6 +10,31 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.30.0] — 2026-08-07
+
+### Added — Fish Audio S2 Pro finally has a qualified memory floor
+
+- Fish S2 Pro shipped with `min_unified_memory_gb=None` — it had never been
+  qualified, so it made no hardware claim at all. Measured on the fleet with an
+  Aiden clone at one production section:
+  - **16 GB Mac**: 13.27 GB MLX active, host peaked 88.4%, 1.99 GB free,
+    `warning` pressure, +0.33 GB swap — runs, but with no margin.
+  - **24 GB Mac**: 13.51 GB, host peaked 81.2%, 4.85 GB free, `normal`
+    pressure, no swap — comfortable.
+  - **8.6 GB Mac**: refused by the guard.
+- Floor set to **16 GB**, with 24 GB documented as the comfortable tier.
+
+### Changed — OmniVoice documented as the small-machine pick, with measurements
+
+- Fleet testing makes OmniVoice the clear choice for constrained machines: it is
+  the **only clone-capable model that completes on an 8 GB Mac**, at **3.3–3.5 GB
+  peak** (about a third of Audio8) and **faster** than Audio8 everywhere —
+  1.4–1.7x real time on 16/24 GB, 1.7–2.1x on 8 GB, verified on Apple M1 and two
+  other 8 GB machines.
+- The catalogue now also records the caveat: on 8 GB it finishes without
+  swapping but leaves **under 1 GB free and reaches `warning` pressure**, so it
+  suits a dedicated fleet worker rather than a machine in general use.
+
 ## [1.29.4] — 2026-08-07
 
 ### Fixed — Audio8 floor restored to 16 GB, now confirmed on the fleet

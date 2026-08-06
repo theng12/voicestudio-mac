@@ -23,12 +23,38 @@ from pathlib import Path
 AIDEN = "a9aedc5c6bd3"  # same voice id across the fleet
 
 MACHINES = [
-    {"id": "terranash-0200", "ip": "100.91.195.122", "chip": "M4?",  "ram_gb": 25.8},
-    {"id": "terranash-0201", "ip": "100.75.249.107", "chip": "M2",   "ram_gb": 17.2},
-    {"id": "terranash-0002", "ip": "100.119.47.106", "chip": "M1",   "ram_gb": 8.6},
-    {"id": "terranash-0006", "ip": "100.72.219.83",  "chip": "M2",   "ram_gb": 8.6},
-    {"id": "terranash-0007", "ip": "100.95.11.119",  "chip": "M2",   "ram_gb": 17.2},
+    # id, tailscale ip, RAM. The leading two digits of the id select which
+    # controller's fleet token authenticates the request (see TOKENS_FILE) —
+    # 00xx, 01xx and 02xx are separate sites with separate tokens.
+    {"id": "terranash-0000", "ip": "100.83.69.73",   "ram_gb": 17.2},
+    {"id": "terranash-0001", "ip": "100.78.224.16",  "ram_gb": 8.6},
+    {"id": "terranash-0002", "ip": "100.119.47.106", "ram_gb": 8.6},
+    {"id": "terranash-0003", "ip": "100.75.145.115", "ram_gb": 8.6},
+    {"id": "terranash-0004", "ip": "100.102.177.25", "ram_gb": 8.6},
+    {"id": "terranash-0005", "ip": "100.71.193.102", "ram_gb": 8.6},
+    {"id": "terranash-0006", "ip": "100.72.219.83",  "ram_gb": 8.6},
+    {"id": "terranash-0007", "ip": "100.95.11.119",  "ram_gb": 17.2},
+    {"id": "terranash-0100", "ip": "100.76.231.48",  "ram_gb": 17.2},
+    {"id": "terranash-0101", "ip": "100.117.8.43",   "ram_gb": 8.6},
+    {"id": "terranash-0102", "ip": "100.69.120.98",  "ram_gb": 8.6},
+    {"id": "terranash-0103", "ip": "100.88.96.113",  "ram_gb": 8.6},
+    {"id": "terranash-0104", "ip": "100.101.15.42",  "ram_gb": 8.6},
+    {"id": "terranash-0105", "ip": "100.65.38.87",   "ram_gb": 8.6},
+    {"id": "terranash-0200", "ip": "100.91.195.122", "ram_gb": 25.8},
+    {"id": "terranash-0201", "ip": "100.75.249.107", "ram_gb": 17.2},
+    {"id": "terranash-0202", "ip": "100.96.171.120", "ram_gb": 17.2},
+    {"id": "terranash-0203", "ip": "100.98.173.75",  "ram_gb": 8.6},
+    {"id": "terranash-0206", "ip": "100.76.16.94",   "ram_gb": 8.6},
 ]
+
+# Tokens live OUTSIDE the repo so they can never be committed. chmod 600.
+TOKENS_FILE = Path.home() / ".voicestudio-fleet-tokens.json"
+
+
+def token_for(machine_id: str, tokens: dict) -> str:
+    """00xx / 01xx / 02xx are separate sites with separate fleet tokens."""
+    block = machine_id.replace("terranash-", "")[:2]
+    return (tokens.get(block) or {}).get("token", "")
 
 # One production-sized section each, so real-time factors are comparable and
 # not distorted by a toy sentence (Echo's cost is per-call, not per-character).
@@ -47,6 +73,18 @@ MODELS = [
     {"key": "omnivoice", "repo": "mlx-community/OmniVoice-bfloat16",
      "params": {"omnivoice_num_steps": 32, "omnivoice_guidance_scale": 2.0},
      "clone": True},
+    # Qwen Base is the clone tier. It runs Voice Studio's quality guardrails
+    # (Whisper transcript validation + up to one retry), so a slower wall time
+    # here is partly validation, not just synthesis.
+    {"key": "qwen-0.6b-base", "repo": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
+     "params": {}, "clone": True},
+    {"key": "qwen-1.7b-base", "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+     "params": {}, "clone": True},
+    # Fish S2 Pro declares no memory floor (never qualified), so this run is
+    # also the evidence for what that floor should be.
+    {"key": "fish-s2-pro", "repo": "mlx-community/fish-audio-s2-pro-8bit",
+     "params": {"fish_temperature": 0.7, "fish_top_p": 0.7,
+                "fish_top_k": 30, "fish_max_tokens": 4096}, "clone": True},
 ]
 
 
@@ -61,6 +99,18 @@ def req(url: str, token: str, method="GET", body=None, timeout=60):
         return json.loads(raw)
     except ValueError:
         return raw
+
+
+def machine_facts(ip: str, token: str) -> dict:
+    """Chip and memory as the machine reports them — never hardcoded, so an
+    M1/M2 comparison can't be wrong because a table drifted."""
+    try:
+        d = req(f"http://{ip}:47870/api/system", token, timeout=20)
+        return {"chip": d.get("chip"), "chip_tier": d.get("chip_tier"),
+                "unified_memory_gb": d.get("unified_memory_gb"),
+                "arch": d.get("arch")}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
 
 
 def cached_models(ip: str, token: str) -> dict:
@@ -147,7 +197,10 @@ def main() -> None:
     ap.add_argument("--only", default="", help="comma-separated machine ids")
     args = ap.parse_args()
 
-    token = req(f"{args.hub}/api/hub/fleet", "")["token"]
+    if TOKENS_FILE.exists():
+        tokens = json.loads(TOKENS_FILE.read_text())
+    else:  # fall back to just this site's token
+        tokens = {"02": {"token": req(f"{args.hub}/api/hub/fleet", "")["token"]}}
     out = args.out if args.out.parent.is_dir() else Path("bench-results")
     out.mkdir(parents=True, exist_ok=True)
 
@@ -158,8 +211,11 @@ def main() -> None:
     for mach in MACHINES:
         if wanted and mach["id"] not in wanted:
             continue
-        print(f"\n=== {mach['id']}  {mach['chip']}  {mach['ram_gb']} GB ===")
-        rec = {"machine": mach, "models": {}}
+        token = token_for(mach["id"], tokens)
+        facts = machine_facts(mach["ip"], token)
+        chip = facts.get("chip") or "?"
+        print(f"\n=== {mach['id']}  {chip}  {mach['ram_gb']} GB ===")
+        rec = {"machine": {**mach, **facts}, "models": {}}
         cache = cached_models(mach["ip"], token)
         if "_error" in cache:
             print(f"  unreachable / no access: {cache['_error']}")

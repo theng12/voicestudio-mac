@@ -1140,7 +1140,10 @@ CATALOG: tuple[ModelEntry, ...] = (
         use_cases=(
             ("good",  "Reference-quality OmniVoice at half the size of fp32"),
             ("good",  "Apache-2.0, 646 languages, voice cloning and voice design"),
-            ("weak",  "16 GB recommended; the published compact conversions are not compatible with the current MLX engine"),
+            ("good",  "The lightest clone-capable model in the catalog — 3.3–3.5 GB peak, roughly a third of Audio8, and faster: 1.4–1.7x real time on 16/24 GB and 1.7–2.1x on 8 GB"),
+            ("good",  "The only clone-capable model that completes on an 8 GB Mac (verified on M1 and two others, 2026-08-07)"),
+            ("weak",  "On 8 GB it finishes without swapping but leaves under 1 GB free and reaches memory-pressure warning — fine on a dedicated fleet worker, not alongside other apps"),
+            ("weak",  "The published compact conversions are not compatible with the current MLX engine, so this bf16 build is the only option"),
         ),
     ),
 
@@ -1154,11 +1157,19 @@ CATALOG: tuple[ModelEntry, ...] = (
         family="fish-audio-mlx",
         size_gb=6.73,
         gated=False,
-        min_unified_memory_gb=None,
+        # Qualified on the fleet 2026-08-07 (was previously unqualified, hence
+        # the None floor). Measured on one production section, Aiden clone:
+        #   terranash-0201 (17.2 GB): 13.27 GB MLX active, host peaked 88.4%,
+        #       1.99 GB free, `warning` pressure, +0.33 GB swap  → runs, tight
+        #   terranash-0200 (25.8 GB): 13.51 GB MLX active, host peaked 81.2%,
+        #       4.85 GB free, `normal` pressure, no swap          → comfortable
+        # Refused outright by the guard on an 8.6 GB Mac. So 16 GB is the floor
+        # and 24 GB is the comfortable tier — the same shape as Audio8.
+        min_unified_memory_gb=16,
         recommended_hardware=(
-            "Unified-memory fit is not yet qualified. Use controlled 16 GB "
-            "and 24 GB Apple Silicon qualification evidence before treating "
-            "this row as a hardware-fit claim."
+            "Apple Silicon with 16 GB minimum, 24 GB comfortable. Measured "
+            "13.3 GB peak: on a 16 GB Mac that leaves ~2 GB free and reaches "
+            "memory-pressure warning; on 24 GB it stays in normal pressure."
         ),
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="The practical Fish S2 Pro MLX tier. It bundles the model and codec in about 6.73 GB, claims 80+ language coverage and supports reference-voice cloning, but the public Fish Audio research license is not a commercial-use grant.",
