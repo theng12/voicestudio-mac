@@ -34,6 +34,7 @@ import argparse
 import json
 import platform
 import re
+import shutil
 import subprocess
 import time
 import traceback
@@ -107,6 +108,11 @@ def main() -> None:
     ap.add_argument("--ref-text", default="", help="its exact transcript")
     ap.add_argument("--hf-home", type=Path, default=DEFAULT_HF_HOME)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--results-dir", type=Path, default=None,
+                    help="where to write JSON + audio (default: the SSD if mounted)")
+    ap.add_argument("--allow-download", action="store_true",
+                    help="permit fetching missing models (off by default — a "
+                         "benchmark should measure what is staged, not download it)")
     ap.add_argument("--skip-coverage", action="store_true",
                     help="skip Whisper transcribe-back (faster, less informative)")
     args = ap.parse_args()
@@ -114,6 +120,19 @@ def main() -> None:
     import os
     os.environ.setdefault("HF_HOME", str(args.hf_home))
     os.environ.setdefault("HF_HUB_DISABLE_XET", "1")  # see chatstudio-download-stall
+    if not args.allow_download:
+        # A benchmark must measure what is actually staged on the machine. Left
+        # online, a missing model is silently pulled from the Hub — minutes of
+        # download folded into the "load" time, and gigabytes over someone's
+        # connection. Offline turns that into an immediate, obvious error.
+        os.environ["HF_HUB_OFFLINE"] = "1"
+
+    # Results (JSON + the audio, so it can be listened to later) default to the
+    # SSD when it is plugged in, so they don't have to be hunted for per machine.
+    results_dir = args.results_dir
+    if results_dir is None:
+        ssd = Path("/Volumes/UGREEN-1TB/voicestudio-bench")
+        results_dir = ssd if ssd.parent.is_dir() else REPO_ROOT / "bench-results"
 
     import mlx.core as mx
     import soundfile as sf
@@ -162,6 +181,16 @@ def main() -> None:
         entry: dict = {"repo": spec["repo"], "text_chars": len(text)}
         print(f"-- {key}  ({spec['repo']})")
 
+        # Fail fast and clearly if the model was never staged, instead of
+        # letting the loader turn it into a surprise multi-GB download.
+        cache_dir = args.hf_home / "hub" / ("models--" + spec["repo"].replace("/", "--"))
+        if not cache_dir.is_dir() and not args.allow_download:
+            entry.update({"ok": False, "error": "not staged on this machine",
+                          "skipped": True})
+            results["models"][key] = entry
+            print("   NOT PRESENT — run the restore step first (skipping, no download)\n")
+            continue
+
         swap0 = swap_used_gb()
         try:
             mx.reset_peak_memory()
@@ -188,6 +217,14 @@ def main() -> None:
             wav = sorted(out_dir.glob("*.wav"))[0]
             i = sf.info(str(wav))
             dur = i.frames / i.samplerate
+
+            # Keep the audio — the numbers say whether it ran, only listening
+            # says whether it sounds right.
+            audio_dir = results_dir / results["machine_id"]
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            kept = audio_dir / f"{key}-{entry['mode']}.wav"
+            shutil.copy2(wav, kept)
+            entry["audio_file"] = str(kept)
             entry.update({
                 "generation_seconds": round(gen_s, 2),
                 "audio_seconds": round(dur, 2),
@@ -226,9 +263,17 @@ def main() -> None:
         results["models"][key] = entry
         print()
 
-    out = args.out or REPO_ROOT / f"bench-{results['machine_id']}.json"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    out = args.out or results_dir / f"bench-{results['machine_id']}.json"
     out.write_text(json.dumps(results, indent=2) + "\n")
-    print(f"wrote {out}")
+    print(f"results : {out}")
+    audio_dir = results_dir / results["machine_id"]
+    if audio_dir.is_dir():
+        print(f"audio   : {audio_dir}")
+    if str(results_dir).startswith("/Volumes/"):
+        print("(on the SSD — carry it to the next machine, nothing to hunt for)")
+    else:
+        print("(SSD not mounted, so these were written locally)")
 
 
 if __name__ == "__main__":

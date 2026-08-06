@@ -104,17 +104,37 @@ prints a line per model like:
 machines we expect the bigger models to fail, and that failure is the answer.
 Let it finish.
 
-At the end it writes `bench-<machine>.json` into the folder.
+**It will not download anything.** If a model isn't on the machine it prints
+`NOT PRESENT — run the restore step first` and moves on, instead of quietly
+pulling gigabytes and folding the download time into the results.
+
+### Where the results go
+
+**Straight onto the SSD**, so there's nothing to hunt for and you can listen to
+the audio later:
+
+```
+/Volumes/UGREEN-1TB/voicestudio-bench/
+    bench-<machine>.json          <- the numbers
+    <machine>/
+        kokoro-zero-shot.wav      <- the actual audio, keep for listening
+        audio8-clone.wav
+        echo-clone.wav
+```
+
+If the SSD isn't plugged in, it falls back to a `bench-results/` folder inside
+the repo and tells you so.
 
 ---
 
-## Step 5 — send me the results
+## Step 5 — nothing to send
+
+The JSON and the audio are already on the SSD. Bring it back and I'll read
+them. If you'd rather paste the numbers directly:
 
 ```bash
-cat ~/pinokio/api/voicestudio-mac.git/bench-*.json
+cat /Volumes/UGREEN-1TB/voicestudio-bench/bench-*.json
 ```
-
-Copy what it prints and paste it to me. That's everything I need.
 
 ---
 
