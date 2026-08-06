@@ -50,6 +50,11 @@ LEGACY_REPOS: dict[str, dict[str, str]] = {
         "label": "VoxCPM2 8-bit (older alternative)",
         "reason": "Not referenced by Voice Studio's current 4-bit and bf16 catalogue options.",
     },
+    "mlx-community/Ming-omni-tts-0.5B-4bit": {
+        "family": "unlisted",
+        "label": "Ming-omni-tts 0.5B 4-bit (evaluated, rejected)",
+        "reason": "Evaluated 2026-08-05 and not added to the catalogue: transcribe-back showed it silently drops text (63% word coverage at 174 characters, 0% and unintelligible at 191).",
+    },
     "mlx-community/whisper-tiny": {
         "family": "whisper-stt",
         "label": "Whisper Tiny (retired)",
