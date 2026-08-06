@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.29.3] — 2026-08-07
+
+### Changed — Audio8 memory floor temporarily lowered to 8 GB (TEST SETTING)
+
+- `min_unified_memory_gb` for Audio8 is temporarily **8** instead of the
+  measured 16, so the fleet's 8 GB Macs will accept a dispatched job. The
+  memory guard is exactly what refuses an under-spec job, so it has to be
+  relaxed for the experiment to run at all.
+- **This is not a fit claim.** The measurement behind 16 stands: 5.39 GB on a
+  short line, **9.44 GB at 246 characters**, and ~10 GB at the 280-character
+  production section size. While the floor sits at 8, nothing prevents an
+  ordinary Audio8 job from swapping hard on an 8 GB Mac.
+- To be reverted to 16 once the 8 GB results are in — or, if it genuinely
+  fits, replaced with the new measurement rather than silently left at 8.
+
 ## [1.29.2] — 2026-08-06
 
 ### Added — the model picker is grouped by family, and dependencies are visible
