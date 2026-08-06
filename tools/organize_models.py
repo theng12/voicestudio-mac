@@ -204,7 +204,7 @@ def do_copy(dst_root: Path, host: str, plan_only: bool) -> None:
     print("    python tools/organize_models.py --restore --src <ssd>/voicestudio-models")
 
 
-def do_restore(src_root: Path, restore_all: bool = False) -> None:
+def do_restore(src_root: Path, restore_all: bool = False, force: bool = False) -> None:
     """Flatten <family>/models--*/ back into this machine's HF cache, restoring
     only the models this Mac has the memory to run (unless restore_all)."""
     if not src_root.is_dir():
@@ -256,12 +256,45 @@ def do_restore(src_root: Path, restore_all: bool = False) -> None:
     print(f"machine: {machine_gb} GB unified memory")
     print(f"restoring {len(keep)} of {len(pkgs)} packages into {HUB}\n")
 
+    # A bare "does the folder exist" check is not enough: a half-finished
+    # download leaves .incomplete blobs (or a snapshot with no weight files)
+    # behind, and skipping that would leave the machine quietly broken. Use the
+    # app's own cache_state so "complete" means exactly what Voice Studio means.
+    try:
+        import os
+        os.environ.setdefault("HF_HOME", str(REPO_ROOT / "cache" / "HF_HOME"))
+        sys.path.insert(0, str(REPO_ROOT / "app"))
+        from backend import cache as appcache  # type: ignore
+        state_of = appcache.cache_state
+    except Exception:
+        state_of = None
+
+    copied = replaced = intact = 0
     for i, src in enumerate(keep, 1):
         dst = HUB / src.name
+        repo = dirname_to_repo(src.name)
+        label = f"[{i}/{len(keep)}] {src.name}"
+
         if dst.exists():
-            print(f"[{i}/{len(keep)}] {src.name} — already present, skipped")
-            continue
-        print(f"[{i}/{len(keep)}] {src.name}")
+            state = state_of(repo) if (state_of and repo) else "unknown"
+            if force:
+                print(f"{label} — replacing (--force)")
+                shutil.rmtree(dst)
+                replaced += 1
+            elif state == "cached":
+                print(f"{label} — already complete, left alone")
+                intact += 1
+                continue
+            else:
+                # partial / absent-but-present-dir / unknown: the local copy
+                # cannot be trusted, and the SSD copy is known good.
+                print(f"{label} — local copy is {state}, replacing")
+                shutil.rmtree(dst)
+                replaced += 1
+        else:
+            print(label)
+            copied += 1
+
         shutil.copytree(src, dst, symlinks=True)
 
     if skip:
@@ -270,7 +303,12 @@ def do_restore(src_root: Path, restore_all: bool = False) -> None:
             need = f"needs {floor} GB" if floor else "not in this catalogue"
             print(f"    {repo}  ({need})")
         print("  (--all restores them anyway, e.g. to stage a machine you'll upgrade)")
-    print("\nDone. Restart Voice Studio (or click Update) so it rescans the cache.")
+
+    print(f"\n{copied} new, {replaced} repaired/replaced, {intact} already complete.")
+    if state_of is None:
+        print("could not load the app's cache module — completeness was not "
+              "checked, so existing folders were replaced conservatively.")
+    print("Done. Restart Voice Studio (or click Update) so it rescans the cache.")
 
 
 def main() -> None:
@@ -282,10 +320,12 @@ def main() -> None:
     ap.add_argument("--restore", action="store_true")
     ap.add_argument("--all", action="store_true",
                     help="restore every package, ignoring this Mac's memory tier")
+    ap.add_argument("--force", action="store_true",
+                    help="replace local copies even when they are already complete")
     args = ap.parse_args()
 
     if args.restore:
-        do_restore(args.src, args.all)
+        do_restore(args.src, args.all, args.force)
     else:
         if not HUB.is_dir():
             sys.exit(f"HF cache not found at {HUB}")
