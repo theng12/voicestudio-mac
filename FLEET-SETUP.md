@@ -54,16 +54,10 @@ What the output means:
 
 Safe to run twice. It never deletes a model that is complete.
 
-### The two 8 GB machines (terranash-0002, terranash-0006)
-
-On **those two only**, add `--all` — we are deliberately testing whether Audio8
-really needs 16 GB, so it has to be forced onto an 8 GB machine:
-
-```bash
-cd ~/pinokio/api/voicestudio-mac.git && conda_env/bin/python tools/organize_models.py --restore --src /Volumes/UGREEN-1TB/voicestudio-models --all
-```
-
-Needs ~48 GB free. If the disk is tight, skip `--all` there and tell me.
+**Nothing special is needed on the 8 GB machines.** Audio8's declared floor was
+temporarily set to 8 GB (v1.29.3) precisely so those two Macs accept it, so the
+normal command above already copies it there. That is a test setting, not a
+claim that it fits — it is what we are measuring.
 
 ---
 
@@ -96,8 +90,8 @@ Tell me which machines are up and I'll take it from there.
 
 | Machine | Chip / RAM | Gets | Question it answers |
 |---|---|---|---|
-| `terranash-0002` | M1 · 8 GB | + Audio8 (forced) | does the 16 GB floor hold? M1 baseline |
-| `terranash-0006` | M2 · 8 GB | + Audio8 (forced) | same, M1 vs M2 at 8 GB |
+| `terranash-0002` | M1 · 8 GB | + Audio8 | does the 16 GB floor hold? M1 baseline |
+| `terranash-0006` | M2 · 8 GB | + Audio8 | same, M1 vs M2 at 8 GB |
 | `terranash-0007` | M2 · 16 GB | Audio8 | production speed at 16 GB |
 | `terranash-0201` | M2 · 16 GB | Audio8 | reproduces 0007 on identical hardware |
 | `terranash-0204` | M4 · 24 GB | Audio8 **and** Echo-TTS | Echo's real speed, unswapped |
