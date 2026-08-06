@@ -495,6 +495,27 @@ def _cache_with_companions(repo: str) -> dict:
     snap["companions_pending"] = [
         {"repo": c["repo"], "label": c.get("label", "")} for c in pending
     ]
+    # Full dependency list (not just the outstanding ones) so the Models tab can
+    # show what a family actually pulls and what it really costs on disk. Sizes
+    # come from the cache snapshot rather than a hardcoded table — a companion
+    # that isn't downloaded yet honestly reports no size instead of a guess.
+    companions = []
+    own_bytes = int(snap.get("bytes_complete") or 0)
+    total_bytes = own_bytes
+    for c in comps:
+        csnap = cache.status_snapshot(c["repo"])
+        cbytes = int(csnap.get("bytes_complete") or 0)
+        total_bytes += cbytes
+        companions.append({
+            "repo": c["repo"],
+            "label": c.get("label", ""),
+            "state": csnap.get("state"),
+            "bytes_complete": cbytes,
+        })
+    snap["companions"] = companions
+    if companions:
+        # On-disk total for the model plus everything its engine loads with it.
+        snap["bytes_with_companions"] = total_bytes
     return snap
 
 

@@ -217,18 +217,24 @@
         <section class="control-block">
           <label>Model</label>
           <select x-model="gen.repo" @change="onModelChange()">
-            <optgroup label="Local · runs on this Mac">
-              <template x-for="m in localGenerationModels" :key="m.repo">
-                <option :value="m.repo"
-                        :disabled="!isModelReady(m.repo)"
-                        x-text="modelOptionLabel(m)"></option>
-              </template>
-            </optgroup>
-            <optgroup label="Cloud · billed by provider" x-show="cloudGenerationModels.length">
-              <template x-for="m in cloudGenerationModels" :key="m.repo">
-                <option :value="m.repo" x-text="modelOptionLabel(m)"></option>
-              </template>
-            </optgroup>
+            <!-- One optgroup per family (HTML can't nest optgroups), so the picker
+                 is organised the same way as the Models tab. -->
+            <template x-for="g in localFamilyGroups" :key="'fam-' + g.id">
+              <optgroup :label="g.label + ' · runs on this Mac'">
+                <template x-for="m in g.models" :key="m.repo">
+                  <option :value="m.repo"
+                          :disabled="!isModelReady(m.repo)"
+                          x-text="modelOptionLabel(m)"></option>
+                </template>
+              </optgroup>
+            </template>
+            <template x-for="g in cloudProviderGroups" :key="'prov-' + g.id">
+              <optgroup :label="g.label + ' · billed by provider'">
+                <template x-for="m in g.models" :key="m.repo">
+                  <option :value="m.repo" x-text="modelOptionLabel(m)"></option>
+                </template>
+              </optgroup>
+            </template>
           </select>
           <p class="muted hint" x-show="generationModels.length === 0">
             No models are ready. Download a local model or connect a provider in Settings.
@@ -1409,6 +1415,22 @@
               </button>
               <div class="family-panel-body" x-show="isFamilyOpen(family.id)" x-cloak>
                 <div class="family-guidance"><span>Good to know</span><p x-text="family.how_to_use"></p></div>
+                <!-- Companion repos this family's engine loads with the model.
+                     Part of the real download cost, so show them explicitly. -->
+                <div class="family-guidance" x-show="familyCompanions(family).length" x-cloak>
+                  <span>Also downloads</span>
+                  <p>
+                    <template x-for="c in familyCompanions(family)" :key="c.repo">
+                      <span class="companion-dep">
+                        <strong x-text="c.label || c.repo"></strong>
+                        <code x-text="c.repo"></code>
+                        <span class="muted small"
+                              x-text="(c.bytes_complete ? formatBytes(c.bytes_complete) + ' · ' : '') + companionStateLabel(c.state)"></span>
+                      </span>
+                    </template>
+                    <span class="muted small">These are fetched automatically with the model — a model only reads <em>ready</em> once they are present too.</span>
+                  </p>
+                </div>
                 <div class="variant-table-head"><span>Option</span><span>Runs with</span><span>Download</span><span>Memory</span><span></span></div>
                 <div class="variant-list">
                   <template x-for="m in family.models" :key="m.repo">
@@ -1424,7 +1446,7 @@
                         </div>
                       </div>
                       <div class="variant-spec" data-label="Runs with"><strong x-text="modelRuntimeLabel(m)"></strong><small x-text="modelFormatLabel(m)"></small></div>
-                      <div class="variant-spec" data-label="Download"><strong x-text="formatGb(m.size_gb)"></strong><small x-text="cacheChipLabel(m.cache.state)"></small></div>
+                      <div class="variant-spec" data-label="Download"><strong x-text="formatGb(m.size_gb)"></strong><small x-text="cacheChipLabel(m.cache.state)"></small><small class="muted" x-show="modelTotalBytes(m)" x-cloak x-text="modelTotalBytes(m) ? formatBytes(modelTotalBytes(m)) + ' with deps' : ''"></small></div>
                       <div class="variant-spec" data-label="Memory"><strong x-text="memoryFloorLabel(m)"></strong><span class="fit-dot" :class="'fit-'+fitFor(m.min_unified_memory_gb).state" x-text="fitChipLabel(fitFor(m.min_unified_memory_gb))"></span></div>
                       <div class="variant-action">
                         <template x-if="m.cache.state!=='cached' && !m.active_download"><button class="primary" @click="confirmDownload(m)">Download</button></template>

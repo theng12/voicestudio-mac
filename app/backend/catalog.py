@@ -1326,7 +1326,10 @@ CATALOG: tuple[ModelEntry, ...] = (
         repo="mlx-community/echo-tts-base",
         label="Echo-TTS base (MLX) — 24 GB, non-commercial",
         family="echo-tts",
-        size_gb=7.5,
+        # Model weights only, matching every other catalog row. The companion
+        # codec is declared in FAMILY_COMPANIONS and the UI adds it up into the
+        # "with deps" total (~7.5 GB) rather than hiding it inside this number.
+        size_gb=5.6,
         gated=False,
         min_unified_memory_gb=24,
         recommended_hardware=(
@@ -1365,7 +1368,9 @@ CATALOG: tuple[ModelEntry, ...] = (
         repo="mlx-community/MOSS-TTS-Nano-100M",
         label="MOSS-TTS-Nano 100M (MLX)",
         family="moss-tts-nano",
-        size_gb=0.36,
+        # Model weights only (see Echo-TTS above) — its codec companion brings
+        # the real first-run cost to ~0.37 GB, shown as "with deps" in the UI.
+        size_gb=0.29,
         gated=False,
         min_unified_memory_gb=8,
         recommended_hardware="Any Apple Silicon Mac with 8 GB. Trivial RAM footprint — under 1.5 GB peak in local testing.",

@@ -1016,6 +1016,73 @@ function studio() {
       return this.generationModels.filter(m => m.kind === "cloud");
     },
 
+    /** Local models grouped into one <optgroup> per family, so the picker reads
+     *  the same way the Models tab does. HTML can't nest optgroups, so families
+     *  become the groups rather than sitting under a single "Local" heading.
+     *  Families keep catalog order; a model whose family is missing from the
+     *  families map still shows up under its raw family id rather than vanishing. */
+    get localFamilyGroups() {
+      const groups = [];
+      const byId = new Map();
+      for (const m of this.localGenerationModels) {
+        let g = byId.get(m.family);
+        if (!g) {
+          g = {
+            id: m.family,
+            label: this.families?.[m.family]?.label || m.family_label || m.family,
+            models: [],
+          };
+          byId.set(m.family, g);
+          groups.push(g);
+        }
+        g.models.push(m);
+      }
+      return groups;
+    },
+
+    /** Companion models (codec / tokenizer repos in a separate HF repo) that a
+     *  family's engine loads alongside the model itself. These are a real part
+     *  of the download cost — Echo-TTS pulls a 1.87 GB Fish S1 codec on top of
+     *  its 5.6 GB weights — but were previously invisible in the UI. Declared
+     *  per family in catalog.FAMILY_COMPANIONS, so any model of the family
+     *  carries the same list. */
+    familyCompanions(family) {
+      const m = (family?.models || []).find(x => (x.cache?.companions || []).length);
+      return m ? m.cache.companions : [];
+    },
+    /** True on-disk footprint for one model including its companions, or null
+     *  when the family has none (then the plain download size already tells the
+     *  whole story). */
+    modelTotalBytes(m) {
+      return m?.cache?.bytes_with_companions || null;
+    },
+    companionStateLabel(state) {
+      if (state === "cached") return "ready";
+      if (state === "partial") return "partial";
+      return "not downloaded";
+    },
+
+    /** Cloud models grouped by provider, mirroring the same idea. */
+    get cloudProviderGroups() {
+      const groups = [];
+      const byKey = new Map();
+      for (const m of this.cloudGenerationModels) {
+        const key = m.provider || this.cloudProviderKey(m.repo) || "cloud";
+        let g = byKey.get(key);
+        if (!g) {
+          g = {
+            id: key,
+            label: this.providers?.find(p => p.key === key)?.name || key,
+            models: [],
+          };
+          byKey.set(key, g);
+          groups.push(g);
+        }
+        g.models.push(m);
+      }
+      return groups;
+    },
+
     get modeCompatibleModels() {
       // Show only cached models that declare TTS support.
       return this.generationModels.filter(m => (m.capabilities || []).includes("tts"));

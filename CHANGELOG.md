@@ -10,6 +10,33 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.29.2] — 2026-08-06
+
+### Added — the model picker is grouped by family, and dependencies are visible
+
+- The Generate tab's model dropdown was a flat list of 19 local models under a
+  single "Local" heading. It now uses **one `<optgroup>` per family**, matching
+  how the Models tab already reads, and groups cloud models **per provider**
+  instead of one combined "Cloud" bucket. (HTML cannot nest `<optgroup>`, so
+  families become the groups rather than sitting under a "Local" parent.)
+- **Companion models are no longer invisible.** Six families load a second repo
+  at generation time — a codec or tokenizer — and that cost was tracked in the
+  backend but never shown. Each family panel now lists what it "Also downloads"
+  with the repo id, on-disk size, and ready / not-downloaded state, and each
+  variant's Download cell shows a "with deps" total. Sizes come from the cache
+  snapshot, so a companion that isn't present reports no size rather than a
+  guessed one.
+- `/api/catalog` gained `cache.companions` (the full list, not just the pending
+  ones) and `cache.bytes_with_companions`.
+
+### Fixed — `size_gb` now means the same thing on every row
+
+- Echo-TTS and MOSS-TTS-Nano shipped with `size_gb` that already folded in their
+  companion codec (7.5 GB and 0.36 GB), while every older family lists weights
+  only. With the new "with deps" total this read as nonsense — Echo showed
+  "7.5 GB … 7.47 GB with deps". Both are now weights-only (5.6 GB / 0.29 GB) and
+  the UI derives the true total, so the column is consistent catalogue-wide.
+
 ## [1.29.1] — 2026-08-05
 
 ### Fixed — Audio8's memory floor was an estimate, and it was too low

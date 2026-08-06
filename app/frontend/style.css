@@ -2814,6 +2814,24 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 .family-guidance > span { color: var(--family-accent); font-size: var(--font-caption); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .family-guidance p { margin: 0; color: #8e9b99; font-size: var(--font-caption); line-height: 1.5; }
 
+/* Companion (codec / tokenizer) repos a family downloads alongside its model. */
+.companion-dep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-bottom: 4px;
+}
+.companion-dep strong { color: #c6d2d0; font-weight: 700; }
+.companion-dep code {
+  font-size: calc(var(--font-caption) - 1px);
+  color: #7f8c8a;
+  background: rgba(255, 255, 255, .04);
+  padding: 1px 5px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+
 .variant-table-head, .variant-row {
   display: grid;
   grid-template-columns: minmax(270px, 1.65fr) minmax(125px, .8fr) 105px 105px 112px;
