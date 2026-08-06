@@ -28,3 +28,6 @@ service/
 
 # Per-machine automatic-update configuration, locks, and status
 auto_update/
+
+# Per-machine benchmark results (tools/bench_tts.py)
+bench-*.json
