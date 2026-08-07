@@ -10,6 +10,57 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.11] — 2026-08-08
+
+### Added — a check that compares an audit record to the code it describes
+
+- Every existing check in the model-audit pipeline is a **self-consistency**
+  check. `contract_hash` matches because it is computed over the contract. The
+  `genstudio_candidate` block mirrors the contract because it was copied from
+  it. GenStudio's `normalise_controls` derives the supported modes from the
+  controls the record declares. All of them pass for a record copied wholesale
+  from a different model — the pipeline was best at passing exactly the
+  forgeries worth catching. Nothing in the chain had ever compared the document
+  to the adapter it claims to describe.
+- That is not hypothetical: the superseded OmniVoice record validated perfectly
+  and shipped in v1.32.8 with four contract fields contradicted by this
+  repository's own code, three of them Qwen3-TTS Base's values.
+- `audit_contract_runtime.py` (sibling to `audit_truth.py`) now checks every
+  installed audit record against the adapter, deriving each expectation from
+  source rather than retyping it: `record.subject.model_id` → the catalog's
+  `ModelEntry` → `MLX_AUDIO_FAMILIES[family]["mode"]` → the dispatcher branch →
+  the body of the `_mlx_kwargs_*` builder.
+  - **section budget** (highest value — `catalog.py` feeds the audited number
+    straight into `long_form_policy`, so a wrong one silently changes how every
+    machine splits a script), **reference window** vs the duration the adapter
+    truncates to, **join pause** vs the family runtime default, whether
+    **`controls.language`** may exist at all, **`voice_clone.required`** vs the
+    guard that actually raises, the declared **engine mode**, and that the
+    declared text ceiling is reachable through the API's own cap.
+  - Long-form expectations call `policy_for()` with **no** audit override, so
+    the expectation is the family default rather than the value under test.
+- **The result names its own blind spots.** `audit_status`, hardware
+  qualification, quality comparisons, licence and clone-permission
+  attestations, and the *chosen* value of `text_max_characters` are human
+  judgements the validator does not verify — and it says so in the returned
+  result and the printed report, not only in a comment. A model whose adapter
+  cannot be introspected reports "not checkable", never "passed".
+- Wired into the test suite (`app/tests/test_audit_contract_runtime.py`), with
+  mutation tests that fail if a record is set back to any of the four known-bad
+  values. `--strict` exits non-zero for CI.
+
+### Changed — the OmniVoice text ceiling reads as the decision it is
+
+- `input_limits.text_max_characters = 25000` was filed under
+  `declared_not_measured`, which implied a pending measurement and a
+  deficiency. It is neither: it is a deliberate commercial ceiling. The owner
+  knows it forecloses a 40K tier and does not want one.
+- It now sits under `commercial_decisions` as a settled owner decision, noting
+  the API's own 40,000-character cap only as context for the headroom being
+  intentional. The `contract` object is untouched and `contract_hash` is
+  unchanged at `sha256:d9710ace…52f36a`, so Studio Hub's existing approval
+  still binds.
+
 ## [1.32.10] — 2026-08-08
 
 ### Security — the fleet's machine table was being published in a public repo

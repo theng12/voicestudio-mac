@@ -102,7 +102,11 @@ def is_shipped_path(path: str) -> bool:
         return False
     if path.startswith("app/"):
         return True
-    if path == "release_metadata_check.py" or path == "audit_truth.py":
+    if path in {
+        "release_metadata_check.py",
+        "audit_truth.py",
+        "audit_contract_runtime.py",
+    }:
         return True
     if path.startswith(("service/", "requirements")):
         return True

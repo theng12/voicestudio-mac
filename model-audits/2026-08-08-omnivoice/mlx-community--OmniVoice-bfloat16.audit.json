@@ -508,8 +508,18 @@
       "preset_voice",
       "customer_streaming"
     ],
-    "declared_not_measured": [
-      "input_limits.text_max_characters = 25000 is an owner-declared commercial contract limit. It is narrower than the API's own 40,000-character ceiling (app/backend/main.py:228); no repository measurement fixes it at 25,000.",
+    "commercial_decisions": [
+      {
+        "field": "input_limits.text_max_characters",
+        "value": 25000,
+        "kind": "commercial_ceiling",
+        "decided_by": "owner",
+        "decision": "25,000 characters is the ceiling this contract sells. It is a deliberate commercial boundary, not a technical limit and not a placeholder for a larger number.",
+        "context": "The adapter's own request model caps text at 40,000 characters (app/backend/main.py:228), so the contract sits below what the code would accept. That headroom is intentional: the owner has considered a 40K tier and does not want one. No measurement is pending, and none is owed — a technical limit is not what this field records.",
+        "settled": true
+      }
+    ],
+    "authoring_choices": [
       "adapter.version = 1.1 is an authoring choice — no adapter-version registry exists in code. 1.1 rather than 1.0 because the superseded record already published 1.0 against a different contract."
     ],
     "recorded_by": "Contract authored and verified by the Voice Studio session against this repository's own code; owner verdicts and fleet-cache observations carried over from the GenStudio session's record, which was written concurrently at the owner's explicit direction and shipped as v1.32.8. Neither session's evidence was discarded: the quality judgements are the owner's, the contract fields are the code's.",
