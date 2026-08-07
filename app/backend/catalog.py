@@ -573,8 +573,14 @@ CATALOG: tuple[ModelEntry, ...] = (
         family="voxcpm-mlx",
         size_gb=2.3,
         gated=False,
-        min_unified_memory_gb=8,
-        recommended_hardware="Any Apple Silicon Mac with 8 GB. Fastest VoxCPM2 variant at near-realtime.",
+        # Measured on the fleet 2026-08-07, same section of text on both tiers:
+        # 61.9 s on a 17.2 GB M2 (3.95x realtime) but 738.4 s on an 8.6 GB M2
+        # (47.09x realtime) — twelve times slower for identical work. Peak was
+        # 7.963 GB against 8.6 GB of total RAM, so the small machine spends the
+        # run swapping. The output is correct either way (93% transcribe-back),
+        # which is exactly why the old 8 GB floor looked fine on paper.
+        min_unified_memory_gb=16,
+        recommended_hardware="16 GB unified memory. Measured at 3.95x realtime on 16 GB; an 8 GB Mac swaps and drops to 47x realtime.",
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="The recommended VoxCPM2 pick for most users. 4-bit quantized — fastest and smallest, with minimal quality loss vs bf16. 48 kHz studio-quality output, 30 languages, voice cloning + voice design in one model.",
         sample_rate_hz=48000,
@@ -599,7 +605,11 @@ CATALOG: tuple[ModelEntry, ...] = (
         family="voxcpm-mlx",
         size_gb=5.0,
         gated=False,
-        min_unified_memory_gb=12,
+        # Raised from 12 with its 4-bit sibling: that variant was measured at
+        # 7.963 GB peak and needs 16 GB, and this checkpoint carries 2.2x the
+        # weights, so it cannot plausibly need less. 16 is the floor this is
+        # known not to run below; the true figure is unmeasured and may be higher.
+        min_unified_memory_gb=16,
         recommended_hardware="M1 Pro / M2 16 GB recommended for headroom.",
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="Full bf16 precision — slower (RTF ~0.5×) but the reference quality. Pick when you're doing final renders and quality matters more than speed.",

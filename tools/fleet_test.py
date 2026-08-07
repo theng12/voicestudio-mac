@@ -80,11 +80,24 @@ MODELS = [
      "params": {}, "clone": True},
     {"key": "qwen-1.7b-base", "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
      "params": {}, "clone": True},
-    # Fish S2 Pro declares no memory floor (never qualified), so this run is
-    # also the evidence for what that floor should be.
+    # Fish S2 Pro's floor is now measured at 16 GB and agrees across the
+    # catalogue, the qualification harness and the Hub baseline.
     {"key": "fish-s2-pro", "repo": "mlx-community/fish-audio-s2-pro-8bit",
      "params": {"fish_temperature": 0.7, "fish_top_p": 0.7,
                 "fish_top_k": 30, "fish_max_tokens": 4096}, "clone": True},
+    # The remaining clone-capable models already cached on the fleet. Without
+    # these the comparison only covers the models already judged by ear, which
+    # cannot say whether anything else deserves to be stocked.
+    {"key": "voxcpm2-4bit", "repo": "mlx-community/VoxCPM2-4bit",
+     "params": {}, "clone": True},
+    # Chatterbox refuses to run without an explicit language code -- there is
+    # no default. Omitting it fails the job outright rather than guessing.
+    {"key": "chatterbox-4bit", "repo": "mlx-community/chatterbox-4bit",
+     "params": {"language": "en"}, "clone": True},
+    {"key": "chatterbox-turbo-4bit", "repo": "mlx-community/chatterbox-turbo-4bit",
+     "params": {"language": "en"}, "clone": True},
+    {"key": "moss-tts-nano", "repo": "mlx-community/MOSS-TTS-Nano-100M",
+     "params": {}, "clone": True},
 ]
 
 
@@ -195,7 +208,14 @@ def main() -> None:
                     default=Path("/Volumes/UGREEN-1TB/voicestudio-bench"))
     ap.add_argument("--hub", default="http://127.0.0.1:47873")
     ap.add_argument("--only", default="", help="comma-separated machine ids")
+    ap.add_argument("--models", default="",
+                    help="comma-separated model keys, for re-testing one model "
+                         "without repeating a 15-minute sweep")
     args = ap.parse_args()
+    wanted = {k.strip() for k in args.models.split(",") if k.strip()}
+    selected_models = [m for m in MODELS if not wanted or m["key"] in wanted]
+    if wanted and not selected_models:
+        raise SystemExit(f"no model keys matched: {sorted(wanted)}")
 
     if TOKENS_FILE.exists():
         tokens = json.loads(TOKENS_FILE.read_text())
@@ -223,7 +243,7 @@ def main() -> None:
             results["machines"][mach["id"]] = rec
             continue
 
-        for model in MODELS:
+        for model in selected_models:
             st = cache.get(model["repo"])
             if st != "cached":
                 print(f"  {model['key']:8} skipped — not staged ({st or 'absent'})")

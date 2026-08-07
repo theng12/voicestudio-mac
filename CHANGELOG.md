@@ -10,6 +10,31 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.31.0] — 2026-08-07
+
+### Fixed — VoxCPM2's memory floor was measured and raised to 16 GB
+
+- Both VoxCPM2 checkpoints declared floors they cannot meet. Measured on the
+  fleet with the same text on both tiers: the 4-bit ran in 61.9 s on a 17.2 GB
+  M2 (3.95x realtime) but took 738.4 s on an 8.6 GB M2 (47.09x realtime) —
+  twelve times slower for identical work, with a 7.963 GB peak against 8.6 GB
+  of total memory. The small machine spends the whole run swapping.
+- The output is correct on both (93% transcribe-back coverage), which is
+  precisely why an 8 GB floor looked defensible on paper. Only wall-clock on
+  real hardware exposed it.
+- 4-bit goes 8 to 16 GB. bf16 goes 12 to 16 GB: it was never measured, but it
+  carries 2.2x the weights of the sibling now known to need 16, so it cannot
+  plausibly need less. 16 is the floor it is known not to run below; the true
+  figure may be higher.
+
+### Added
+
+- `tools/fleet_test.py` covers the remaining clone-capable models (VoxCPM2,
+  Chatterbox, Chatterbox Turbo, MOSS-TTS-Nano) and takes `--models` so a single
+  model can be re-tested without repeating a fifteen-minute sweep. Chatterbox
+  entries now pass the language code the engine requires — without it the job
+  fails outright, which had made the model look broken when the harness was.
+
 ## [1.30.0] — 2026-08-07
 
 ### Added — Fish Audio S2 Pro finally has a qualified memory floor
