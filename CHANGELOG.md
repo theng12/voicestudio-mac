@@ -10,6 +10,56 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.3] — 2026-08-07
+
+### Fixed — "mlx-audio didn't produce a wav file" told the owner nothing
+
+- On a small machine an oversized request dies *inside* mlx-audio: it returns
+  having written no WAV and raises nothing of its own. Voice Studio then
+  reported `mlx-audio didn't produce a wav file. Temp dir: /var/folders/...`,
+  which is technically true, names no cause, and hands the owner a temp path
+  they cannot act on. Measured case: OmniVoice at 3000 frames on an 8 GB box
+  fails this way after ~236 s, reproducibly (3/3 reps).
+- The error now names what was attempted (requested duration and the latent
+  frames committed in one pass, or the section length), what the host actually
+  had (unified memory and free memory), and for OmniVoice on a small machine
+  what is measured to fit — ~2250 frames, about 90 s per pass — plus what to do
+  about it.
+- A machine with headroom is never told it is too small; the size-specific
+  advice is gated on the host's actual unified memory.
+- Applies to both raise sites, including per-section long-form rendering, so a
+  section that dies mid-script explains itself instead of surfacing a temp dir.
+- Regression test pins all four parts of the message and the no-false-blame case.
+
+### Fixed — every Studio shipped a memory policy that could never fire
+
+- The idle-release mechanism is fully implemented and its background thread has
+  been running on every machine the whole time, waking every 5 s. It just had
+  nothing to do: the shipped default is `performance`, whose `idle_seconds` is
+  `None`, so `run_due_release()` returned immediately every single time.
+- This is not a Voice Studio bug so much as a shared-assumption bug. Image,
+  Chat, Video, Music and Voice Studio all ship the *same* skeleton with the
+  *same* `DEFAULT_MODE = "performance"`. That default is reasonable for an app
+  that owns its machine. The actual deployment puts 3-5 of them on one 8 GB Mac,
+  where each independently concludes that pinning its model forever is free.
+- Measured fleet-wide 2026-08-07: 16 of 19 machines sat below the memory guard's
+  3.2 GB floor with 1.5-4.4 GB of swap burned and could not start a job at all.
+  After setting a real policy: swap ~4 GB -> ~0.4 GB, 8 GB boxes 1.7-2.8 GB free
+  -> 4.3-5.2 GB, 16 GB boxes 3.1 GB -> 12.3-13.3 GB.
+- The default is now chosen from the host's own memory — `memory_saver` (120 s)
+  below 12 GB, `balanced` (600 s) above — instead of assuming a machine alone.
+  An operator's explicit choice, persisted in `memory_policy.json`, still wins;
+  `performance` remains available and still pins when asked for.
+- Note this only fixes *fresh installs*. `memory_policy.json` is gitignored, so
+  an in-place Update or Reset never resets an operator-chosen mode — which also
+  means the 19 machines already corrected over the API stay corrected.
+- **The same one-line default is still shipped by Image, Chat, Video and Music
+  Studio, and Render Studio has no idle-release mechanism at all.** Those are
+  separate products with their own release flows and are not changed here.
+- No cross-studio coordination exists: no Studio knows the others are resident.
+  Studio Hub can read and set all five policies over HTTP, but only when
+  explicitly invoked — there is no scheduler behind it.
+
 ## [1.32.2] — 2026-08-07
 
 ### Fixed — OmniVoice's speed control did nothing, and said nothing

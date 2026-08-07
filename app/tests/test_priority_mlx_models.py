@@ -1104,7 +1104,9 @@ def test_shared_long_form_renderer_fails_when_any_section_is_missing(tmp_path: P
     manager = object.__new__(generation.GenerationManager)
     job = generation.GenerationJob(job_id="missing-section", mode="txt2speech", params={})
 
-    with pytest.raises(RuntimeError, match="didn't produce a wav file"):
+    # A missing section must still fail loudly rather than joining silence. The
+    # wording changed in v1.32.3 to name the cause instead of a temp path.
+    with pytest.raises(RuntimeError, match="produced no audio"):
         manager._generate_mlx_long_form_sections(
             job,
             "voxcpm-mlx",
@@ -1224,3 +1226,32 @@ def test_fish_audio_mlx_supports_optional_clone_style_and_clamps(tmp_path: Path)
     assert kwargs["top_p"] == 0.05
     assert kwargs["top_k"] == 100
     assert kwargs["max_tokens"] == 4096
+
+
+def test_no_wav_error_names_the_real_cause_not_just_a_temp_dir(monkeypatch, tmp_path) -> None:
+    """The bare "mlx-audio didn't produce a wav file. Temp dir: ..." is true and
+    useless. On a small machine an oversized OmniVoice request dies mid-inference
+    with no exception of its own, and the owner was shown a temp path. The error
+    must name what was attempted, what the host had, and what actually fits."""
+    monkeypatch.setattr(
+        generation, "_memory_snapshot",
+        lambda: {"total_gb": 8.6, "available_gb": 4.2, "used_gb": 4.4, "percent": 51.0},
+    )
+    err = generation._no_wav_produced_error(
+        tmp_path, "omnivoice", {"duration_s": 120.0, "text": "x" * 40}
+    )
+    msg = str(err)
+    assert "3000 latent frames" in msg          # what was attempted
+    assert "8.6 GB unified memory" in msg       # what the host had
+    assert "2250 frames" in msg                 # what actually fits, measured
+    assert "shorten the section" in msg         # what to do about it
+
+    # A machine with headroom must not be told it is too small.
+    monkeypatch.setattr(
+        generation, "_memory_snapshot",
+        lambda: {"total_gb": 25.8, "available_gb": 18.0, "used_gb": 7.8, "percent": 30.0},
+    )
+    big = str(generation._no_wav_produced_error(
+        tmp_path, "omnivoice", {"duration_s": 120.0}))
+    assert "2250 frames" not in big
+    assert "25.8 GB unified memory" in big
