@@ -55,7 +55,7 @@ from .transcription import (
 from .auto_update import UpdateError
 from .auto_update_config import create_updater
 from .process_title import PROCESS_TITLE, apply_process_title
-from .restart_health import restart_rate_snapshot
+from .restart_health import process_start_snapshot, restart_rate_snapshot
 from .model_audits import candidate_summary
 
 
@@ -323,6 +323,9 @@ def health() -> dict:
         "busy": gen_manager.has_active_jobs() or _GEN_LOCK.locked(),
         "loaded_models": [list(item) for item in gen_manager.loaded_model_keys()],
         "memory": gen_manager.memory_status().get("snapshot"),
+        # `restart_health` only sees watchdog-initiated restarts; `process`
+        # reports when this process actually started, whatever restarted it.
+        "process": process_start_snapshot(),
         "restart_health": restart_rate_snapshot(),
     }
 

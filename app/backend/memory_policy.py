@@ -10,6 +10,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
+from . import restart_health
+
 
 SETTINGS_FILE = Path(__file__).resolve().parent / "memory_policy.json"
 MODES = {
@@ -55,6 +57,12 @@ _STARTED = False
 _GEN_MANAGER = None
 _STT_MANAGER = None
 _GPU_LOCK = None
+# Every counter below lives in this process and starts at zero on each start.
+# A restart therefore erases them while job history survives on disk, so
+# `release_count: 0` alone cannot distinguish "the idle-release thread never
+# fired" from "it fired, then the service was upgraded an hour ago". status()
+# publishes the process start these counters are measured from
+# (`counters_since`) so a remote reader can tell the two apart without SSH.
 _LAST_RELEASE_AT: float | None = None
 _LAST_RELEASE_REASON: str | None = None
 _LAST_RELEASE_DETAILS: dict | None = None
@@ -200,6 +208,10 @@ def status() -> dict:
             "last_release_details": _LAST_RELEASE_DETAILS,
             "last_error": _LAST_ERROR,
             "release_count": _RELEASE_COUNT,
+            # The provenance of every counter above. Without it a remote
+            # reader cannot tell a lifetime zero from a since-restart zero.
+            "counters_since": restart_health.PROCESS_STARTED_AT,
+            "process": restart_health.process_start_snapshot(),
         }
 
 

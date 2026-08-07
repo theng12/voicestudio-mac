@@ -107,23 +107,32 @@ exact attempt—not an inferred minimum-RAM declaration—and persist in job
 history across restarts.
 
 `GET /api/health` reports whether Voice Studio is busy, the exact loaded model
-and runtime slot, live host memory, and read-only `restart_health` evidence with
-24-hour/seven-day watchdog restart counts and alert severity. The same restart
-signal is included in `GET /api/generate/diagnostics`; it never changes service
-state or marks an otherwise healthy worker unavailable. Every local
+and runtime slot, live host memory, a `process` block (`pid`, `started_at`,
+`started_at_iso`, `uptime_seconds`) recording when this process started, and
+read-only `restart_health` evidence with 24-hour/seven-day watchdog restart
+counts and alert severity. The two restart readings are deliberately separate:
+`restart_health` only sees restarts the watchdog performed, so a deliberate
+upgrade or `launchctl` bounce leaves `last_restart_at` null, while `process`
+is always populated. The same restart signal is included in
+`GET /api/generate/diagnostics`; it never changes service state or marks an
+otherwise healthy worker unavailable. Every local
 `/api/catalog` row reports dependency readiness, downloaded availability,
 loaded state, the cold/loaded free-memory requirements, the minimum total
 unified memory, and whether the
 model is eligible on the current machine at that moment.
 
-Settings now also provides model-memory modes. **Performance** is the default
-and preserves loaded local TTS and Whisper models for faster repeat work.
-Balanced unloads after 10 idle minutes, Memory Saver after 2 minutes, and
-Immediate after each completed local task. **Release Memory / Unload Model**
-manually releases both caches when no generation or transcription is active.
-Weights, shared voices, clone references, and outputs remain on disk. The same
-controls are available through `GET/PUT /api/memory-policy` and
-`POST /api/memory/release`.
+Settings now also provides model-memory modes. The default follows the host's
+memory: **Memory Saver** below 12 GB, **Balanced** at or above it — an explicit
+operator choice always wins. **Performance** preserves loaded local TTS and
+Whisper models for faster repeat work and never releases on idle. Balanced
+unloads after 10 idle minutes, Memory Saver after 2 minutes, and Immediate
+after each completed local task. **Release Memory / Unload Model** manually
+releases both caches when no generation or transcription is active. Weights,
+shared voices, clone references, and outputs remain on disk. The same controls
+are available through `GET/PUT /api/memory-policy` and
+`POST /api/memory/release`, which also report `release_count` alongside
+`counters_since` and a `process` block — the counters are in-process and reset
+on restart, so a zero is only readable next to the process start it belongs to.
 
 ### Local output retention
 

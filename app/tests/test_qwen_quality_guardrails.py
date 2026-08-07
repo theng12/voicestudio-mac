@@ -110,6 +110,10 @@ def test_job_owned_reference_validation_attaches_redacted_evidence(
     reference.write_bytes(b"immutable-reference")
     transcript = "Aiden reads a calm and accurately aligned reference."
     manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_model = None
+    manager._mlx_audio_model_repo = None
+    manager._f5_tts_model = None
+    manager._f5_tts_model_repo = None
     monkeypatch.setattr(manager, "_evict_loaded_models", lambda _reason: {})
     monkeypatch.setattr(qwen_quality, "cached_reference_evidence", lambda _key: None)
     monkeypatch.setattr(qwen_quality, "save_reference_evidence", lambda _key, _value: None)
@@ -157,6 +161,10 @@ def test_rejected_local_qwen_output_retries_once_with_safer_settings(
     monkeypatch, tmp_path: Path
 ) -> None:
     manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_model = None
+    manager._mlx_audio_model_repo = None
+    manager._f5_tts_model = None
+    manager._f5_tts_model_repo = None
     manager._last_model_activity_at = None
     manager._consecutive_memory_failures = 0
     manager._restart_scheduled = False
@@ -215,6 +223,10 @@ def test_qwen_output_mismatch_on_retry_is_terminal_and_preserves_attempt_evidenc
     monkeypatch, tmp_path: Path
 ) -> None:
     manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_model = None
+    manager._mlx_audio_model_repo = None
+    manager._f5_tts_model = None
+    manager._f5_tts_model_repo = None
     manager._last_model_activity_at = None
     manager._consecutive_memory_failures = 0
     manager._restart_scheduled = False
