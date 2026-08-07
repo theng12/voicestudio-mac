@@ -10,6 +10,18 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.5] — 2026-08-08
+
+### Fixed — the mode picker still called Performance the default
+
+- v1.32.3 made the default depend on the host's memory, but the settings UI
+  still hardcoded "Performance · default". On every 8 GB machine — which is most
+  of the fleet — that label was simply false, and it pointed the owner at the
+  exact mode that caused the thrash.
+- The badge is now bound to the `default_mode` the backend actually reports, so
+  it follows the machine instead of a constant. Test asserts the hardcoded label
+  is gone and that all four modes are bound.
+
 ## [1.32.4] — 2026-08-07
 
 ### Added — numbers are expanded to words before OmniVoice speaks them
