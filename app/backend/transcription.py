@@ -347,6 +347,13 @@ class TranscriptionManager:
             return (self._model_repo, "whisper-stt")
         return None
 
+    def has_loaded_model(self) -> bool:
+        """Is a whisper model resident right now? Same definition memory_policy
+        releases against — a bare `self._model is not None` disagrees with it
+        whenever the repo is unset, and telemetry must not carry its own idea
+        of what "loaded" means (see GenerationManager.has_loaded_model)."""
+        return self.loaded_model_key() is not None
+
     def last_activity_at(self) -> Optional[float]:
         return self._last_model_activity_at
 
@@ -561,7 +568,7 @@ class TranscriptionManager:
                         restart_scheduled=False,
                         model_retained=(
                             telemetry_state == "completed"
-                            and self._model is not None
+                            and self.has_loaded_model()
                         ),
                     )
 

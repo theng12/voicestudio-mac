@@ -10,6 +10,63 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.7] — 2026-08-08
+
+### Added — process uptime, so `release_count: 0` finally means something
+
+- `/api/health` gains a `process` block (`pid`, `started_at`,
+  `started_at_iso`, `uptime_seconds`) and `/api/memory-policy` now returns the
+  same block plus `counters_since` — the process start that `release_count`,
+  `last_release_at`, `last_release_reason` and `last_error` are all measured
+  from. Those counters are in-process globals that reset to zero on every
+  start, so a read-only fleet probe could not tell "the idle-release thread
+  never fired" from "a restart zeroed the counter" — and the v1.32.5 rollout
+  required a restart, while job history persisted to disk. All 13 8 GB
+  machines reported `release_count: 0` and the reading was unusable.
+- `restart_health` did not close this: it only parses the watchdog log, so a
+  deliberate upgrade or a `launchctl` bounce leaves `last_restart_at: null`,
+  which reads like a long uptime and is not. The two are now published side by
+  side in `/api/health` as separate readings — "what restarted us" and "when
+  did we start" — and only the second is always populated.
+- The absolute epoch timestamp is the primary value, since it is directly
+  comparable with the other absolute timestamps the API already publishes
+  (`last_release_at`, `next_release_at`, job `started_at`) and does not drift
+  between being served and being read. `uptime_seconds` is derived from it for
+  readability. The start is resolved once from the kernel via
+  `psutil.Process().create_time()`, falling back to import time.
+- The settings UI now renders the release count as "N since <time>" and adds a
+  Service uptime tile, so the same ambiguity is not reproduced on screen.
+- No release or eviction behavior changed — this is observability only.
+
+### Fixed — `model_retained` was always false on the MLX path
+
+- Per-job telemetry reported `outcome.model_retained: false` on all 19 fleet
+  machines, including one whose own release log recorded
+  `cleared mlx_audio_model` — proof that OmniVoice was resident and later
+  evicted. The check probed a private `_loaded_model` attribute that no engine
+  has ever set; the MLX engine parks its model on `_mlx_audio_model` and
+  F5-TTS on `_f5_tts_model`.
+- Both telemetry sites now answer through a shared
+  `has_loaded_model()` accessor on `GenerationManager` and
+  `TranscriptionManager`, derived from the same `loaded_model_keys()` /
+  `loaded_model_key()` that `memory_policy` releases against — one definition
+  of "loaded" for the release path and the telemetry, instead of two. The
+  transcription site previously used a bare `self._model is not None`, which
+  disagreed with the policy whenever the repo was unset.
+- The regression survived because the test that covered it set the same
+  invented `_loaded_model` attribute the production code read, so the pair
+  agreed with each other and with nothing on the fleet. The fixture now holds
+  a real MLX cache slot.
+
+### Fixed — the README still called Performance the memory default
+
+- Same stale claim v1.32.5 removed from the mode picker, still shipped in the
+  README: "**Performance** is the default". Since v1.32.3 the default follows
+  the host's memory (Memory Saver below 12 GB, Balanced above), so on most of
+  the fleet the README pointed the owner at the one mode that never releases.
+  The `/api/health` and `/api/memory-policy` sections are updated for the new
+  process/uptime fields at the same time.
+
 ## [1.32.6] — 2026-08-08
 
 ### Fixed — dirty-worktree update refusals were undiagnosable remotely

@@ -179,6 +179,10 @@ def test_failed_generation_never_publishes_a_partial_final_file(
     manager._last_memory_event = None
     manager._restart_scheduled = False
     manager._last_model_activity_at = None
+    manager._mlx_audio_model = None
+    manager._mlx_audio_model_repo = None
+    manager._f5_tts_model = None
+    manager._f5_tts_model_repo = None
     manager._persist = lambda: None
     manager._evict_loaded_models = lambda reason="": {}
 
@@ -212,6 +216,10 @@ def test_success_is_atomically_published_only_after_evidence(
     manager._last_memory_event = None
     manager._restart_scheduled = False
     manager._last_model_activity_at = None
+    manager._mlx_audio_model = None
+    manager._mlx_audio_model_repo = None
+    manager._f5_tts_model = None
+    manager._f5_tts_model_repo = None
     manager._persist = lambda: None
     manager._evict_loaded_models = lambda reason="": {}
     observed: list[tuple[bool, bool]] = []
@@ -326,7 +334,14 @@ def test_local_generation_serializes_and_persists_worker_resource_evidence(
     manager._last_memory_event = None
     manager._restart_scheduled = False
     manager._last_model_activity_at = None
-    manager._loaded_model = object()
+    # A resident model lives in the engine's own cache slot. This fixture used
+    # to set `_loaded_model` — the same attribute the production check probed,
+    # and one no engine has ever written — so the pair agreed with each other
+    # and with nothing on the fleet.
+    manager._mlx_audio_model = object()
+    manager._mlx_audio_model_repo = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+    manager._f5_tts_model = None
+    manager._f5_tts_model_repo = None
     manager._persist = lambda: None
     manager._evict_loaded_models = lambda reason="": {}
 

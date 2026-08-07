@@ -324,6 +324,9 @@ function studio() {
       mode: "performance", default_mode: "performance", idle_seconds: null,
       loaded_models: [], model_idle_seconds: null, next_release_at: null,
       last_release_at: null, last_release_reason: null, release_count: 0,
+      // A release count is only readable next to the process start it was
+      // counted from — a restart zeroes the counter while job history survives.
+      counters_since: null, process: { started_at: null, uptime_seconds: null },
       process_title: "Voice Studio Mac", process_title_applied: false,
       loaded: false, busy: false, message: "", messageKind: "info",
       draft: { mode: "performance" }, dirty: false,
@@ -1851,6 +1854,24 @@ function studio() {
       const n = Number(value);
       const date = new Date(n < 1e12 ? n * 1000 : n);
       return Number.isNaN(date.getTime()) ? "Not scheduled" : date.toLocaleString();
+    },
+
+    memoryPolicyUptimeLabel() {
+      const seconds = Number(this.memoryPolicy.process?.uptime_seconds);
+      if (!Number.isFinite(seconds) || seconds < 0) return "Unknown";
+      if (seconds < 90) return `${Math.round(seconds)}s`;
+      if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
+      if (seconds < 172800) return `${(seconds / 3600).toFixed(1)}h`;
+      return `${(seconds / 86400).toFixed(1)}d`;
+    },
+
+    memoryPolicyReleaseCountLabel() {
+      const count = Number(this.memoryPolicy.release_count) || 0;
+      const since = this.memoryPolicy.counters_since;
+      if (!since) return String(count);
+      // "0" on its own is ambiguous: it can mean the idle-release thread never
+      // fired, or that a restart zeroed the counter minutes ago.
+      return `${count} since ${this.memoryPolicyTime(since)}`;
     },
 
     memoryModelsLabel() {

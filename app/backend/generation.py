@@ -1651,6 +1651,21 @@ class GenerationManager:
             loaded.append((self._f5_tts_model_repo, "f5-tts"))
         return loaded
 
+    def has_loaded_model(self) -> bool:
+        """Is a TTS model resident right now?
+
+        The single definition of "loaded" for this manager. `loaded_model_keys()`
+        already knows where each engine parks its model — the MLX engine on
+        `_mlx_audio_model`, F5-TTS on `_f5_tts_model` — and memory_policy's
+        release path evicts exactly those. Per-job telemetry used to ask a
+        second, invented question — it probed a private `_loaded_model`
+        attribute that no engine has ever set — so `outcome.model_retained`
+        reported False for every job on every machine, including ones whose own
+        release log proves the MLX model was resident. Anything that needs to
+        know whether a model is held must come through here.
+        """
+        return bool(self.loaded_model_keys())
+
     @staticmethod
     def runtime_ready_for_family(family: str) -> bool:
         if family in MLX_AUDIO_FAMILIES:
@@ -2315,8 +2330,7 @@ class GenerationManager:
                         memory_failure=memory_failure_seen,
                         restart_scheduled=self._restart_scheduled,
                         model_retained=(
-                            job.state == "done"
-                            and bool(getattr(self, "_loaded_model", None))
+                            job.state == "done" and self.has_loaded_model()
                         ),
                     )
             self._persist()

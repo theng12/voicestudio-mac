@@ -1,10 +1,26 @@
-"""Read-only watchdog restart-rate evidence for operators and Studio Hub."""
+"""Read-only restart evidence for operators and Studio Hub.
+
+Two independent kinds of evidence live here because a reader needs both to
+answer one question — "did this process restart?":
+
+* `restart_rate_snapshot()` parses the watchdog log, so it only ever sees
+  restarts the *watchdog* performed. A deliberate upgrade, a `launchctl`
+  bounce, or an operator restarting the service by hand leaves no line in that
+  log at all, so `last_restart_at: null` is not evidence of a long-lived
+  process.
+* `process_start_snapshot()` reports when *this* process actually started,
+  whatever caused it. That is the only reading that makes an in-process
+  counter interpretable: `release_count: 0` means "never fired" only if the
+  process has been up long enough for it to have fired.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+import os
 import re
+import time
 
 
 LAUNCHER_ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +30,46 @@ _RESTART_LINE = re.compile(
     r"^\[watchdog\] (?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) "
     r"(?:no /api/health\b|health probe failed \d+ consecutive times\b)"
 )
+
+
+def _resolve_process_started_at() -> float:
+    """Best-effort true process start, resolved once at first import.
+
+    `psutil` reports the kernel's own create time, which is correct even if
+    this module is imported late during startup. Import time is the fallback
+    so a base-only install still gets a usable — slightly late — anchor.
+    """
+    try:
+        import psutil
+
+        return float(psutil.Process(os.getpid()).create_time())
+    except Exception:
+        return time.time()
+
+
+PROCESS_STARTED_AT = _resolve_process_started_at()
+
+
+def process_start_snapshot(*, now: float | None = None) -> dict:
+    """Return when this process started, so in-process counters can be read.
+
+    The absolute epoch timestamp is the primary value: it is directly
+    comparable with the other absolute timestamps this API already publishes
+    (`last_release_at`, `next_release_at`, job `started_at`), and it does not
+    drift between the moment a probe is served and the moment it is read.
+    `uptime_seconds` is derived from it purely for human readability — a
+    reader should never have to subtract epochs by hand to learn that a
+    zeroed counter belongs to a process that has only been up for 40 seconds.
+    """
+    current = time.time() if now is None else float(now)
+    return {
+        "pid": os.getpid(),
+        "started_at": PROCESS_STARTED_AT,
+        "started_at_iso": datetime.fromtimestamp(PROCESS_STARTED_AT).isoformat(
+            timespec="seconds"
+        ),
+        "uptime_seconds": round(max(0.0, current - PROCESS_STARTED_AT), 3),
+    }
 
 
 def _tail_text(path: Path) -> str:
