@@ -1187,9 +1187,9 @@ CATALOG: tuple[ModelEntry, ...] = (
         gated=False,
         # Qualified on the fleet 2026-08-07 (was previously unqualified, hence
         # the None floor). Measured on one production section, Aiden clone:
-        #   terranash-0201 (17.2 GB): 13.27 GB MLX active, host peaked 88.4%,
+        #   16 GB fleet Mac (17.2 GB): 13.27 GB MLX active, host peaked 88.4%,
         #       1.99 GB free, `warning` pressure, +0.33 GB swap  → runs, tight
-        #   terranash-0200 (25.8 GB): 13.51 GB MLX active, host peaked 81.2%,
+        #   24 GB fleet Mac (25.8 GB): 13.51 GB MLX active, host peaked 81.2%,
         #       4.85 GB free, `normal` pressure, no swap          → comfortable
         # Refused outright by the guard on an 8.6 GB Mac. So 16 GB is the floor
         # and 24 GB is the comfortable tier — the same shape as Audio8.
@@ -1325,9 +1325,9 @@ CATALOG: tuple[ModelEntry, ...] = (
         # has landed in the same place on four independent runs at a production
         # section size:
         #   9.44 GB  local M4 16 GB   (246 chars)
-        #   8.22 GB  terranash-0200   (25.8 GB, clean run)
-        #   8.39 GB  terranash-0200
-        #   8.61 GB  terranash-0201   (17.2 GB) — and that run drove free memory
+        #   8.22 GB  24 GB fleet Mac  (25.8 GB, clean run)
+        #   8.39 GB  same 24 GB Mac
+        #   8.61 GB  16 GB fleet Mac  (17.2 GB) — and that run drove free memory
         #                              down to 1.44 GB, hit `warning` pressure,
         #                              and added 0.21 GB of swap ON A 16 GB MAC.
         # An 8.6 GB machine has less headroom than that run consumed, so 8 GB

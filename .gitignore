@@ -32,3 +32,6 @@ auto_update/
 # Per-machine benchmark results (tools/bench_tts.py)
 bench-*.json
 bench-results/
+
+# Private fleet machine table (tools/fleet_test.py) — addresses and token keys
+fleet_machines.json

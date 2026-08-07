@@ -10,6 +10,34 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.10] — 2026-08-08
+
+### Security — the fleet's machine table was being published in a public repo
+
+- `tools/fleet_test.py` carried all 19 fleet machines as a literal table: id,
+  Tailscale address and RAM, with a comment explaining that the leading digits
+  of a machine id select which site's fleet token authenticates the request.
+  This repository is public, so that table — and the shape of the auth scheme
+  next to it — was readable by anyone.
+- The table now loads from `fleet_machines.json`, an untracked file at the
+  launcher root (gitignored, alongside the existing per-machine files), or from
+  whatever `FLEET_MACHINES_FILE` points at so one copy can serve several
+  checkouts. Each entry carries its own `token_key`, so the repo no longer
+  encodes which machines share a token, or the machine-id prefix the old lookup
+  sliced to find one.
+- **There is deliberately no built-in fallback list.** If the config is missing
+  the tool exits naming the expected path and format. A baked-in default is how
+  a table survives a re-address and then quietly dispatches jobs at whichever
+  host now answers.
+- Removed the remaining machine names from `FLEET-SETUP.md`, the `catalog.py`
+  measurement comments and the `bench_tts.py` help text; all of them already
+  stated the chip and memory tier, which is the part that carried the meaning.
+- This stops future publication only. The addresses remain in this repository's
+  git history and in any clone or fork already taken; rotating the fleet tokens
+  and re-addressing are the owner's call.
+
+---
+
 ## [1.32.9] — 2026-08-08
 
 ### Fixed — the OmniVoice audit record published four fields the code contradicts
