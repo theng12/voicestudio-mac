@@ -275,10 +275,25 @@ def test_catalog_reports_runtime_cache_load_and_memory_truth(monkeypatch) -> Non
     assert vox["cold_load_required_free_memory_gb"] == 3.55
     assert vox["loaded_required_free_memory_gb"] == 2.75
     assert vox["required_free_memory_gb"] == 2.75
-    assert vox["memory_eligible"] is True
+    # VoxCPM2 has enough *free* memory here (3.0 available vs 2.75 needed) but
+    # not enough *total*: its floor moved 8 -> 16 GB after the fleet measured it
+    # taking 738 s to make 15 s of audio on an 8 GB Mac. Both halves of
+    # `memory_eligible` matter, and this is the case that proves the total-memory
+    # half is actually applied rather than shadowed by the free-memory check.
+    assert vox["memory_eligible"] is False
 
+    # Kokoro's floor is 8 GB and it needs 2.75 GB loaded, so it clears both
+    # halves on this machine. Without a True case the assertions above would
+    # still pass if `memory_eligible` were hardwired to False.
+    kokoro = models["mlx-community/Kokoro-82M-bf16"]
+    assert kokoro["memory_eligible"] is True
+
+    # Fish is 24 GB now, so it fails on total memory by a wide margin. This
+    # assertion used to read `is None`, back when Fish carried no floor at all;
+    # every model in the catalogue has a measured floor today, so `None` is no
+    # longer reachable from real catalogue data.
     fish = models["mlx-community/fish-audio-s2-pro-8bit"]
-    assert fish["memory_eligible"] is None
+    assert fish["memory_eligible"] is False
 
 
 def test_local_generation_serializes_and_persists_worker_resource_evidence(

@@ -59,13 +59,16 @@ def test_priority_catalog_is_focused_and_clone_capable() -> None:
     fish_model = catalog.get_model(fish[0])
     assert fish_model is not None
     assert fish_model.sample_rate_hz == 44100
-    assert fish_model.min_unified_memory_gb is None
-    assert "not yet qualified" in fish_model.recommended_hardware.lower()
-    assert all("24 GB unified memory is the practical floor" not in text
-               for _kind, text in fish_model.use_cases)
+    # Fish was unqualified when this test was written. It has since been
+    # measured on the fleet -- 13.234 GB peak on a 17.2 GB machine at 3.75x
+    # realtime, the slowest model measured -- and the owner set the floor at
+    # 24 GB, which one machine in the fleet meets. Assert the qualified state
+    # rather than the absence of one.
+    assert fish_model.min_unified_memory_gb == 24
+    assert "not yet qualified" not in fish_model.recommended_hardware.lower()
     serialized = catalog.serialize_model(fish_model)
-    assert serialized["min_unified_memory_gb"] is None
-    assert serialized["fit"]["state"] == "unqualified"
+    assert serialized["min_unified_memory_gb"] == 24
+    assert serialized["fit"]["state"] != "unqualified"
 
 
 def test_unqualified_fish_memory_never_renders_as_a_numeric_fit_claim() -> None:
@@ -129,7 +132,16 @@ def test_diagnostics_cover_every_wired_engine_and_show_package_versions() -> Non
     result = generation.diagnostics()
 
     assert {engine["family"] for engine in result["engines"]} == generation._WIRED_FAMILIES
-    assert result["total_engines"] == 14
+    # Derived, not hardcoded. This used to assert 14 and went stale the moment
+    # Audio8, MOSS-TTS-Nano and Echo-TTS were wired, which is a test failing for
+    # the one reason that carries no information -- the count changed on purpose.
+    # The line above already pins *which* engines exist; this pins that the
+    # reported total agrees with them.
+    assert result["total_engines"] == len(generation._WIRED_FAMILIES)
+    # A floor, so deleting engines wholesale still trips something.
+    assert result["total_engines"] >= 14
+    # The three wired most recently, named so a silent removal is caught.
+    assert {"arktts", "moss-tts-nano", "echo-tts"} <= generation._WIRED_FAMILIES
     packages = {package["package"]: package for package in result["packages"]}
     assert packages["mlx_audio"]["version"]
     assert packages["torchaudio"]["installed"]

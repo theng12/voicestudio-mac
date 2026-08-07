@@ -10,6 +10,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.1] — 2026-08-07
+
+### Fixed — three tests that asserted a catalogue which no longer exists
+
+- The suite had been red since this morning's model work, which is the worst
+  state for it to be in: a red suite is one nobody reads, so a real regression
+  would have hidden among the noise.
+- `test_priority_catalog_is_focused_and_clone_capable` asserted Fish Audio's
+  floor `is None`. Fish has since been measured and set to 24 GB, so the test
+  was actively asserting the opposite of the shipped policy. It now asserts the
+  qualified state.
+- `test_diagnostics_cover_every_wired_engine` hardcoded 14 engines and went
+  stale the moment Audio8, MOSS-TTS-Nano and Echo-TTS were wired. The count is
+  now derived from `_WIRED_FAMILIES`, with a floor so wholesale deletion still
+  trips, and the three newest engines named so a silent removal is caught.
+- `test_catalog_reports_runtime_cache_load_and_memory_truth` had two separate
+  stale assertions, one of which predated today's changes. VoxCPM2 is now
+  asserted ineligible on the simulated 8 GB machine — it has enough free memory
+  but not enough total, which is precisely the case proving both halves of
+  `memory_eligible` are applied — and Kokoro was added as the eligible case, so
+  the test cannot pass with the flag hardwired off. Fish's `is None` assertion
+  became unreachable once every model gained a measured floor.
+
 ## [1.32.0] — 2026-08-07
 
 ### Fixed — Fish Audio S2 Pro raised to 24 GB
