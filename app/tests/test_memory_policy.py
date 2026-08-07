@@ -184,3 +184,16 @@ def test_ui_does_not_hardcode_performance_as_the_default() -> None:
     assert "Performance · default" not in markup
     for mode in ("performance", "balanced", "memory_saver", "immediate"):
         assert f"memoryPolicy.default_mode==='{mode}'" in markup
+
+
+def test_psutil_is_a_base_dependency_not_only_a_generation_extra() -> None:
+    """memory_policy.default_mode() imports psutil unconditionally and its
+    except-Exception fallback silently masks a missing import by defaulting to
+    the roomy-machine mode -- exactly backwards on a small Mac. psutil must be
+    declared in the base requirements files that install.js always installs,
+    not just in requirements-generation.txt (the optional stack)."""
+    app_root = Path(__file__).resolve().parents[1]
+    base_txt = (app_root / "requirements.txt").read_text(encoding="utf-8")
+    base_lock = (app_root / "requirements.lock.txt").read_text(encoding="utf-8")
+    assert any(line.strip().startswith("psutil") for line in base_txt.splitlines())
+    assert any(line.strip().startswith("psutil") for line in base_lock.splitlines())
