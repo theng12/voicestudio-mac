@@ -4,7 +4,7 @@
 Run the same command on every fleet Mac; the JSON files can then be diffed to
 compare chips and memory tiers directly.
 
-    conda_env/bin/python tools/bench_tts.py --machine terranash-0204
+    conda_env/bin/python tools/bench_tts.py --machine <machine-id>
 
 What it measures, per model:
   * peak unified memory (mx.get_peak_memory) — the number that decides the
@@ -101,7 +101,7 @@ def words(s: str) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--machine", default="", help="fleet id, e.g. terranash-0204")
+    ap.add_argument("--machine", default="", help="fleet machine id, for labelling results")
     ap.add_argument("--models", default="kokoro,audio8,echo",
                     help="comma-separated subset of: " + ",".join(MODELS))
     ap.add_argument("--ref-audio", default="", help="reference clip for cloning")

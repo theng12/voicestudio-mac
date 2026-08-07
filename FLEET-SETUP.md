@@ -88,13 +88,16 @@ Tell me which machines are up and I'll take it from there.
 
 ## What each machine should end up with
 
-| Machine | Chip / RAM | Gets | Question it answers |
-|---|---|---|---|
-| `terranash-0002` | M1 · 8 GB | + Audio8 | does the 16 GB floor hold? M1 baseline |
-| `terranash-0006` | M2 · 8 GB | + Audio8 | same, M1 vs M2 at 8 GB |
-| `terranash-0007` | M2 · 16 GB | Audio8 | production speed at 16 GB |
-| `terranash-0201` | M2 · 16 GB | Audio8 | reproduces 0007 on identical hardware |
-| `terranash-0204` | M4 · 24 GB | Audio8 **and** Echo-TTS | Echo's real speed, unswapped |
+Machines are identified by hardware here; the fleet's own machine table lives
+outside the repo (see `fleet_machines.json`).
+
+| Chip / RAM | Gets | Question it answers |
+|---|---|---|
+| M1 · 8 GB | + Audio8 | does the 16 GB floor hold? M1 baseline |
+| M2 · 8 GB | + Audio8 | same, M1 vs M2 at 8 GB |
+| M2 · 16 GB | Audio8 | production speed at 16 GB |
+| M2 · 16 GB (second unit) | Audio8 | reproduces the first on identical hardware |
+| M4 · 24 GB | Audio8 **and** Echo-TTS | Echo's real speed, unswapped |
 
 Codecs travel with their model automatically — Echo can't arrive without its
 Fish codec.
