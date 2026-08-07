@@ -10,6 +10,37 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.8] — 2026-08-08
+
+### Added — OmniVoice has a passed audit record, so it can be a GenStudio candidate
+
+- OmniVoice has been the small-machine workhorse in the catalogue since 1.29.4
+  and has accumulated more grounded measurement than most models here — the
+  transcribe-back section-budget curve, the three-tier fleet memory ceiling, the
+  peak-memory and real-time-factor bands — but none of it was ever written as an
+  audit record. Without one, `model_audits.audit_record()` returns `None`, the
+  catalogue's `execution_contract` reports `qualification_source: "unverified"`,
+  and Studio Hub has nothing to expose. The evidence existed; the record did not.
+- `model-audits/2026-08-08-omnivoice/mlx-community--OmniVoice-bfloat16.audit.json`
+  records the audit as **passed** and **candidate for GenStudio**, bound to
+  checkpoint `6119f707…` — the exact revision cached in this tree — for the
+  single operation `voice.tts`.
+- Every mirrored block is grounded in this repository rather than restated from
+  a model card: the 288-character private section budget and its quality curve
+  (`long_form_policy.py`), the 25 frames/second and 2250-frame 8 GB ceiling
+  (`generation.py`), the 4–64 / 0.0–8.0 / 0.5–120 s control ranges and the
+  3–10 s reference window (`_mlx_kwargs_omnivoice`), the pitch-preserving speed
+  pass, the 24 kHz mono output, the exact non-verbal tag set, and Apache-2.0
+  from the checkpoint's own card.
+- **A candidate is not an approval.** Studio Hub remains the authority that
+  decides whether this revision and contract hash are actually exposed, and
+  nothing here publishes anything.
+- Two values are declared rather than measured, and the record says so in its
+  own `evidence.declared_not_measured`: the 25,000-character commercial text
+  ceiling (narrower than the API's own 40,000 cap, but not fixed by a
+  measurement here), and the `1.0` adapter version, which has no registry in
+  code.
+
 ## [1.32.7] — 2026-08-08
 
 ### Added — process uptime, so `release_count: 0` finally means something
