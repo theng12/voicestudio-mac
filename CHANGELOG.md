@@ -10,6 +10,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.0] — 2026-08-07
+
+### Fixed — Fish Audio S2 Pro raised to 24 GB
+
+- 16 GB cleared the guard but not comfortably. Measured at 13.234 GB peak on a
+  17.2 GB machine, leaving under 4 GB for macOS and anything else the worker is
+  doing, and it ran at 3.75x realtime — the slowest of every model measured on
+  the fleet. Raised to 24 GB on the owner's judgement after listening on real
+  hardware.
+- Consequence worth stating plainly: exactly one machine in the fleet has 24 GB,
+  so Fish is now a single-worker model. The pruning pass will reclaim its 6.73 GB
+  from every other machine holding it.
+
 ## [1.31.0] — 2026-08-07
 
 ### Fixed — VoxCPM2's memory floor was measured and raised to 16 GB

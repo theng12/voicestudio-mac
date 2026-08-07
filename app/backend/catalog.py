@@ -580,7 +580,7 @@ CATALOG: tuple[ModelEntry, ...] = (
         # run swapping. The output is correct either way (93% transcribe-back),
         # which is exactly why the old 8 GB floor looked fine on paper.
         min_unified_memory_gb=16,
-        recommended_hardware="16 GB unified memory. Measured at 3.95x realtime on 16 GB; an 8 GB Mac swaps and drops to 47x realtime.",
+        recommended_hardware="24 GB unified memory. Measured at 3.95x realtime on 16 GB; an 8 GB Mac swaps and drops to 47x realtime.",
         capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
         best_for="The recommended VoxCPM2 pick for most users. 4-bit quantized — fastest and smallest, with minimal quality loss vs bf16. 48 kHz studio-quality output, 30 languages, voice cloning + voice design in one model.",
         sample_rate_hz=48000,
@@ -1175,7 +1175,12 @@ CATALOG: tuple[ModelEntry, ...] = (
         #       4.85 GB free, `normal` pressure, no swap          → comfortable
         # Refused outright by the guard on an 8.6 GB Mac. So 16 GB is the floor
         # and 24 GB is the comfortable tier — the same shape as Audio8.
-        min_unified_memory_gb=16,
+        # Raised from 16 by the owner after listening on real hardware: 16 GB
+        # clears the guard but not comfortably. Measured at 13.234 GB peak on a
+        # 17.2 GB machine -- it fits with under 4 GB to spare, before macOS and
+        # anything else the worker is doing, and ran at 3.75x realtime, the
+        # slowest of every model measured on the fleet.
+        min_unified_memory_gb=24,
         recommended_hardware=(
             "Apple Silicon with 16 GB minimum, 24 GB comfortable. Measured "
             "13.3 GB peak: on a 16 GB Mac that leaves ~2 GB free and reaches "
