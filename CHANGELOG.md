@@ -10,6 +10,46 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.6] — 2026-08-08
+
+### Fixed — dirty-worktree update refusals were undiagnosable remotely
+
+- A genuine dirty-worktree refusal in the auto-updater now lists the exact
+  blocking paths (from `git status --porcelain`) in the error surfaced through
+  `/api/auto-update/status`, capped at the first 5 with an "and N more" suffix
+  for pathological worktrees. Paths are repo-relative filenames only — no file
+  content or diffs — so nothing sensitive leaks through the API. Mirrors
+  Studio Hub v1.45.0's fix for the same blind spot; without it, a stuck
+  machine like `terranash-0103` (wedged on v1.32.1) could not be diagnosed
+  through the fleet API at all, since there is no SSH or remote-exec channel.
+- The refusal behavior itself is unchanged — dirty trees are still refused.
+  This only adds diagnostic detail to the message.
+
+### Fixed — the OmniVoice section-budget comment pointed at the wrong constraint
+
+- The comment above `OMNIVOICE_SECTION_MAX_CHARACTERS = 288` documented the
+  memory ceiling (~1286 chars at 8 GB) and said the value was "deliberately
+  NOT raised yet" pending a quality gate that hadn't run. That gate has since
+  run: transcribe-back coverage measurements show 288 chars gives 99.4%
+  coverage (1 word lost); 350 is the measured ceiling for equal coverage, but
+  raising past 288 up to 1200 chars steadily loses words (down to 60%
+  coverage / 66 words lost at 1200), because OmniVoice commits its frame
+  budget up front from a duration estimate that drifts long over longer
+  spans. The comment now records quality as the binding constraint and the
+  memory figures as a retained note, not a reason to raise the value. No
+  behavior change: `OMNIVOICE_SECTION_MAX_CHARACTERS` stays 288.
+
+### Fixed — psutil was missing from the base install
+
+- `memory_policy.default_mode()` imports `psutil` unconditionally to pick the
+  machine-aware idle-release default, but `psutil` was declared only in
+  `requirements-generation.txt` (the optional generation stack), not in the
+  base `requirements.txt` / `requirements.lock.txt` that `install.js` always
+  installs. A base-only install silently swallowed the resulting `ImportError`
+  and always fell back to the roomy-machine default — defeating the v1.32.3
+  memory-aware default on precisely the 8 GB machines it was written for.
+  Mirrors Chat Studio v1.24.7 (commit `ad01773`).
+
 ## [1.32.5] — 2026-08-08
 
 ### Fixed — the mode picker still called Performance the default

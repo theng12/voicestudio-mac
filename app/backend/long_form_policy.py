@@ -28,20 +28,43 @@ VIBEVOICE_SECTION_MAX_CHARACTERS = 3000
 #
 # 288 was originally copied verbatim from QWEN_CLONE_SECTION_MAX_CHARACTERS —
 # a disqualified model with entirely different failure physics — and carried no
-# derivation. Fleet measurement 2026-08-07 (3 reps/tier, escalating duration
-# through each machine's own job engine) puts the real MEMORY ceiling far higher:
+# derivation. It has since been independently justified, and the constraint
+# that sets it is QUALITY, not memory:
+#
+# Transcribe-back coverage, same text/seed/voice, only the section budget
+# varying (mechanism: OmniVoice commits target_len frames up front from its
+# duration estimator and must fill exactly that budget; per-section estimates
+# track short spans well, but over a long span the estimate drifts long and
+# the surplus becomes silence and dropped words, not extra pauses):
+#
+#   288  -> 4 sections, 99.4% coverage, 1 word lost   (shipped value)
+#   350  -> 3 sections, 99.4% coverage, 1 word lost   (measured ceiling)
+#   400  -> 3 sections, 97.0% coverage, 5 words lost
+#   450  -> 3 sections, 96.4% coverage, 6 words lost
+#   500  -> 2 sections, 95.8% coverage, 7 words lost
+#   600  -> 2 sections, 83.0% coverage, 28 words lost
+#   1200 -> 1 section,  60.0% coverage, 66 words lost
+#
+# 350 is the measured ceiling for equal (99.4%) coverage, but 288 is kept
+# because at that equal coverage it paces better: ~26% silence vs. ~30% at
+# 350. (Terminal-silence trimming was considered and ruled out as a
+# confound — it applies only to Qwen CustomVoice and Chatterbox, never
+# OmniVoice, so it cannot explain the pacing or coverage differences above.)
+#
+# Fleet measurement 2026-08-07 (3 reps/tier, escalating duration through each
+# machine's own job engine) separately puts the MEMORY ceiling far higher than
+# 288 requires:
 #
 #   8 GB   passed 2250 frames (90 s), failed 3000 (120 s), reproduced 2x
 #   16 GB  passed 3000 frames (120 s) -- the API clamp, not the limit
 #   24 GB  passed 3000 frames (120 s) -- the API clamp, not the limit
 #
 # At the measured 1.749 frames/char for English narration that is ~1286 chars
-# even on 8 GB, i.e. 288 is ~4.5x more conservative than memory requires.
-#
-# The value is deliberately NOT raised yet: memory is only half the question and
-# the long-section QUALITY gate has not run (section size was not settable over
-# HTTP until this release exposed section_max_characters). Raising it on memory
-# evidence alone would repeat the original mistake in the opposite direction.
+# even on 8 GB, i.e. 288 is ~4.5x more conservative than memory requires. This
+# is retained for the record, but memory was never the binding constraint —
+# do NOT raise this value on memory evidence alone. That is the specific
+# mistake this comment exists to prevent: the fidelity curve above is what
+# sets 288, and raising it past 288 measurably loses words.
 OMNIVOICE_SECTION_MAX_CHARACTERS = 288
 FISH_AUDIO_SECTION_MAX_CHARACTERS = 300
 # Audio8's native cap is 512 frames (~2048 samples/frame @ 44.1 kHz ≈ 23.8 sec)
