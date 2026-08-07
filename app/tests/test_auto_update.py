@@ -212,6 +212,48 @@ def test_git_safety_refusals(updater: AutoUpdater, monkeypatch, case, message):
         updater._git_preflight()
 
 
+def test_dirty_worktree_refusal_lists_the_blocking_paths(updater: AutoUpdater, monkeypatch):
+    def fake_git(*args, **kwargs):
+        command = tuple(args)
+        if command == ("remote", "get-url", "origin"):
+            return updater.spec["expected_remote"]
+        if command[:3] == ("symbolic-ref", "--quiet", "--short"):
+            return "main"
+        if command[:2] == ("status", "--porcelain"):
+            return " M app/backend/main.py\n?? notes.txt\n"
+        raise AssertionError(command)
+    monkeypatch.setattr(updater, "_git", fake_git)
+    with pytest.raises(UpdateError) as excinfo:
+        updater._git_preflight()
+    message = str(excinfo.value)
+    assert "app/backend/main.py" in message
+    assert "notes.txt" in message
+    assert "more" not in message
+
+
+def test_dirty_worktree_refusal_caps_the_path_preview_at_five(updater: AutoUpdater, monkeypatch):
+    porcelain_lines = "\n".join(f" M file{i}.txt" for i in range(8))
+
+    def fake_git(*args, **kwargs):
+        command = tuple(args)
+        if command == ("remote", "get-url", "origin"):
+            return updater.spec["expected_remote"]
+        if command[:3] == ("symbolic-ref", "--quiet", "--short"):
+            return "main"
+        if command[:2] == ("status", "--porcelain"):
+            return porcelain_lines
+        raise AssertionError(command)
+    monkeypatch.setattr(updater, "_git", fake_git)
+    with pytest.raises(UpdateError) as excinfo:
+        updater._git_preflight()
+    message = str(excinfo.value)
+    for i in range(5):
+        assert f"file{i}.txt" in message
+    for i in range(5, 8):
+        assert f"file{i}.txt" not in message
+    assert "and 3 more" in message
+
+
 def test_disk_space_failure_happens_before_files_change(updater: AutoUpdater, monkeypatch):
     monkeypatch.setattr(updater, "readiness_reasons", lambda: [])
     monkeypatch.setattr("backend.auto_update.shutil.disk_usage", lambda _p: type("D", (), {"free": 1})())

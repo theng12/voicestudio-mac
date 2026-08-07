@@ -345,7 +345,14 @@ class AutoUpdater:
             raise UpdateError("Updater requires the configured main branch (not detached HEAD).")
         dirty = self._git("status", "--porcelain", "--untracked-files=normal")
         if dirty:
-            raise UpdateError("Working tree has local changes. Commit or remove them before updating.")
+            paths = [line[3:].strip() for line in dirty.splitlines() if line.strip()]
+            preview = ", ".join(paths[:5])
+            if len(paths) > 5:
+                preview += f", and {len(paths) - 5} more"
+            detail = f": {preview}" if preview else ""
+            raise UpdateError(
+                f"Working tree has local changes{detail}. Commit or remove them before updating."
+            )
         if fetch:
             self._git("fetch", "--prune", "origin", self.spec.get("branch", "main"), timeout=180)
         local = self._git("rev-parse", "HEAD")
