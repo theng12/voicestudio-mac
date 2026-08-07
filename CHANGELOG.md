@@ -10,6 +10,54 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.4] — 2026-08-07
+
+### Added — numbers are expanded to words before OmniVoice speaks them
+
+- Caught by ear in a 1-minute sample: "1,200" was read as "one two hundred".
+  Characterised on the real model — digits are a lottery, not a consistent bug:
+
+  | sent | heard | |
+  |---|---|---|
+  | `1,200` | "when 200" | wrong |
+  | `1200` | 1,200 | ok |
+  | `12,500` | 1,200,500 | wrong |
+  | `12500` | "twelve five hundred" | wrong |
+  | `3,000` / `3000` | 3,000 | ok |
+  | `$1,450.75` | "50, 70 feet fence" | wrong |
+  | `1450 dollars and 75 cents` | "$14.50 and 75 cents" | wrong |
+  | every fully spelled-out form | correct | ok |
+
+  5 of 8 digit forms wrong, 4 of 4 spelled-out forms right. It is not the comma:
+  `3,000` is fine and `12500` is broken. There is no rule an author could follow.
+- Root cause: mlx-audio does no number normalisation for OmniVoice. `_combine_text()`
+  handles whitespace and CJK spacing only, and raw digits reach the tokenizer.
+  **KittenTTS and Voxtral, in the same package, do expand digits** — OmniVoice
+  never used those helpers.
+- New stdlib-only `backend/text_normalization.py` expands cardinals, thousands
+  separators, currency with cents, years (1900-2099 read naturally, and a
+  thousands separator always disqualifies year-reading), clock times, ordinals,
+  decimals and negatives. Non-verbal tags and digit-bearing words like `MP3`,
+  `B2B`, `4K` are left untouched.
+- Applied automatically for OmniVoice via a narrow allow-list — families that
+  already normalise upstream are not normalised twice. Normalisation failures are
+  logged and skipped, never fatal.
+- **`normalize_text` now means what it says.** It was accepted by the API,
+  serialised by the frontend, and read by no backend worker at all. It can now
+  force normalisation for any family.
+
+### Fixed — the catalog advertised a non-verbal tag OmniVoice does not have
+
+- Owner listening flagged `[cough]` as rendering badly. It is not a tag to this
+  model: mlx-audio's `_NONVERBAL_PATTERN` recognises exactly `laughter`, `sigh`,
+  `confirmation-en`, four `question-*`, four `surprise-*` and `dissatisfaction-hnn`.
+  Anything outside that list falls through to ordinary tokenization and is
+  rendered as noise — which is precisely what was heard.
+- The summary no longer advertises `[cough]`. The guidance now lists the exact
+  recognised set and explicitly warns that `[cough]`, `[breath]` and `[gasp]` are
+  not tags. A regression test pins the advertised list to the engine's own
+  pattern, so documentation cannot drift from the model again.
+
 ## [1.32.3] — 2026-08-07
 
 ### Fixed — "mlx-audio didn't produce a wav file" told the owner nothing

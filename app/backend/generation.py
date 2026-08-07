@@ -110,6 +110,7 @@ from . import (
     model_audits,
     qwen_quality,
     resource_telemetry,
+    text_normalization,
 )
 from .voicestudio_genstudio_integration import final_tts_result
 
@@ -161,6 +162,38 @@ def _memory_snapshot() -> Optional[dict]:
 # 24 GB cleared 3000 (the API's own clamp, not their limit).
 _OMNIVOICE_FRAMES_PER_SECOND = 25
 _OMNIVOICE_MEASURED_SAFE_FRAMES = ((12, 2250),)   # (unified_memory_gb_below, frames)
+
+
+# Families whose engine does NO number normalisation of its own, so raw digits
+# reach the tokenizer and are mispronounced. Measured on OmniVoice 2026-08-07:
+# "1,200" -> "one two hundred", "12,500" -> "one million two hundred thousand
+# five hundred", "$1,450.75" -> nonsense. 5 of 8 digit forms were wrong, while
+# every fully spelled-out form was correct. KittenTTS and Voxtral inside the
+# same mlx-audio package do expand digits; OmniVoice simply never used them.
+#
+# Deliberately a narrow allow-list, not a global default: families that already
+# normalise upstream must not be normalised twice.
+_NUMBER_NORMALISED_FAMILIES = frozenset({"omnivoice"})
+
+
+def _normalized_speech_text(family: str, text: str, params: dict) -> str:
+    """Expand digits to words for engines that cannot pronounce them.
+
+    ``normalize_text`` was an accepted-but-ignored API field. It now means what
+    it says, and can force normalisation for any family; the allow-list applies
+    it automatically where the engine is known to need it.
+    """
+    if not (family in _NUMBER_NORMALISED_FAMILIES or params.get("normalize_text")):
+        return text
+    try:
+        spoken = text_normalization.normalize_for_speech(text)
+    except Exception as exc:   # never fail a job over cosmetics
+        print(f"[gen] number normalisation skipped ({type(exc).__name__}: {exc})",
+              flush=True)
+        return text
+    if spoken != text:
+        print(f"[gen] {family} normalised numbers to words for speech", flush=True)
+    return spoken
 
 
 def _no_wav_produced_error(output_dir, family: str, gen_kwargs: dict) -> RuntimeError:
@@ -2731,6 +2764,7 @@ class GenerationManager:
         text = (params.get("text") or "").strip()
         if not text:
             raise ValueError("text is required")
+        text = _normalized_speech_text(family, text, params)
 
         speed = float(params.get("speed", 1.0))
         speed = max(0.5, min(speed, 2.0))
