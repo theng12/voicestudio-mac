@@ -10,6 +10,46 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.9] — 2026-08-08
+
+### Fixed — the OmniVoice audit record published four fields the code contradicts
+
+- Two sessions were asked to author this record and both did, minutes apart, at
+  the same path. The one that landed in 1.32.8 validates structurally — correct
+  schema, correct hash, correct mirror — and is wrong in four places that
+  matter, because an audit record is not documentation: it is the routing
+  contract Studio Hub and GenStudio read.
+- **`controls.language` claimed a 10-value enum.** The OmniVoice adapter sets no
+  language parameter at all (`_mlx_kwargs_omnivoice`), and the catalogue entry
+  declares `languages=()` with `claimed_count: 646`. The model claims 646
+  languages and enumerates none; a 10-language roster is neither the claim nor
+  the runtime. The control is removed and `language_selection: "none"` is
+  declared instead.
+- **`voice_clone.required` was `true`.** The adapter raises only when *both* a
+  reference and voice-design traits are absent. Voice design alone is a valid
+  OmniVoice request, so a required reference would have refused half the
+  model's supported modes at the routing boundary.
+- **The reference window said 8 / 12 / 15 seconds.** The adapter clamps to
+  `ref_audio_max_duration_s = 10.0`, and the family guidance and UI both say a
+  3–10 second clip. Those figures were Qwen3-TTS Base's.
+- **`private_join_pause_milliseconds` was 180.** The OmniVoice policy uses
+  `DEFAULT_JOIN_PAUSE_SECONDS`, which is `0.12` — 120 ms. 180 is also Qwen's.
+- Three of the four wrong values are Qwen3-TTS Base's, which is the same failure
+  mode the 288-character constant already had: a value copied from a neighbouring
+  model that carries no derivation of its own.
+- Added what was missing: OmniVoice's actual engine controls (`num_steps` 4–64,
+  `guidance_scale` 0.0–8.0, `duration_s` 0.5–120 s), the non-verbal tag set
+  pinned to the engine's own pattern, the measured peak memory and the
+  three-tier frame ceiling, the exact mlx-audio release and commit, and the
+  120-second single-pass clamp at 25 latent frames per second.
+- **Neither session's evidence was discarded.** The owner's quality verdicts and
+  the fleet cache observations are carried over verbatim and attributed; the
+  contract fields now come from the code. `evidence.corrections` records each
+  change with the file and line that grounds it, and `evidence.supersedes_audit_id`
+  points back at the record this replaces.
+- Still declared rather than measured, and still said so in the record itself:
+  the 25,000-character commercial text ceiling and the adapter version.
+
 ## [1.32.8] — 2026-08-08
 
 ### Added — OmniVoice has a passed audit record, so it can be a GenStudio candidate

@@ -1,66 +1,111 @@
 {
   "schema": "studio.model-audit-record",
   "schema_version": 1,
-  "audit_id": "voicestudio-20260808-omnivoice-6119f707-section288",
+  "audit_id": "voicestudio-20260808-omnivoice-6119f707-contract-corrected",
   "audited_at": "2026-08-08T00:00:00Z",
   "subject": {
     "model_id": "mlx-community/OmniVoice-bfloat16",
     "upstream_model_id": "k2-fsa/OmniVoice",
-    "display_name": "OmniVoice",
+    "display_name": "OmniVoice 0.6B bf16",
     "modality": "voice",
     "checkpoint_revision": "6119f7072580cc30c3cbdf496269216b03ad9742"
   },
   "contract": {
     "model_id": "mlx-community/OmniVoice-bfloat16",
     "upstream_model_id": "k2-fsa/OmniVoice",
-    "display_name": "OmniVoice",
+    "display_name": "OmniVoice 0.6B bf16",
     "modality": "voice",
+    "model_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
     "runtime_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
     "approved_operations": [
       "voice.tts"
     ],
     "adapter": {
       "id": "voicestudio.mlx-audio.omnivoice",
-      "version": "1.0",
-      "runtime": "mlx-audio"
+      "version": "1.1",
+      "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
+      "engine_mode": "omnivoice",
+      "synthesis": "flow_matching"
     },
     "controls": {
-      "language": {
-        "type": "enum",
+      "voice_clone": {
+        "type": "reference_audio",
         "required": false,
-        "default": "en",
-        "values": [
-          "en",
-          "zh",
-          "ja",
-          "ko",
-          "de",
-          "fr",
-          "ru",
-          "pt",
-          "es",
-          "it"
-        ]
+        "transcript": "optional",
+        "minimum_duration_seconds": 3,
+        "recommended_duration_seconds": {
+          "minimum": 3,
+          "maximum": 10
+        },
+        "maximum_duration_seconds": 10,
+        "note": "Zero-shot clone. The adapter truncates the reference to 10 s (ref_audio_max_duration_s) and supplies a placeholder transcript when the voice library has none. Not required on its own: voice_design alone is a valid request."
+      },
+      "voice_design": {
+        "type": "text",
+        "required": false,
+        "note": "Natural-language voice traits (gender / accent / age / whisper), passed to the engine as instruct. Combines with voice_clone to steer a cloned delivery."
+      },
+      "num_steps": {
+        "type": "integer",
+        "minimum": 4,
+        "maximum": 64,
+        "default": 32
+      },
+      "guidance_scale": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 8.0,
+        "default": 2.0
+      },
+      "duration_s": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 120.0,
+        "default": null,
+        "note": "Optional. Omitted, the engine's RuleDurationEstimator picks the length; supplied, it commits ceil(duration_s * 25) latent frames up front."
       },
       "speed": {
         "type": "number",
         "minimum": 0.5,
         "maximum": 2.0,
         "default": 1.0,
-        "processing": "pitch-preserving after final stitch"
+        "processing": "pitch-preserving after final stitch",
+        "note": "OmniVoice.generate() accepts no speed argument, so this is one FFmpeg tempo pass on the finished WAV rather than an engine parameter."
       },
-      "voice_clone": {
-        "type": "reference_audio",
-        "required": true,
-        "transcript": "optional",
-        "x_vector_only_fallback": false
+      "non_verbal_tags": {
+        "type": "inline_tag_enum",
+        "required": false,
+        "values": [
+          "laughter",
+          "sigh",
+          "confirmation-en",
+          "question-en",
+          "question-ah",
+          "question-oh",
+          "question-ei",
+          "question-yi",
+          "surprise-ah",
+          "surprise-oh",
+          "surprise-wa",
+          "surprise-yo",
+          "dissatisfaction-hnn"
+        ],
+        "note": "The engine's own atomic tag set. Any other bracketed word — [cough], [breath], [gasp] — is not a tag: it falls through to ordinary tokenization and renders as noise."
+      },
+      "requirement": {
+        "type": "constraint",
+        "rule": "at_least_one_of",
+        "controls": [
+          "voice_clone",
+          "voice_design"
+        ]
       }
     },
     "input_limits": {
       "text_min_characters": 1,
       "text_max_characters": 25000,
       "private_section_max_characters": 288,
-      "private_join_pause_milliseconds": 180,
+      "private_join_pause_milliseconds": 120,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
       "supports_cancellation_between_chunks": true,
@@ -75,23 +120,22 @@
           "opus",
           "webm"
         ],
-        "minimum_duration_seconds": 8,
-        "target_duration_seconds": 12,
-        "recommended_duration_seconds": {
-          "minimum": 8,
-          "maximum": 15
-        },
-        "maximum_duration_seconds": 15,
         "max_audio_bytes": 25000000,
-        "sample_rate_hz": 24000,
-        "channels": 1,
-        "transcript": "optional",
-        "timestamped_transcript_segments": "required_when_model_specific_selection_is_needed",
-        "selection": "speech-aware and word-boundary-aligned"
+        "minimum_duration_seconds": 3,
+        "recommended_duration_seconds": {
+          "minimum": 3,
+          "maximum": 10
+        },
+        "maximum_duration_seconds": 10,
+        "transcript": "optional"
       },
-      "voice_design_supported": true,
       "preset_voice_supported": false,
-      "streaming_request_supported": false
+      "voice_clone_supported": true,
+      "voice_design_supported": true,
+      "requires_reference_or_voice_design": true,
+      "streaming_request_supported": false,
+      "language_selection": "none",
+      "number_normalisation": "expanded_to_words_before_synthesis"
     },
     "output_limits": {
       "media_type": "audio/wav",
@@ -99,13 +143,22 @@
       "channels": 1,
       "sample_format": "PCM_16",
       "max_duration_seconds": null,
+      "max_single_pass_duration_seconds": 120,
+      "latent_frames_per_second": 25,
       "atomic_final_artifact": true
     },
     "hardware": {
       "platform": "Apple Silicon",
       "minimum_unified_memory_gb": 8,
       "recommended_unified_memory_gb": 16,
-      "ineligible_unified_memory_gb": []
+      "measured_peak_memory_gb": 3.5,
+      "measured_safe_latent_frames_by_tier": {
+        "8": 2250,
+        "16": 3000,
+        "24": 3000
+      },
+      "ineligible_unified_memory_gb": [],
+      "note": "8 GB completes without swapping but leaves under 1 GB free at warning pressure; suited to a dedicated fleet worker, not a machine in general use."
     },
     "capacity": {
       "max_concurrency": 1
@@ -118,57 +171,102 @@
   "genstudio_candidate": {
     "schema": "studio.model-audit",
     "schema_version": 1,
-    "audit_id": "voicestudio-20260808-omnivoice-6119f707-section288",
+    "audit_id": "voicestudio-20260808-omnivoice-6119f707-contract-corrected",
     "audit_status": "passed",
     "candidate_for_genstudio": true,
-    "contract_hash": "sha256:8f1addc45dcff8647947c41b24bf02a4a9cebbc38d5545f71addc192c93ffdb3",
+    "contract_hash": "sha256:d9710ace805d7f39cae9f6b026b37403538c472a80cd9ad92a60970bba52f36a",
+    "model_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
+    "audited_at": "2026-08-08T00:00:00Z",
     "runtime_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
     "approved_operations": [
       "voice.tts"
     ],
-    "audited_at": "2026-08-08T00:00:00Z",
     "adapter": {
       "id": "voicestudio.mlx-audio.omnivoice",
-      "version": "1.0",
-      "runtime": "mlx-audio"
+      "version": "1.1",
+      "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
+      "engine_mode": "omnivoice",
+      "synthesis": "flow_matching"
     },
     "controls": {
-      "language": {
-        "type": "enum",
+      "voice_clone": {
+        "type": "reference_audio",
         "required": false,
-        "default": "en",
-        "values": [
-          "en",
-          "zh",
-          "ja",
-          "ko",
-          "de",
-          "fr",
-          "ru",
-          "pt",
-          "es",
-          "it"
-        ]
+        "transcript": "optional",
+        "minimum_duration_seconds": 3,
+        "recommended_duration_seconds": {
+          "minimum": 3,
+          "maximum": 10
+        },
+        "maximum_duration_seconds": 10,
+        "note": "Zero-shot clone. The adapter truncates the reference to 10 s (ref_audio_max_duration_s) and supplies a placeholder transcript when the voice library has none. Not required on its own: voice_design alone is a valid request."
+      },
+      "voice_design": {
+        "type": "text",
+        "required": false,
+        "note": "Natural-language voice traits (gender / accent / age / whisper), passed to the engine as instruct. Combines with voice_clone to steer a cloned delivery."
+      },
+      "num_steps": {
+        "type": "integer",
+        "minimum": 4,
+        "maximum": 64,
+        "default": 32
+      },
+      "guidance_scale": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 8.0,
+        "default": 2.0
+      },
+      "duration_s": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 120.0,
+        "default": null,
+        "note": "Optional. Omitted, the engine's RuleDurationEstimator picks the length; supplied, it commits ceil(duration_s * 25) latent frames up front."
       },
       "speed": {
         "type": "number",
         "minimum": 0.5,
         "maximum": 2.0,
         "default": 1.0,
-        "processing": "pitch-preserving after final stitch"
+        "processing": "pitch-preserving after final stitch",
+        "note": "OmniVoice.generate() accepts no speed argument, so this is one FFmpeg tempo pass on the finished WAV rather than an engine parameter."
       },
-      "voice_clone": {
-        "type": "reference_audio",
-        "required": true,
-        "transcript": "optional",
-        "x_vector_only_fallback": false
+      "non_verbal_tags": {
+        "type": "inline_tag_enum",
+        "required": false,
+        "values": [
+          "laughter",
+          "sigh",
+          "confirmation-en",
+          "question-en",
+          "question-ah",
+          "question-oh",
+          "question-ei",
+          "question-yi",
+          "surprise-ah",
+          "surprise-oh",
+          "surprise-wa",
+          "surprise-yo",
+          "dissatisfaction-hnn"
+        ],
+        "note": "The engine's own atomic tag set. Any other bracketed word — [cough], [breath], [gasp] — is not a tag: it falls through to ordinary tokenization and renders as noise."
+      },
+      "requirement": {
+        "type": "constraint",
+        "rule": "at_least_one_of",
+        "controls": [
+          "voice_clone",
+          "voice_design"
+        ]
       }
     },
     "input_limits": {
       "text_min_characters": 1,
       "text_max_characters": 25000,
       "private_section_max_characters": 288,
-      "private_join_pause_milliseconds": 180,
+      "private_join_pause_milliseconds": 120,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
       "supports_cancellation_between_chunks": true,
@@ -183,23 +281,22 @@
           "opus",
           "webm"
         ],
-        "minimum_duration_seconds": 8,
-        "target_duration_seconds": 12,
-        "recommended_duration_seconds": {
-          "minimum": 8,
-          "maximum": 15
-        },
-        "maximum_duration_seconds": 15,
         "max_audio_bytes": 25000000,
-        "sample_rate_hz": 24000,
-        "channels": 1,
-        "transcript": "optional",
-        "timestamped_transcript_segments": "required_when_model_specific_selection_is_needed",
-        "selection": "speech-aware and word-boundary-aligned"
+        "minimum_duration_seconds": 3,
+        "recommended_duration_seconds": {
+          "minimum": 3,
+          "maximum": 10
+        },
+        "maximum_duration_seconds": 10,
+        "transcript": "optional"
       },
-      "voice_design_supported": true,
       "preset_voice_supported": false,
-      "streaming_request_supported": false
+      "voice_clone_supported": true,
+      "voice_design_supported": true,
+      "requires_reference_or_voice_design": true,
+      "streaming_request_supported": false,
+      "language_selection": "none",
+      "number_normalisation": "expanded_to_words_before_synthesis"
     },
     "output_limits": {
       "media_type": "audio/wav",
@@ -207,30 +304,82 @@
       "channels": 1,
       "sample_format": "PCM_16",
       "max_duration_seconds": null,
+      "max_single_pass_duration_seconds": 120,
+      "latent_frames_per_second": 25,
       "atomic_final_artifact": true
     },
     "hardware": {
       "platform": "Apple Silicon",
       "minimum_unified_memory_gb": 8,
       "recommended_unified_memory_gb": 16,
-      "ineligible_unified_memory_gb": []
+      "measured_peak_memory_gb": 3.5,
+      "measured_safe_latent_frames_by_tier": {
+        "8": 2250,
+        "16": 3000,
+        "24": 3000
+      },
+      "ineligible_unified_memory_gb": [],
+      "note": "8 GB completes without swapping but leaves under 1 GB free at warning pressure; suited to a dedicated fleet worker, not a machine in general use."
     },
     "capacity": {
       "max_concurrency": 1
     }
   },
   "evidence": {
+    "supersedes_audit_id": "voicestudio-20260808-omnivoice-6119f707-section288",
+    "reason": "The superseded record was authored concurrently by another session and shipped in v1.32.8. It validates structurally, but four contract fields are contradicted by this repository's own code and would have been published as a routing contract.",
+    "corrections": [
+      {
+        "field": "controls.language",
+        "was": "enum of 10 values (en, zh, ja, ko, de, fr, ru, pt, es, it)",
+        "now": "removed; input_limits.language_selection = \"none\"",
+        "grounds": "_mlx_kwargs_omnivoice (generation.py:3332-3364) sets no language or lang_code parameter at all, and the catalog entry declares languages=() with enumeration_status \"claimed_count\", claimed_count=646 (catalog.py:1163-1167). The model claims 646 languages and enumerates none; a 10-value roster is neither the claim nor the runtime."
+      },
+      {
+        "field": "controls.voice_clone.required",
+        "was": true,
+        "now": false,
+        "grounds": "generation.py:3337-3341 raises only when BOTH instruct and reference are absent. Voice design alone is a valid OmniVoice request, so a required reference would have refused half the model's supported modes."
+      },
+      {
+        "field": "input_limits.reference_audio duration window",
+        "was": "minimum 8 s, target 12 s, recommended 8-15 s, maximum 15 s",
+        "now": "minimum 3 s, recommended 3-10 s, maximum 10 s",
+        "grounds": "generation.py:3348 sets ref_audio_max_duration_s = 10.0, and the family guidance and UI both state a 3-10 second clip (catalog.py:307, frontend/index.html:872). The 8/12/15 figures are the Qwen3-TTS Base record's window."
+      },
+      {
+        "field": "input_limits.private_join_pause_milliseconds",
+        "was": 180,
+        "now": 120,
+        "grounds": "long_form_policy.py:176-186 builds the OmniVoice policy with DEFAULT_JOIN_PAUSE_SECONDS, which is 0.12 (long_form_policy.py:14). 180 ms is Qwen's value."
+      }
+    ],
+    "additions": [
+      "controls.num_steps, controls.guidance_scale and controls.duration_s — OmniVoice's actual engine parameters, absent from the superseded record (generation.py:3350-3358).",
+      "controls.non_verbal_tags — pinned to the engine's own _NONVERBAL_PATTERN via catalog.OMNIVOICE_NONVERBAL_TAGS, which a regression test already holds to the installed model.",
+      "hardware.measured_peak_memory_gb and measured_safe_latent_frames_by_tier — the fleet memory ceiling, absent from the superseded record.",
+      "adapter.runtime pinned to the exact mlx-audio release and commit from requirements-generation.txt:85.",
+      "output_limits.max_single_pass_duration_seconds and latent_frames_per_second — the 120 s clamp and the 25 frames/s constant that together set the 3000-frame ceiling."
+    ],
     "qualification_run": "2026-08-08-owner-fleet",
     "cache": {
-      "state": "verified_by_live_execution",
+      "state": "cached",
       "snapshot_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
+      "refs_main": "6119f7072580cc30c3cbdf496269216b03ad9742",
       "revision_current_at_qualification": true,
+      "primary_weight": "model.safetensors",
+      "local_source": "cache/HF_HOME/hub/models--mlx-community--OmniVoice-bfloat16",
       "sites_cached": [
         "terranash-pps",
         "terranash-kts",
         "terranash-tsh"
-      ]
+      ],
+      "sites_cached_provenance": "carried over from the superseded record; not re-verified by this session, which contacted no fleet machine"
     },
+    "license_sources": [
+      "https://huggingface.co/mlx-community/OmniVoice-bfloat16",
+      "https://github.com/k2-fsa/OmniVoice"
+    ],
     "human_quality_review": {
       "reviewer": "owner",
       "reviewed_at": "2026-08-08T00:00:00Z",
@@ -238,11 +387,120 @@
       "hardware_assessment": "runs on 8 GB machines; stated twice by the owner, the second time as a direction to stop treating it as open",
       "section_ceiling": "288 characters. Transcribe-back coverage 99.4% at 288 and at 350, 97.0% at 400, 83.0% at 600, 60.0% at 1200. 350 is the measured ceiling; 288 is the shipped operating point",
       "known_issue": "number pronunciation; a normalizer was built in Voice Studio to address it",
-      "quality_gate": "passed"
+      "quality_gate": "passed",
+      "provenance": "carried over verbatim from the superseded record. These are the owner's verdicts, recorded by the GenStudio session; this session did not re-derive them. The section_ceiling figures independently match long_form_policy.py:40-46."
     },
+    "section_budget_quality_gate": {
+      "method": "transcribe-back word coverage, same text/seed/voice, only the section budget varying",
+      "measurements": {
+        "288": {
+          "sections": 4,
+          "reference_word_coverage": 0.994,
+          "words_lost": 1
+        },
+        "350": {
+          "sections": 3,
+          "reference_word_coverage": 0.994,
+          "words_lost": 1
+        },
+        "400": {
+          "sections": 3,
+          "reference_word_coverage": 0.97,
+          "words_lost": 5
+        },
+        "450": {
+          "sections": 3,
+          "reference_word_coverage": 0.964,
+          "words_lost": 6
+        },
+        "500": {
+          "sections": 2,
+          "reference_word_coverage": 0.958,
+          "words_lost": 7
+        },
+        "600": {
+          "sections": 2,
+          "reference_word_coverage": 0.83,
+          "words_lost": 28
+        },
+        "1200": {
+          "sections": 1,
+          "reference_word_coverage": 0.6,
+          "words_lost": 66
+        }
+      },
+      "shipped_value": 288,
+      "mechanism": "OmniVoice commits target_len frames up front from its duration estimator and must fill exactly that budget; over a long span the estimate drifts long and the surplus becomes silence and dropped words, not extra pauses.",
+      "result": "passed",
+      "source": "app/backend/long_form_policy.py:23-68"
+    },
+    "memory_qualification": {
+      "measured_at": "2026-08-07",
+      "method": "3 reps per tier, escalating duration through each machine's own job engine",
+      "tiers": {
+        "8": {
+          "passed_latent_frames": 2250,
+          "passed_seconds": 90,
+          "failed_latent_frames": 3000,
+          "failed_seconds": 120,
+          "reproduced": 2
+        },
+        "16": {
+          "passed_latent_frames": 3000,
+          "passed_seconds": 120,
+          "limit_reached": "api_clamp"
+        },
+        "24": {
+          "passed_latent_frames": 3000,
+          "passed_seconds": 120,
+          "limit_reached": "api_clamp"
+        }
+      },
+      "measured_frames_per_character": 1.749,
+      "implied_character_ceiling_at_8_gb": 1286,
+      "binding_constraint": "quality, not memory",
+      "source": "app/backend/long_form_policy.py:54-67, app/backend/generation.py:163-164"
+    },
+    "throughput": {
+      "peak_memory_gb_range": {
+        "minimum": 3.3,
+        "maximum": 3.5
+      },
+      "real_time_factor": {
+        "16_and_24_gb": {
+          "minimum": 1.4,
+          "maximum": 1.7
+        },
+        "8_gb": {
+          "minimum": 1.7,
+          "maximum": 2.1
+        }
+      },
+      "single_machine_datapoint_16_gb": {
+        "peak_memory_gb": 2.75,
+        "real_time_factor": 1.73
+      },
+      "wave2_8_gb_clone": {
+        "machine": "terranash-0206",
+        "peak_memory_gb": 3.68,
+        "real_time_factor": 3.26,
+        "minimum_free_gb": 0.71,
+        "swap_added_gb": 0.76,
+        "pressure": "urgent"
+      },
+      "note": "The only clone-capable model in the catalogue that completes on an 8 GB Mac; verified on Apple M1 and two other 8 GB machines."
+    },
+    "engine_findings": [
+      "OmniVoice.generate() accepts no speed argument, so the public speed control is applied as one pitch-preserving FFmpeg tempo pass on the finished WAV after all sections are joined.",
+      "The engine performs no number normalisation, so digits are expanded to words before synthesis via a narrow per-family allow-list.",
+      "The recognised non-verbal tag set is exactly the engine's own _NONVERBAL_PATTERN; [cough], [breath] and [gasp] are not tags and render as noise.",
+      "The published 4-bit and 8-bit OmniVoice conversions use a custom row-wise scale layout the pinned MLX loader cannot read, so this bf16 checkpoint is the only supported tier.",
+      "Long scripts are split privately into sentence-safe sections using the same reference for every section, report section progress, and honour cancellation between sections."
+    ],
     "verified_modes": [
       "reference_audio_clone",
       "voice_design",
+      "reference_audio_clone_with_voice_design",
       "adapter_managed_long_form",
       "post_generation_speed"
     ],
@@ -250,11 +508,16 @@
       "preset_voice",
       "customer_streaming"
     ],
-    "recorded_by": "Written by the GenStudio session at the owner's explicit direction, transcribing verdicts he had already reached in conversation. The quality and hardware judgements are his, not this session's. The Voice Studio session was independently asked to produce this record and had not yet done so.",
+    "declared_not_measured": [
+      "input_limits.text_max_characters = 25000 is an owner-declared commercial contract limit. It is narrower than the API's own 40,000-character ceiling (app/backend/main.py:228); no repository measurement fixes it at 25,000.",
+      "adapter.version = 1.1 is an authoring choice — no adapter-version registry exists in code. 1.1 rather than 1.0 because the superseded record already published 1.0 against a different contract."
+    ],
+    "recorded_by": "Contract authored and verified by the Voice Studio session against this repository's own code; owner verdicts and fleet-cache observations carried over from the GenStudio session's record, which was written concurrently at the owner's explicit direction and shipped as v1.32.8. Neither session's evidence was discarded: the quality judgements are the owner's, the contract fields are the code's.",
     "safety": {
       "provider_calls": 0,
       "historical_jobs_modified": 0,
-      "model_downloads_started_by_promotion": 0
+      "model_downloads_started_by_promotion": 0,
+      "fleet_machines_contacted": 0
     }
   }
 }
