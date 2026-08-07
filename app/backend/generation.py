@@ -1031,6 +1031,12 @@ _POSTPROCESSED_SPEED_FAMILIES = {
     "arktts": "Audio8 TTS Preview",
     "moss-tts-nano": "MOSS-TTS-Nano",
     "echo-tts": "Echo-TTS",
+    # OmniVoice.generate() takes no speed argument either (verified against the
+    # installed mlx-audio source: it declares **kwargs and never reads it), so a
+    # passed speed was accepted and silently discarded. It was missing from this
+    # map AND from the pass-through exclusion below, which made the public speed
+    # control a no-op for every API caller.
+    "omnivoice": "OmniVoice",
 }
 
 
@@ -2694,7 +2700,7 @@ class GenerationManager:
         # VoxCPM2 has no numeric speed parameter; its natural-language prompt
         # can shape delivery, while exact requested tempo is applied to the
         # finished WAV below. Passing speed upstream would be silently ignored.
-        if family not in {"voxcpm-mlx", "bark", "vibevoice", "fish-audio-mlx", "arktts", "moss-tts-nano", "echo-tts"}:
+        if family not in {"voxcpm-mlx", "bark", "vibevoice", "fish-audio-mlx", "arktts", "moss-tts-nano", "echo-tts", "omnivoice"}:
             # Qwen accepts this argument but does not apply it upstream. Keep
             # native generation at 1.0 and adjust the finished WAV below.
             gen_kwargs["speed"] = 1.0 if family == "qwen3-tts" else speed
@@ -2777,7 +2783,13 @@ class GenerationManager:
                 family,
                 model_entry.repo,
                 text,
-                max_chars_override=params.get("_qwen_section_max_characters"),
+                # The internal Qwen retry override tightens the budget for a
+                # known-bad generation and must still win over a caller's
+                # qualification override.
+                max_chars_override=(
+                    params.get("_qwen_section_max_characters")
+                    or params.get("section_max_characters")
+                ),
             )
             if len(internal_chunks) > 1:
                 self._generate_mlx_long_form_sections(

@@ -20,6 +20,28 @@ CHATTERBOX_TURBO_SECTION_MAX_CHARACTERS = 400
 VOXCPM_SECTION_MAX_CHARACTERS = 400
 KOKORO_SECTION_MAX_CHARACTERS = 3000
 VIBEVOICE_SECTION_MAX_CHARACTERS = 3000
+# OmniVoice is flow-matching, not autoregressive: it has NO internal splitting
+# and NO length cap, and commits its whole latent block up front from
+# target_len = ceil(duration_s * 25) (or the RuleDurationEstimator when duration
+# is omitted). There is no EOS to bail out early, so the outer section budget is
+# load-bearing here in a way it is not for the GPT-style engines.
+#
+# 288 was originally copied verbatim from QWEN_CLONE_SECTION_MAX_CHARACTERS —
+# a disqualified model with entirely different failure physics — and carried no
+# derivation. Fleet measurement 2026-08-07 (3 reps/tier, escalating duration
+# through each machine's own job engine) puts the real MEMORY ceiling far higher:
+#
+#   8 GB   passed 2250 frames (90 s), failed 3000 (120 s), reproduced 2x
+#   16 GB  passed 3000 frames (120 s) -- the API clamp, not the limit
+#   24 GB  passed 3000 frames (120 s) -- the API clamp, not the limit
+#
+# At the measured 1.749 frames/char for English narration that is ~1286 chars
+# even on 8 GB, i.e. 288 is ~4.5x more conservative than memory requires.
+#
+# The value is deliberately NOT raised yet: memory is only half the question and
+# the long-section QUALITY gate has not run (section size was not settable over
+# HTTP until this release exposed section_max_characters). Raising it on memory
+# evidence alone would repeat the original mistake in the opposite direction.
 OMNIVOICE_SECTION_MAX_CHARACTERS = 288
 FISH_AUDIO_SECTION_MAX_CHARACTERS = 300
 # Audio8's native cap is 512 frames (~2048 samples/frame @ 44.1 kHz ≈ 23.8 sec)
@@ -134,7 +156,9 @@ def _runtime_default(family: str, repo: str) -> Optional[LongFormPolicy]:
             join_pause_seconds=DEFAULT_JOIN_PAUSE_SECONDS,
             note=(
                 "Conservative cloning setting using the same reference for every "
-                "section; retained pending the remaining long-form listening gate."
+                "section. Fleet measurement puts OmniVoice's memory ceiling near "
+                "1286 characters even on 8 GB; this budget is retained until the "
+                "long-section quality gate has run."
             ),
         )
     if family == "fish-audio-mlx":

@@ -970,7 +970,7 @@
 
         <!-- Speed slider — Qwen and VoxCPM2 use pitch-preserving finished-audio
              tempo; engines with native pace control continue to use that path. -->
-        <section class="control-block" x-show="((isMlxAudio(gen.repo) && !isChatterboxMlx(gen.repo) && !isOmniVoice(gen.repo) && !isBark(gen.repo)) || isF5TTS(gen.repo))" x-cloak>
+        <section class="control-block" x-show="((isMlxAudio(gen.repo) && !isChatterboxMlx(gen.repo) && !isBark(gen.repo)) || isF5TTS(gen.repo))" x-cloak>
           <label>Speed</label>
           <div class="slider-row">
             <input type="range" min="0.5" max="2.0" step="0.01" x-model.number="gen.speed">
@@ -979,7 +979,7 @@
           </div>
           <p class="muted hint">
             0.95 is subtly slower; 0.90 is more deliberate; 1.0 keeps the generated pace.
-            Qwen, VoxCPM2, VibeVoice, and Fish S2 Pro preserve pitch by adjusting the finished WAV after all sections are joined.
+            Qwen, VoxCPM2, VibeVoice, Fish S2 Pro, and OmniVoice preserve pitch by adjusting the finished WAV after all sections are joined.
             VoxCPM2's delivery description can still shape expressive pacing; this control sets the exact final tempo.
             Other shown engines use their native speed control.
           </p>

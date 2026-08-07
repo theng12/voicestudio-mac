@@ -1038,8 +1038,29 @@ def test_qwen_and_voxcpm_speed_control_is_visible_and_truthful() -> None:
 
     assert "qwen3Mode(gen.repo) !== 'clone'" not in markup
     assert "!isVoxCPMMlx(gen.repo)" not in markup
-    assert "Qwen, VoxCPM2, VibeVoice, and Fish S2 Pro preserve pitch" in markup
+    assert (
+        "Qwen, VoxCPM2, VibeVoice, Fish S2 Pro, and OmniVoice preserve pitch"
+        in markup
+    )
     assert "after all sections are joined" in markup
+    # OmniVoice used to be hidden from the speed control while the backend still
+    # handed `speed` to a generate() that silently discards it, so the public
+    # control was a no-op for API callers. It must stay visible.
+    assert "!isOmniVoice(gen.repo)" not in markup
+
+
+def test_omnivoice_speed_is_applied_to_the_finished_wav_not_passed_upstream() -> None:
+    """mlx-audio's OmniVoice.generate() has no `speed` parameter -- it declares
+    **kwargs and never reads it. Speed must therefore be applied as a
+    pitch-preserving tempo pass on the finished WAV, exactly as for Audio8 and
+    Echo-TTS, and must never be handed to the engine where it vanishes."""
+    assert "omnivoice" in generation._POSTPROCESSED_SPEED_FAMILIES
+
+    src = inspect.getsource(generation.GenerationManager._generate_mlx_audio)
+    exclusion = src.split("if family not in {", 1)[1].split("}", 1)[0]
+    assert '"omnivoice"' in exclusion, (
+        "omnivoice must be excluded from the upstream speed pass-through"
+    )
 
 
 def test_qwen_clone_long_form_renders_each_section_and_reports_progress(tmp_path: Path) -> None:

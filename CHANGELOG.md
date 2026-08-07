@@ -10,6 +10,54 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.2] — 2026-08-07
+
+### Fixed — OmniVoice's speed control did nothing, and said nothing
+
+- `mlx_audio`'s `OmniVoice.Model.generate()` takes **no `speed` argument**. It
+  declares `**kwargs` and never reads it, so anything passed there is discarded
+  in silence.
+- OmniVoice was missing from *both* places that make speed work: it was absent
+  from the pass-through exclusion set, so `speed` was handed to the engine and
+  swallowed, and absent from `_POSTPROCESSED_SPEED_FAMILIES`, so no FFmpeg
+  pitch-preserving tempo pass ran either. A speed request was a no-op that
+  raised no error.
+- The UI hid the slider for OmniVoice, which concealed the gap from the app but
+  not from GenStudio or Studio Hub, which call the API directly.
+- Audio8 (`arktts`) and Echo-TTS have the identical "no native speed" situation
+  and were correctly handled in both places. OmniVoice had simply been missed.
+- Fixed in both places and the slider is visible again. Two regression tests
+  added: one pins the truthful hint text and that OmniVoice is no longer hidden,
+  the other asserts the family appears in the post-process map *and* in the
+  exclusion set, so re-introducing either half of the bug fails the suite.
+
+### Changed — OmniVoice's 288-character section budget now states its evidence
+
+- The constant was copied verbatim from `QWEN_CLONE_SECTION_MAX_CHARACTERS` — a
+  *disqualified* model with entirely different failure physics — and carried no
+  derivation, where every other family's constant cites a measurement.
+- OmniVoice is flow-matching, not autoregressive: no internal splitting, no
+  length cap, and the whole latent block committed up front from
+  `target_len = ceil(duration_s * 25)`. There is no EOS to bail out early, so
+  the outer section budget matters more here, not less.
+- Fleet measurement (3 reps/tier, 2026-08-07) puts the real memory ceiling far
+  higher: 8 GB passed 2250 frames and failed 3000 (reproduced); 16 and 24 GB
+  both cleared 3000, which is the API's clamp rather than their limit. At the
+  measured 1.749 frames/char that is ~1286 characters even on 8 GB — roughly
+  4.5× the shipped budget.
+- **The value is deliberately unchanged.** Memory is only half the question and
+  the long-section quality gate has not run. Raising it on memory evidence alone
+  would repeat the original mistake in the opposite direction. What changed is
+  that the number now carries its evidence and its open question.
+
+### Added — `section_max_characters` on the generate API
+
+- Optional, clamped to 40–20,000, omitted in normal use where the family policy
+  owns chunking. The internal Qwen retry override still wins over it.
+- Exists so the outstanding long-section quality gate can actually be measured;
+  until now section size was settable only from inside a Qwen retry, which is
+  why the OmniVoice budget could never be tested above 288 in the first place.
+
 ## [1.32.1] — 2026-08-07
 
 ### Fixed — three tests that asserted a catalogue which no longer exists
