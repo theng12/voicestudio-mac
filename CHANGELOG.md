@@ -10,6 +10,152 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.32.4] — 2026-08-07
+
+### Added — numbers are expanded to words before OmniVoice speaks them
+
+- Caught by ear in a 1-minute sample: "1,200" was read as "one two hundred".
+  Characterised on the real model — digits are a lottery, not a consistent bug:
+
+  | sent | heard | |
+  |---|---|---|
+  | `1,200` | "when 200" | wrong |
+  | `1200` | 1,200 | ok |
+  | `12,500` | 1,200,500 | wrong |
+  | `12500` | "twelve five hundred" | wrong |
+  | `3,000` / `3000` | 3,000 | ok |
+  | `$1,450.75` | "50, 70 feet fence" | wrong |
+  | `1450 dollars and 75 cents` | "$14.50 and 75 cents" | wrong |
+  | every fully spelled-out form | correct | ok |
+
+  5 of 8 digit forms wrong, 4 of 4 spelled-out forms right. It is not the comma:
+  `3,000` is fine and `12500` is broken. There is no rule an author could follow.
+- Root cause: mlx-audio does no number normalisation for OmniVoice. `_combine_text()`
+  handles whitespace and CJK spacing only, and raw digits reach the tokenizer.
+  **KittenTTS and Voxtral, in the same package, do expand digits** — OmniVoice
+  never used those helpers.
+- New stdlib-only `backend/text_normalization.py` expands cardinals, thousands
+  separators, currency with cents, years (1900-2099 read naturally, and a
+  thousands separator always disqualifies year-reading), clock times, ordinals,
+  decimals and negatives. Non-verbal tags and digit-bearing words like `MP3`,
+  `B2B`, `4K` are left untouched.
+- Applied automatically for OmniVoice via a narrow allow-list — families that
+  already normalise upstream are not normalised twice. Normalisation failures are
+  logged and skipped, never fatal.
+- **`normalize_text` now means what it says.** It was accepted by the API,
+  serialised by the frontend, and read by no backend worker at all. It can now
+  force normalisation for any family.
+
+### Fixed — the catalog advertised a non-verbal tag OmniVoice does not have
+
+- Owner listening flagged `[cough]` as rendering badly. It is not a tag to this
+  model: mlx-audio's `_NONVERBAL_PATTERN` recognises exactly `laughter`, `sigh`,
+  `confirmation-en`, four `question-*`, four `surprise-*` and `dissatisfaction-hnn`.
+  Anything outside that list falls through to ordinary tokenization and is
+  rendered as noise — which is precisely what was heard.
+- The summary no longer advertises `[cough]`. The guidance now lists the exact
+  recognised set and explicitly warns that `[cough]`, `[breath]` and `[gasp]` are
+  not tags. A regression test pins the advertised list to the engine's own
+  pattern, so documentation cannot drift from the model again.
+
+## [1.32.3] — 2026-08-07
+
+### Fixed — "mlx-audio didn't produce a wav file" told the owner nothing
+
+- On a small machine an oversized request dies *inside* mlx-audio: it returns
+  having written no WAV and raises nothing of its own. Voice Studio then
+  reported `mlx-audio didn't produce a wav file. Temp dir: /var/folders/...`,
+  which is technically true, names no cause, and hands the owner a temp path
+  they cannot act on. Measured case: OmniVoice at 3000 frames on an 8 GB box
+  fails this way after ~236 s, reproducibly (3/3 reps).
+- The error now names what was attempted (requested duration and the latent
+  frames committed in one pass, or the section length), what the host actually
+  had (unified memory and free memory), and for OmniVoice on a small machine
+  what is measured to fit — ~2250 frames, about 90 s per pass — plus what to do
+  about it.
+- A machine with headroom is never told it is too small; the size-specific
+  advice is gated on the host's actual unified memory.
+- Applies to both raise sites, including per-section long-form rendering, so a
+  section that dies mid-script explains itself instead of surfacing a temp dir.
+- Regression test pins all four parts of the message and the no-false-blame case.
+
+### Fixed — every Studio shipped a memory policy that could never fire
+
+- The idle-release mechanism is fully implemented and its background thread has
+  been running on every machine the whole time, waking every 5 s. It just had
+  nothing to do: the shipped default is `performance`, whose `idle_seconds` is
+  `None`, so `run_due_release()` returned immediately every single time.
+- This is not a Voice Studio bug so much as a shared-assumption bug. Image,
+  Chat, Video, Music and Voice Studio all ship the *same* skeleton with the
+  *same* `DEFAULT_MODE = "performance"`. That default is reasonable for an app
+  that owns its machine. The actual deployment puts 3-5 of them on one 8 GB Mac,
+  where each independently concludes that pinning its model forever is free.
+- Measured fleet-wide 2026-08-07: 16 of 19 machines sat below the memory guard's
+  3.2 GB floor with 1.5-4.4 GB of swap burned and could not start a job at all.
+  After setting a real policy: swap ~4 GB -> ~0.4 GB, 8 GB boxes 1.7-2.8 GB free
+  -> 4.3-5.2 GB, 16 GB boxes 3.1 GB -> 12.3-13.3 GB.
+- The default is now chosen from the host's own memory — `memory_saver` (120 s)
+  below 12 GB, `balanced` (600 s) above — instead of assuming a machine alone.
+  An operator's explicit choice, persisted in `memory_policy.json`, still wins;
+  `performance` remains available and still pins when asked for.
+- Note this only fixes *fresh installs*. `memory_policy.json` is gitignored, so
+  an in-place Update or Reset never resets an operator-chosen mode — which also
+  means the 19 machines already corrected over the API stay corrected.
+- **The same one-line default is still shipped by Image, Chat, Video and Music
+  Studio, and Render Studio has no idle-release mechanism at all.** Those are
+  separate products with their own release flows and are not changed here.
+- No cross-studio coordination exists: no Studio knows the others are resident.
+  Studio Hub can read and set all five policies over HTTP, but only when
+  explicitly invoked — there is no scheduler behind it.
+
+## [1.32.2] — 2026-08-07
+
+### Fixed — OmniVoice's speed control did nothing, and said nothing
+
+- `mlx_audio`'s `OmniVoice.Model.generate()` takes **no `speed` argument**. It
+  declares `**kwargs` and never reads it, so anything passed there is discarded
+  in silence.
+- OmniVoice was missing from *both* places that make speed work: it was absent
+  from the pass-through exclusion set, so `speed` was handed to the engine and
+  swallowed, and absent from `_POSTPROCESSED_SPEED_FAMILIES`, so no FFmpeg
+  pitch-preserving tempo pass ran either. A speed request was a no-op that
+  raised no error.
+- The UI hid the slider for OmniVoice, which concealed the gap from the app but
+  not from GenStudio or Studio Hub, which call the API directly.
+- Audio8 (`arktts`) and Echo-TTS have the identical "no native speed" situation
+  and were correctly handled in both places. OmniVoice had simply been missed.
+- Fixed in both places and the slider is visible again. Two regression tests
+  added: one pins the truthful hint text and that OmniVoice is no longer hidden,
+  the other asserts the family appears in the post-process map *and* in the
+  exclusion set, so re-introducing either half of the bug fails the suite.
+
+### Changed — OmniVoice's 288-character section budget now states its evidence
+
+- The constant was copied verbatim from `QWEN_CLONE_SECTION_MAX_CHARACTERS` — a
+  *disqualified* model with entirely different failure physics — and carried no
+  derivation, where every other family's constant cites a measurement.
+- OmniVoice is flow-matching, not autoregressive: no internal splitting, no
+  length cap, and the whole latent block committed up front from
+  `target_len = ceil(duration_s * 25)`. There is no EOS to bail out early, so
+  the outer section budget matters more here, not less.
+- Fleet measurement (3 reps/tier, 2026-08-07) puts the real memory ceiling far
+  higher: 8 GB passed 2250 frames and failed 3000 (reproduced); 16 and 24 GB
+  both cleared 3000, which is the API's clamp rather than their limit. At the
+  measured 1.749 frames/char that is ~1286 characters even on 8 GB — roughly
+  4.5× the shipped budget.
+- **The value is deliberately unchanged.** Memory is only half the question and
+  the long-section quality gate has not run. Raising it on memory evidence alone
+  would repeat the original mistake in the opposite direction. What changed is
+  that the number now carries its evidence and its open question.
+
+### Added — `section_max_characters` on the generate API
+
+- Optional, clamped to 40–20,000, omitted in normal use where the family policy
+  owns chunking. The internal Qwen retry override still wins over it.
+- Exists so the outstanding long-section quality gate can actually be measured;
+  until now section size was settable only from inside a Qwen retry, which is
+  why the OmniVoice budget could never be tested above 288 in the first place.
+
 ## [1.32.1] — 2026-08-07
 
 ### Fixed — three tests that asserted a catalogue which no longer exists

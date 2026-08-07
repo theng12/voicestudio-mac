@@ -46,6 +46,19 @@ class Family:
     text_guidance: TextGuidance
 
 
+# The exact tag set mlx-audio's OmniVoice treats as atomic non-verbal tokens
+# (mlx_audio/tts/models/omnivoice/omnivoice.py:14, _NONVERBAL_PATTERN). Anything
+# outside this list is NOT a tag: it falls through to ordinary tokenization and
+# is rendered as noise. The catalog previously advertised "[cough]", which is not
+# in the pattern — owner listening on 2026-08-07 confirmed it renders badly.
+OMNIVOICE_NONVERBAL_TAGS: tuple[str, ...] = (
+    "laughter", "sigh", "confirmation-en",
+    "question-en", "question-ah", "question-oh", "question-ei", "question-yi",
+    "surprise-ah", "surprise-oh", "surprise-wa", "surprise-yo",
+    "dissatisfaction-hnn",
+)
+
+
 FAMILIES: dict[str, Family] = {
     "f5-tts": Family(
         id="f5-tts",
@@ -287,15 +300,20 @@ FAMILIES: dict[str, Family] = {
         summary=(
             "k2-fsa's OmniVoice — a 0.6B-parameter diffusion language-model TTS "
             "supporting 600+ languages with voice design (gender / accent / age "
-            "/ whisper via natural-language) and non-verbal symbols ([laughter], "
-            "[cough]). The current mlx-audio backend supports both voice design "
+            "/ whisper via natural-language) and a fixed set of non-verbal "
+            "symbols. The current mlx-audio backend supports both voice design "
             "and zero-shot cloning from a 3–10 second clip. Apache-2.0."
         ),
         how_to_use=(
             "Choose a reference voice to clone it, enter voice traits to design a "
             "new voice, or combine both to steer the cloned delivery. The bf16 "
             "checkpoint is the supported MLX option; allow extra memory headroom "
-            "for longer or higher-step generations."
+            "for longer or higher-step generations. Only these non-verbal tags "
+            "are recognised: " + ", ".join(f"[{t}]" for t in OMNIVOICE_NONVERBAL_TAGS)
+            + ". Anything else — [cough], [breath], [gasp] — is not a tag to this "
+            "model: it falls through to ordinary text and renders as noise. "
+            "Numbers are expanded to words before synthesis because the model has "
+            "no normaliser of its own and mispronounces raw digits."
         ),
         # Audit (v1.2.4): mlx_audio omnivoice/omnivoice.py:483 — flow-matching (diffusion).
         # Takes explicit duration_s or estimates via RuleDurationEstimator. No GPT-style cliff.

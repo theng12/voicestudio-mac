@@ -1038,8 +1038,29 @@ def test_qwen_and_voxcpm_speed_control_is_visible_and_truthful() -> None:
 
     assert "qwen3Mode(gen.repo) !== 'clone'" not in markup
     assert "!isVoxCPMMlx(gen.repo)" not in markup
-    assert "Qwen, VoxCPM2, VibeVoice, and Fish S2 Pro preserve pitch" in markup
+    assert (
+        "Qwen, VoxCPM2, VibeVoice, Fish S2 Pro, and OmniVoice preserve pitch"
+        in markup
+    )
     assert "after all sections are joined" in markup
+    # OmniVoice used to be hidden from the speed control while the backend still
+    # handed `speed` to a generate() that silently discards it, so the public
+    # control was a no-op for API callers. It must stay visible.
+    assert "!isOmniVoice(gen.repo)" not in markup
+
+
+def test_omnivoice_speed_is_applied_to_the_finished_wav_not_passed_upstream() -> None:
+    """mlx-audio's OmniVoice.generate() has no `speed` parameter -- it declares
+    **kwargs and never reads it. Speed must therefore be applied as a
+    pitch-preserving tempo pass on the finished WAV, exactly as for Audio8 and
+    Echo-TTS, and must never be handed to the engine where it vanishes."""
+    assert "omnivoice" in generation._POSTPROCESSED_SPEED_FAMILIES
+
+    src = inspect.getsource(generation.GenerationManager._generate_mlx_audio)
+    exclusion = src.split("if family not in {", 1)[1].split("}", 1)[0]
+    assert '"omnivoice"' in exclusion, (
+        "omnivoice must be excluded from the upstream speed pass-through"
+    )
 
 
 def test_qwen_clone_long_form_renders_each_section_and_reports_progress(tmp_path: Path) -> None:
@@ -1083,7 +1104,9 @@ def test_shared_long_form_renderer_fails_when_any_section_is_missing(tmp_path: P
     manager = object.__new__(generation.GenerationManager)
     job = generation.GenerationJob(job_id="missing-section", mode="txt2speech", params={})
 
-    with pytest.raises(RuntimeError, match="didn't produce a wav file"):
+    # A missing section must still fail loudly rather than joining silence. The
+    # wording changed in v1.32.3 to name the cause instead of a temp path.
+    with pytest.raises(RuntimeError, match="produced no audio"):
         manager._generate_mlx_long_form_sections(
             job,
             "voxcpm-mlx",
@@ -1203,3 +1226,32 @@ def test_fish_audio_mlx_supports_optional_clone_style_and_clamps(tmp_path: Path)
     assert kwargs["top_p"] == 0.05
     assert kwargs["top_k"] == 100
     assert kwargs["max_tokens"] == 4096
+
+
+def test_no_wav_error_names_the_real_cause_not_just_a_temp_dir(monkeypatch, tmp_path) -> None:
+    """The bare "mlx-audio didn't produce a wav file. Temp dir: ..." is true and
+    useless. On a small machine an oversized OmniVoice request dies mid-inference
+    with no exception of its own, and the owner was shown a temp path. The error
+    must name what was attempted, what the host had, and what actually fits."""
+    monkeypatch.setattr(
+        generation, "_memory_snapshot",
+        lambda: {"total_gb": 8.6, "available_gb": 4.2, "used_gb": 4.4, "percent": 51.0},
+    )
+    err = generation._no_wav_produced_error(
+        tmp_path, "omnivoice", {"duration_s": 120.0, "text": "x" * 40}
+    )
+    msg = str(err)
+    assert "3000 latent frames" in msg          # what was attempted
+    assert "8.6 GB unified memory" in msg       # what the host had
+    assert "2250 frames" in msg                 # what actually fits, measured
+    assert "shorten the section" in msg         # what to do about it
+
+    # A machine with headroom must not be told it is too small.
+    monkeypatch.setattr(
+        generation, "_memory_snapshot",
+        lambda: {"total_gb": 25.8, "available_gb": 18.0, "used_gb": 7.8, "percent": 30.0},
+    )
+    big = str(generation._no_wav_produced_error(
+        tmp_path, "omnivoice", {"duration_s": 120.0}))
+    assert "2250 frames" not in big
+    assert "25.8 GB unified memory" in big

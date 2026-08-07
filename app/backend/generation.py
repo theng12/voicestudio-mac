@@ -110,6 +110,7 @@ from . import (
     model_audits,
     qwen_quality,
     resource_telemetry,
+    text_normalization,
 )
 from .voicestudio_genstudio_integration import final_tts_result
 
@@ -152,6 +153,90 @@ def _memory_snapshot() -> Optional[dict]:
         }
     except Exception:
         return None
+
+
+# OmniVoice commits its whole latent block up front at 25 frames/sec, so an
+# oversized request dies mid-inference with no exception of its own -- mlx-audio
+# simply returns having written nothing. Measured on the fleet 2026-08-07,
+# 3 reps per tier: 8 GB passed 2250 frames and failed 3000 every time; 16 and
+# 24 GB cleared 3000 (the API's own clamp, not their limit).
+_OMNIVOICE_FRAMES_PER_SECOND = 25
+_OMNIVOICE_MEASURED_SAFE_FRAMES = ((12, 2250),)   # (unified_memory_gb_below, frames)
+
+
+# Families whose engine does NO number normalisation of its own, so raw digits
+# reach the tokenizer and are mispronounced. Measured on OmniVoice 2026-08-07:
+# "1,200" -> "one two hundred", "12,500" -> "one million two hundred thousand
+# five hundred", "$1,450.75" -> nonsense. 5 of 8 digit forms were wrong, while
+# every fully spelled-out form was correct. KittenTTS and Voxtral inside the
+# same mlx-audio package do expand digits; OmniVoice simply never used them.
+#
+# Deliberately a narrow allow-list, not a global default: families that already
+# normalise upstream must not be normalised twice.
+_NUMBER_NORMALISED_FAMILIES = frozenset({"omnivoice"})
+
+
+def _normalized_speech_text(family: str, text: str, params: dict) -> str:
+    """Expand digits to words for engines that cannot pronounce them.
+
+    ``normalize_text`` was an accepted-but-ignored API field. It now means what
+    it says, and can force normalisation for any family; the allow-list applies
+    it automatically where the engine is known to need it.
+    """
+    if not (family in _NUMBER_NORMALISED_FAMILIES or params.get("normalize_text")):
+        return text
+    try:
+        spoken = text_normalization.normalize_for_speech(text)
+    except Exception as exc:   # never fail a job over cosmetics
+        print(f"[gen] number normalisation skipped ({type(exc).__name__}: {exc})",
+              flush=True)
+        return text
+    if spoken != text:
+        print(f"[gen] {family} normalised numbers to words for speech", flush=True)
+    return spoken
+
+
+def _no_wav_produced_error(output_dir, family: str, gen_kwargs: dict) -> RuntimeError:
+    """Explain why mlx-audio returned without writing audio.
+
+    The bare "didn't produce a wav file" is technically true and practically
+    useless: on a small machine it is nearly always the request being too large
+    to fit, and the temp-dir path tells the owner nothing they can act on. Name
+    what was attempted, what the host had, and what actually fits.
+    """
+    mem = _memory_snapshot() or {}
+    total = float(mem.get("total_gb") or 0)
+    avail = float(mem.get("available_gb") or 0)
+
+    detail = [f"{family or 'mlx-audio'} produced no audio"]
+    frames = None
+    duration = gen_kwargs.get("duration_s")
+    if family == "omnivoice" and duration:
+        frames = int(float(duration) * _OMNIVOICE_FRAMES_PER_SECOND)
+        detail.append(
+            f"requested {float(duration):.0f}s of audio "
+            f"({frames} latent frames committed in one pass)"
+        )
+    elif gen_kwargs.get("text"):
+        detail.append(f"{len(str(gen_kwargs['text']))}-character section")
+
+    if total:
+        detail.append(f"host has {total:.1f} GB unified memory, {avail:.1f} GB free")
+
+    safe = next((f for below, f in _OMNIVOICE_MEASURED_SAFE_FRAMES
+                 if total and total < below), None)
+    if family == "omnivoice" and safe and (frames is None or frames > safe):
+        detail.append(
+            f"this machine is measured safe to about {safe} frames "
+            f"(~{safe // _OMNIVOICE_FRAMES_PER_SECOND}s per pass); "
+            "shorten the section or run it on a larger machine"
+        )
+    else:
+        detail.append(
+            "this is usually the request being too large for the available "
+            "memory — shorten the section, or free memory and retry"
+        )
+    return RuntimeError(". ".join(detail) + f". Temp dir: {output_dir}")
 
 
 def _required_free_memory_gb(model_entry, *, loaded: bool) -> float:
@@ -1031,6 +1116,12 @@ _POSTPROCESSED_SPEED_FAMILIES = {
     "arktts": "Audio8 TTS Preview",
     "moss-tts-nano": "MOSS-TTS-Nano",
     "echo-tts": "Echo-TTS",
+    # OmniVoice.generate() takes no speed argument either (verified against the
+    # installed mlx-audio source: it declares **kwargs and never reads it), so a
+    # passed speed was accepted and silently discarded. It was missing from this
+    # map AND from the pass-through exclusion below, which made the public speed
+    # control a no-op for every API caller.
+    "omnivoice": "OmniVoice",
 }
 
 
@@ -2673,6 +2764,7 @@ class GenerationManager:
         text = (params.get("text") or "").strip()
         if not text:
             raise ValueError("text is required")
+        text = _normalized_speech_text(family, text, params)
 
         speed = float(params.get("speed", 1.0))
         speed = max(0.5, min(speed, 2.0))
@@ -2694,7 +2786,7 @@ class GenerationManager:
         # VoxCPM2 has no numeric speed parameter; its natural-language prompt
         # can shape delivery, while exact requested tempo is applied to the
         # finished WAV below. Passing speed upstream would be silently ignored.
-        if family not in {"voxcpm-mlx", "bark", "vibevoice", "fish-audio-mlx", "arktts", "moss-tts-nano", "echo-tts"}:
+        if family not in {"voxcpm-mlx", "bark", "vibevoice", "fish-audio-mlx", "arktts", "moss-tts-nano", "echo-tts", "omnivoice"}:
             # Qwen accepts this argument but does not apply it upstream. Keep
             # native generation at 1.0 and adjust the finished WAV below.
             gen_kwargs["speed"] = 1.0 if family == "qwen3-tts" else speed
@@ -2777,7 +2869,13 @@ class GenerationManager:
                 family,
                 model_entry.repo,
                 text,
-                max_chars_override=params.get("_qwen_section_max_characters"),
+                # The internal Qwen retry override tightens the budget for a
+                # known-bad generation and must still win over a caller's
+                # qualification override.
+                max_chars_override=(
+                    params.get("_qwen_section_max_characters")
+                    or params.get("section_max_characters")
+                ),
             )
             if len(internal_chunks) > 1:
                 self._generate_mlx_long_form_sections(
@@ -2802,9 +2900,7 @@ class GenerationManager:
                     # mlx-audio sometimes uses a different naming scheme — find any wav.
                     candidates = sorted(temp_dir.glob("*.wav"))
                     if not candidates:
-                        raise RuntimeError(
-                            f"mlx-audio didn't produce a wav file. Temp dir: {temp_dir}"
-                        )
+                        raise _no_wav_produced_error(temp_dir, family, gen_kwargs)
                     produced = candidates[0]
 
                 trimmed_seconds = _trim_model_terminal_silence(
@@ -2841,7 +2937,8 @@ class GenerationManager:
             _release_device_memory("mps")
 
     @staticmethod
-    def _mlx_audio_output_file(output_dir: Path) -> Path:
+    def _mlx_audio_output_file(output_dir: Path, *, family: str = "",
+                              gen_kwargs: Optional[dict] = None) -> Path:
         """Find the WAV written by mlx-audio across its output naming variants."""
         produced = output_dir / "audio.wav"
         if produced.exists():
@@ -2849,7 +2946,7 @@ class GenerationManager:
         candidates = sorted(output_dir.glob("*.wav"))
         if candidates:
             return candidates[0]
-        raise RuntimeError(f"mlx-audio didn't produce a wav file. Temp dir: {output_dir}")
+        raise _no_wav_produced_error(output_dir, family, gen_kwargs or {})
 
     def _generate_mlx_long_form_sections(self, job: GenerationJob, family: str, model,
                                          gen_kwargs: dict, chunks: list[str], temp_dir: Path,
@@ -2892,7 +2989,9 @@ class GenerationManager:
             )
             if job.cancel_event.is_set():
                 return
-            segment_path = self._mlx_audio_output_file(segment_dir)
+            segment_path = self._mlx_audio_output_file(
+                segment_dir, family=family, gen_kwargs={**gen_kwargs, "text": chunk}
+            )
             trimmed_seconds = _trim_model_terminal_silence(segment_path, model_repo, family)
             if trimmed_seconds:
                 print(

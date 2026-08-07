@@ -129,3 +129,25 @@ def test_catalog_api_models_include_language_support_shape(monkeypatch) -> None:
         "claimed_lower_bound", "runtime_enforced",
     }
     assert support["input_selection"] == "required"
+
+
+def test_omnivoice_nonverbal_tags_match_the_installed_model_exactly() -> None:
+    """The catalog advertised "[cough]", which mlx-audio's OmniVoice does not
+    recognise: unknown tags fall through to ordinary tokenization and render as
+    noise. Owner listening on 2026-08-07 confirmed it. Pin the advertised list to
+    the model's own pattern so documentation cannot drift from the engine."""
+    from mlx_audio.tts.models.omnivoice import omnivoice as ov
+
+    raw = ov._NONVERBAL_PATTERN.pattern
+    inner = raw[raw.index("(") + 1:raw.rindex(")")]
+    actual = {t.strip() for t in inner.split("|") if t.strip()}
+    assert set(catalog.OMNIVOICE_NONVERBAL_TAGS) == actual, (
+        "catalog tag list has drifted from mlx-audio's _NONVERBAL_PATTERN"
+    )
+    assert "cough" not in catalog.OMNIVOICE_NONVERBAL_TAGS
+
+    family = catalog.FAMILIES["omnivoice"]
+    assert "[cough]" not in family.summary
+    # The guidance must still WARN about cough rather than silently omit it.
+    assert "[cough]" in family.how_to_use
+    assert "[laughter]" in family.how_to_use

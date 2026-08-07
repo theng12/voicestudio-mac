@@ -239,6 +239,16 @@ class Txt2SpeechBody(BaseModel):
     # Optional caller-enforced compatibility ceiling. It is never applied by
     # default: GenStudio long-form TTS omits it and VoiceStudio keeps ownership
     # of internal chunking, joining, and one final speed adjustment.
+    # Qualification-only override for the private section budget. Omitted in
+    # normal use, where the family policy owns chunking. Exposed so a long-section
+    # quality gate can be measured without shipping a speculative constant first.
+    section_max_characters: Optional[int] = Field(
+        default=None,
+        ge=40,
+        le=20_000,
+        description="Qualification override for the private section budget; "
+                    "the model's own long-form policy applies when omitted.",
+    )
     max_output_duration_s: Optional[float] = Field(
         default=None,
         gt=0,
