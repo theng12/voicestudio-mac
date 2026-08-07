@@ -1,0 +1,260 @@
+{
+  "schema": "studio.model-audit-record",
+  "schema_version": 1,
+  "audit_id": "voicestudio-20260808-omnivoice-6119f707-section288",
+  "audited_at": "2026-08-08T00:00:00Z",
+  "subject": {
+    "model_id": "mlx-community/OmniVoice-bfloat16",
+    "upstream_model_id": "k2-fsa/OmniVoice",
+    "display_name": "OmniVoice",
+    "modality": "voice",
+    "checkpoint_revision": "6119f7072580cc30c3cbdf496269216b03ad9742"
+  },
+  "contract": {
+    "model_id": "mlx-community/OmniVoice-bfloat16",
+    "upstream_model_id": "k2-fsa/OmniVoice",
+    "display_name": "OmniVoice",
+    "modality": "voice",
+    "runtime_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
+    "approved_operations": [
+      "voice.tts"
+    ],
+    "adapter": {
+      "id": "voicestudio.mlx-audio.omnivoice",
+      "version": "1.0",
+      "runtime": "mlx-audio"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": false,
+        "default": "en",
+        "values": [
+          "en",
+          "zh",
+          "ja",
+          "ko",
+          "de",
+          "fr",
+          "ru",
+          "pt",
+          "es",
+          "it"
+        ]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      },
+      "voice_clone": {
+        "type": "reference_audio",
+        "required": true,
+        "transcript": "optional",
+        "x_vector_only_fallback": false
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 25000,
+      "private_section_max_characters": 288,
+      "private_join_pause_milliseconds": 180,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "reference_audio": {
+        "accepted_extensions": [
+          "wav",
+          "mp3",
+          "flac",
+          "m4a",
+          "aac",
+          "ogg",
+          "opus",
+          "webm"
+        ],
+        "minimum_duration_seconds": 8,
+        "target_duration_seconds": 12,
+        "recommended_duration_seconds": {
+          "minimum": 8,
+          "maximum": 15
+        },
+        "maximum_duration_seconds": 15,
+        "max_audio_bytes": 25000000,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "transcript": "optional",
+        "timestamped_transcript_segments": "required_when_model_specific_selection_is_needed",
+        "selection": "speech-aware and word-boundary-aligned"
+      },
+      "voice_design_supported": true,
+      "preset_voice_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 8,
+      "recommended_unified_memory_gb": 16,
+      "ineligible_unified_memory_gb": []
+    },
+    "capacity": {
+      "max_concurrency": 1
+    },
+    "license": {
+      "spdx": "Apache-2.0",
+      "commercial_use": true
+    }
+  },
+  "genstudio_candidate": {
+    "schema": "studio.model-audit",
+    "schema_version": 1,
+    "audit_id": "voicestudio-20260808-omnivoice-6119f707-section288",
+    "audit_status": "passed",
+    "candidate_for_genstudio": true,
+    "contract_hash": "sha256:8f1addc45dcff8647947c41b24bf02a4a9cebbc38d5545f71addc192c93ffdb3",
+    "runtime_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
+    "approved_operations": [
+      "voice.tts"
+    ],
+    "audited_at": "2026-08-08T00:00:00Z",
+    "adapter": {
+      "id": "voicestudio.mlx-audio.omnivoice",
+      "version": "1.0",
+      "runtime": "mlx-audio"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": false,
+        "default": "en",
+        "values": [
+          "en",
+          "zh",
+          "ja",
+          "ko",
+          "de",
+          "fr",
+          "ru",
+          "pt",
+          "es",
+          "it"
+        ]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      },
+      "voice_clone": {
+        "type": "reference_audio",
+        "required": true,
+        "transcript": "optional",
+        "x_vector_only_fallback": false
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 25000,
+      "private_section_max_characters": 288,
+      "private_join_pause_milliseconds": 180,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "reference_audio": {
+        "accepted_extensions": [
+          "wav",
+          "mp3",
+          "flac",
+          "m4a",
+          "aac",
+          "ogg",
+          "opus",
+          "webm"
+        ],
+        "minimum_duration_seconds": 8,
+        "target_duration_seconds": 12,
+        "recommended_duration_seconds": {
+          "minimum": 8,
+          "maximum": 15
+        },
+        "maximum_duration_seconds": 15,
+        "max_audio_bytes": 25000000,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "transcript": "optional",
+        "timestamped_transcript_segments": "required_when_model_specific_selection_is_needed",
+        "selection": "speech-aware and word-boundary-aligned"
+      },
+      "voice_design_supported": true,
+      "preset_voice_supported": false,
+      "streaming_request_supported": false
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 8,
+      "recommended_unified_memory_gb": 16,
+      "ineligible_unified_memory_gb": []
+    },
+    "capacity": {
+      "max_concurrency": 1
+    }
+  },
+  "evidence": {
+    "qualification_run": "2026-08-08-owner-fleet",
+    "cache": {
+      "state": "verified_by_live_execution",
+      "snapshot_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
+      "revision_current_at_qualification": true,
+      "sites_cached": [
+        "terranash-pps",
+        "terranash-kts",
+        "terranash-tsh"
+      ]
+    },
+    "human_quality_review": {
+      "reviewer": "owner",
+      "reviewed_at": "2026-08-08T00:00:00Z",
+      "assessment": "voice quality judged on par with cloud Fish Audio S2.1 Pro",
+      "hardware_assessment": "runs on 8 GB machines; stated twice by the owner, the second time as a direction to stop treating it as open",
+      "section_ceiling": "288 characters. Transcribe-back coverage 99.4% at 288 and at 350, 97.0% at 400, 83.0% at 600, 60.0% at 1200. 350 is the measured ceiling; 288 is the shipped operating point",
+      "known_issue": "number pronunciation; a normalizer was built in Voice Studio to address it",
+      "quality_gate": "passed"
+    },
+    "verified_modes": [
+      "reference_audio_clone",
+      "voice_design",
+      "adapter_managed_long_form",
+      "post_generation_speed"
+    ],
+    "excluded_modes": [
+      "preset_voice",
+      "customer_streaming"
+    ],
+    "recorded_by": "Written by the GenStudio session at the owner's explicit direction, transcribing verdicts he had already reached in conversation. The quality and hardware judgements are his, not this session's. The Voice Studio session was independently asked to produce this record and had not yet done so.",
+    "safety": {
+      "provider_calls": 0,
+      "historical_jobs_modified": 0,
+      "model_downloads_started_by_promotion": 0
+    }
+  }
+}
