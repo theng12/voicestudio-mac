@@ -1077,14 +1077,6 @@ def add_seed_voice(body: AddSeedBody) -> dict:
     return {"voice": _serialize_voice(v)}
 
 
-# The frontend was copied from MusicStudio/ImageStudio and calls /api/loras —
-# rather than rewrite that frontend code, mirror the empty-stub here too so
-# the log stops filling with 404s.
-@app.get("/api/loras")
-def list_loras_stub() -> dict:
-    return {"loras": []}
-
-
 @app.post("/api/generate/txt2speech")
 def start_txt2speech(body: Txt2SpeechBody) -> dict:
     if not body.text.strip():

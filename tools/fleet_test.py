@@ -146,7 +146,7 @@ def cached_models(ip: str, token: str) -> dict:
     if not isinstance(d, dict) or "models" not in d:
         return {"_error": str(d)[:120]}
     return {m["repo"]: (m.get("cache") or {}).get("state")
-            for m in d["models"] if m.get("kind") != "cloud"}
+            for m in d["models"]}
 
 
 def run_one(mach: dict, model: dict, token: str, out_root: Path) -> dict:

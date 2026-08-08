@@ -10,6 +10,50 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.0.0] — 2026-08-09
+
+### Removed — the remaining cloud compatibility and inherited studio UI
+
+- Removed the legacy provider fields from voice metadata, generation jobs,
+  public job responses, and persisted history. Old hosted-provider history is
+  discarded on load; local history is rewritten without provider keys. This is
+  the deliberate breaking boundary that makes Voice Studio's data contract
+  local-only instead of merely leaving the old fields inert.
+- Settings now accepts and persists only the Hugging Face download token.
+  Unknown legacy keys — including the removed provider credential object — are
+  scrubbed atomically the next time settings load.
+- Removed the empty `/api/loras` compatibility route, its startup request and
+  state, and inherited image-generation helpers for aspect ratios, prompts,
+  image drop/paste, LoRAs, and output-image actions. Removed their unused CSS
+  and other unreachable frontend helpers.
+- Removed obsolete cloud-row filters from the cache organization, family-view,
+  and fleet-test tools. The catalog has one kind of model now: local.
+
+### Fixed — streaming families use the normal local model layout
+
+- The streaming capability still selected a CSS class named `tone-cloud`,
+  which also applied the retired cloud table's four-column geometry to local
+  streaming models. It is now a color-only `tone-streaming` accent; every local
+  family uses the same five-column desktop table and responsive layouts.
+- Capability labels now describe Voice Studio features instead of carrying
+  dead text-to-image mappings.
+
+### Kept deliberately
+
+- All 17 catalog families and their workers, local model download/storage,
+  voice cloning and fleet voice sync, transcription, job idempotency, resource
+  telemetry, memory admission, idle release, manual release, and Studio Hub
+  authentication/contracts are unchanged.
+- The small `provider:` request guard remains as a refusal boundary: stale
+  callers receive a truthful `400` before engine checks, and no hosted call can
+  be made.
+
+Application, tooling, documentation, and regression changes remove **416 net
+lines** before these release notes. The local data in this checkout is treated
+as disposable test data, so no cloud-history or provider-ID compatibility is
+preserved. No generation dependency changed. Run **Update**, then restart Voice
+Studio; a generation-stack reinstall is not required.
+
 ## [1.33.0] — 2026-08-08
 
 ### Removed — Voice Studio is a local TTS studio again

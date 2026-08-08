@@ -53,3 +53,19 @@ def test_common_controls_keep_readable_and_compact_size_tokens() -> None:
     assert "--control-compact-height: 32px" in css
     assert "min-height: var(--control-min-height)" in css
     assert "min-height: var(--control-compact-height)" in css
+
+
+def test_frontend_has_no_inherited_image_or_lora_surface() -> None:
+    source = "\n".join(path.read_text(encoding="utf-8") for path in FRONTEND_PATHS)
+    inherited_markers = (
+        "/api/loras",
+        "img2img",
+        "txt2img",
+        "tone-cloud",
+        "is-cloud",
+        "setInputImage",
+        "gen.prompt",
+        ".img-drop",
+        ".lora-row",
+    )
+    assert not [marker for marker in inherited_markers if marker in source]

@@ -1528,16 +1528,7 @@ class GenerationJob:
     quality_retry_count: int = 0
     quality_retry_history: list[dict] = field(default_factory=list)
     error_code: Optional[str] = None
-    # ── legacy cloud-provider fields (read-only since 1.33.0) ──
-    # Cloud TTS providers were removed in 1.33.0 and nothing sets these any
-    # more. They stay in the schema so pre-1.33 history entries still load and
-    # still render in the Audio history; treat them as archival, not as a code
-    # path. Never reintroduce a branch on them.
-    provider: Optional[str] = None          # cloud provider key of an archived job
     client_request_params: Optional[dict] = None  # immutable idempotency comparison
-    provider_account_id: Optional[str] = None  # credential that billed an archived job
-    provider_task_id: Optional[str] = None  # async task id of an archived job
-    provider_task_meta: dict = field(default_factory=dict)  # opaque archived metadata
     chunk_index: Optional[int] = None       # current long-form local segment (1-based)
     chunk_total: Optional[int] = None       # number of long-form local segments
     cancel_event: threading.Event = field(default_factory=threading.Event)
@@ -1559,9 +1550,6 @@ class GenerationJob:
             "id": self.job_id,
             "mode": self.mode,
             "state": self.state,
-            "provider": self.provider,
-            "provider_account_id": self.provider_account_id,
-            "provider_task_id": self.provider_task_id,
             "progress": self.progress,
             "chunk_index": self.chunk_index,
             "chunk_total": self.chunk_total,
@@ -3508,10 +3496,16 @@ class GenerationManager:
             return
         try:
             payload = json.loads(HISTORY_FILE.read_text())
-            for raw in payload.get("jobs", []):
+            rows = payload.get("jobs", [])
+            needs_cleanup = False
+            for raw in rows:
                 job = self._from_disk(raw)
                 if job is not None:
                     self._jobs[job.job_id] = job
+                if job is None or any(str(key).startswith("provider") for key in raw):
+                    needs_cleanup = True
+            if needs_cleanup:
+                self._persist()
             print(f"[gen] loaded {len(self._jobs)} jobs from history", flush=True)
         except Exception as e:
             print(f"[gen] load history failed: {e}", file=sys.stderr, flush=True)
@@ -3522,11 +3516,7 @@ class GenerationManager:
             "job_id": job.job_id,
             "mode": job.mode,
             "state": job.state,
-            "provider": job.provider,
             "client_request_params": job.client_request_params,
-            "provider_account_id": job.provider_account_id,
-            "provider_task_id": job.provider_task_id,
-            "provider_task_meta": job.provider_task_meta,
             "progress": job.progress,
             "chunk_index": job.chunk_index,
             "chunk_total": job.chunk_total,
@@ -3556,19 +3546,18 @@ class GenerationManager:
     @staticmethod
     def _from_disk(raw: dict) -> Optional["GenerationJob"]:
         try:
+            params = raw.get("params") or {}
+            if str(params.get("repo") or "").startswith("provider:"):
+                return None
             output_path = raw.get("output_path")
             if output_path and not Path(output_path).exists():
                 output_path = None
             return GenerationJob(
                 job_id=raw["job_id"],
                 mode=raw.get("mode", "txt2speech"),
-                params=raw.get("params") or {},
+                params=params,
                 state=raw.get("state", "done"),
-                provider=raw.get("provider"),
                 client_request_params=raw.get("client_request_params"),
-                provider_account_id=raw.get("provider_account_id"),
-                provider_task_id=raw.get("provider_task_id"),
-                provider_task_meta=raw.get("provider_task_meta") or {},
                 progress=raw.get("progress", 1.0),
                 chunk_index=raw.get("chunk_index"),
                 chunk_total=raw.get("chunk_total"),

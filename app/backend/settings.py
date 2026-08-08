@@ -38,6 +38,14 @@ def _secure_permissions(path: Path) -> None:
         pass
 
 
+def _write_cache() -> None:
+    tmp = _PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(_cache, indent=2))
+    _secure_permissions(tmp)
+    os.replace(tmp, _PATH)
+    _secure_permissions(_PATH)
+
+
 def _load_if_needed() -> None:
     global _cache, _loaded
     if _loaded:
@@ -47,7 +55,12 @@ def _load_if_needed() -> None:
             _secure_permissions(_PATH)
             data = json.loads(_PATH.read_text())
             if isinstance(data, dict):
-                _cache = {**DEFAULTS, **data}
+                _cache = {
+                    key: data.get(key, default)
+                    for key, default in DEFAULTS.items()
+                }
+                if set(data) != set(DEFAULTS):
+                    _write_cache()
             else:
                 _cache = dict(DEFAULTS)
         else:
@@ -66,12 +79,10 @@ def get(key: str) -> Any:
 def set_value(key: str, value: Any) -> None:
     with _LOCK:
         _load_if_needed()
+        if key not in DEFAULTS:
+            raise KeyError(f"unknown setting: {key}")
         _cache[key] = value
-        tmp = _PATH.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(_cache, indent=2))
-        _secure_permissions(tmp)
-        os.replace(tmp, _PATH)
-        _secure_permissions(_PATH)
+        _write_cache()
 
 
 def get_hf_token() -> Optional[str]:

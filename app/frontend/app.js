@@ -35,7 +35,6 @@ function studio() {
       summary: { families: 0, packages: 0, models: 0, dependencies: 0, legacy: 0, unknown: 0, bytes_total: 0 },
       groups: [],
     },
-    loras: [],
     pendingDownload: null,
     confirmDialog: null,           // in-app confirm modal (webview-safe replacement for confirm())
     downloadToken: "",
@@ -380,7 +379,6 @@ function studio() {
       // the core UI finish loading first, then validate those packages in the
       // background so a restart never leaves the interface waiting on PyTorch.
       setTimeout(() => this.refreshDiagnostics(), 750);
-      await this.refreshLoras();
       await this.refreshSettings();
       await this.refreshVoices();
       // STT/whisper availability — so the Models tab's "Subtitle models"
@@ -435,25 +433,6 @@ function studio() {
       this.$watch("gen.text", () => { this.gen.overCapConfirmed = false; });
       this.$watch("gen.repo", () => { this.gen.overCapConfirmed = false; });
 
-      // ── Clipboard paste → input image (img2img only) ──
-      // Listens app-wide; only consumes the paste if the user is on the
-      // Generate tab in img2img mode, so we don't steal pastes from textareas
-      // / other inputs.
-      document.addEventListener("paste", (e) => {
-        if (this.tab !== "generate" || this.gen.mode !== "img2img") return;
-        const items = e.clipboardData?.items || [];
-        for (const it of items) {
-          if (it.kind === "file" && it.type.startsWith("image/")) {
-            const blob = it.getAsFile();
-            if (blob) {
-              e.preventDefault();
-              this.setInputImage(blob, blob.name || "pasted-image.png");
-              return;
-            }
-          }
-        }
-      });
-
       // ── Clipboard paste → voice upload audio (only when voice modal is open) ──
       document.addEventListener("paste", (e) => {
         if (!this.voiceUploader.open) return;
@@ -469,15 +448,6 @@ function studio() {
           }
         }
       });
-    },
-
-    // ──────── derived ────────
-    get modelsByFamily() {
-      const out = {};
-      for (const m of this.models) {
-        (out[m.family] ||= []).push(m);
-      }
-      return out;
     },
 
     // ─── RAM slider + client-side hardware fit ────────────────────────
@@ -526,11 +496,6 @@ function studio() {
       this.ramGb = v;
       this.ramIsDetected = (v === this.system.unified_memory_gb);
       this._persistFilterPref("ramGb", v);
-    },
-    /** Snap the slider back to the machine's actually-detected RAM. */
-    resetRamToDetected() {
-      const d = this.system.unified_memory_gb;
-      if (d) this.setRam(d);
     },
     /** Seed the RAM slider from a saved override or the detected RAM. Called
      *  from init() after /api/system has populated `system`. */
@@ -707,7 +672,7 @@ function studio() {
     familyTone(family) {
       const caps = this.familyCapabilities(family);
       if (caps.includes("voice-cloning")) return "tone-edit";
-      if (caps.includes("streaming")) return "tone-cloud";
+      if (caps.includes("streaming")) return "tone-streaming";
       if (caps.includes("multilingual")) return "tone-mps";
       return "tone-mlx";
     },
@@ -746,38 +711,6 @@ function studio() {
       return !!(f.search.trim() || f.families.size || f.statuses.size || f.capabilities.size
                 || f.mlxOnly || f.fitsMyMac || (f.fitLevel && f.fitLevel !== "all"));
     },
-    /** Human-readable list of every active filter — used by the empty state
-     *  so users can SEE what cut their results and tap a single filter off
-     *  without losing the others. Returns [{ label, removeFn }]. */
-    activeFilterSummary() {
-      const f = this.modelFilters;
-      const out = [];
-      if (f.search.trim()) {
-        out.push({ label: `search: "${f.search.trim()}"`, removeFn: () => this.modelFilters.search = "" });
-      }
-      for (const fam of f.families) {
-        const famLabel = this.availableFamilies.find(x => x.id === fam)?.label || fam;
-        out.push({ label: `family: ${famLabel}`, removeFn: () => this.toggleFamilyFilter(fam) });
-      }
-      for (const status of f.statuses) {
-        out.push({ label: `status: ${status}`, removeFn: () => this.toggleStatusFilter(status) });
-      }
-      for (const cap of f.capabilities) {
-        out.push({ label: `capability: ${cap}`, removeFn: () => this.toggleCapabilityFilter(cap) });
-      }
-      if (f.mlxOnly) {
-        out.push({ label: "🍎 MLX only", removeFn: () => this.toggleMlxFilter() });
-      }
-      if (f.fitsMyMac) {
-        out.push({ label: "🖥 Fits my Mac", removeFn: () => this.toggleFitsMyMacFilter() });
-      }
-      if (f.fitLevel && f.fitLevel !== "all") {
-        const lbl = { ok: "✓ Fits", tight: "⚠ Tight", over: "✗ Over budget" }[f.fitLevel] || f.fitLevel;
-        out.push({ label: `RAM fit: ${lbl}`, removeFn: () => this.modelFilters.fitLevel = "all" });
-      }
-      return out;
-    },
-
     // ─── Filter manipulation methods ─────────────────────────────────
     toggleFamilyFilter(familyId) {
       const s = this.modelFilters.families;
@@ -925,23 +858,11 @@ function studio() {
       if (s.has(repo)) s.delete(repo); else s.add(repo);
       this.modelFilters.expandedRepos = new Set(s);
     },
-    /** Bulk expand/collapse — operates on the currently-filtered set. */
-    expandAllVisible() {
-      const s = new Set(this.modelFilters.expandedRepos);
-      for (const list of Object.values(this.filteredModelsByFamily)) {
-        for (const m of list) s.add(m.repo);
-      }
-      this.modelFilters.expandedRepos = s;
-    },
-    collapseAllVisible() {
-      this.modelFilters.expandedRepos = new Set();
-    },
     toggleFamilyOpen(familyId) {
       const s = this.modelFilters.openFamilies;
       if (s.has(familyId)) s.delete(familyId); else s.add(familyId);
       this.modelFilters.openFamilies = new Set(s);
     },
-    isFamilyFiltered(familyId)   { return this.modelFilters.families.has(familyId); },
     isStatusFiltered(status)     { return this.modelFilters.statuses.has(status); },
     isCapFiltered(cap)           { return this.modelFilters.capabilities.has(cap); },
     isFamilyOpen(familyId) {
@@ -959,15 +880,6 @@ function studio() {
       // expandedRepos intentionally NOT reset — separate user concern.
       // ramGb intentionally NOT reset — it's a hardware setting, not a filter.
     },
-    statusLabel(s) {
-      return ({
-        "cached": "Cached",
-        "partial": "Partial",
-        "absent": "Not downloaded",
-        "engine-ready": "Engine ready",
-      })[s] || s;
-    },
-
     get activeDownloadCount() {
       return this.jobs.filter(j => ["queued", "running", "cancelling"].includes(j.state)).length;
     },
@@ -1160,10 +1072,6 @@ function studio() {
       return "Complete the required fields to continue.";
     },
 
-    get latestJob() {
-      return (this.gen.jobs || [])[0] || this.gen.currentJob || null;
-    },
-
     /** Jobs that are queued OR currently running — i.e. work the user has
      *  submitted but hasn't finished yet. Sorted oldest-first so the queue
      *  reads top-down in submission order. */
@@ -1261,38 +1169,6 @@ function studio() {
     _voiceNameById(id) {
       const v = (this.voices || []).find(x => x.id === id);
       return v?.name || id || "(unknown voice)";
-    },
-
-    /** "2.3s" / "1m 4s" — formats a number of seconds for the history row. */
-    formatAudioDuration(sec) {
-      if (sec == null || isNaN(sec) || sec < 0) return null;
-      if (sec < 60) return `${sec.toFixed(1)}s`;
-      const m = Math.floor(sec / 60);
-      const s = Math.round(sec - m * 60);
-      return `${m}m ${s.toString().padStart(2, "0")}s`;
-    },
-
-    get canRuntimeQuant() {
-      // Only full checkpoints accept runtime quantization. Pre-quantized MLX
-      // variants are already at their final precision.
-      const m = this.selectedModel;
-      return !!m && !m.apple_optimized;
-    },
-
-    get outputFrameStyle() {
-      const w = this.gen.width || 1024;
-      const h = this.gen.height || 1024;
-      return `aspect-ratio: ${w} / ${h};`;
-    },
-
-    // FLUX text encoders (T5-XXL for FLUX.1, similar for FLUX.2) typically take
-    // ~512 tokens. Tokens ≠ characters, but for English ~3-4 chars per token is
-    // a reasonable rule of thumb. 1500 chars ≈ 400–500 tokens, so we warn near
-    // there. This is intentionally a soft limit — we don't block submission.
-    get promptSoftLimit() {
-      // Future hook: vary per model. For now FLUX-family models all share roughly
-      // the same encoder ceiling.
-      return 1500;
     },
 
     // ──────── API tab derived ────────
@@ -1583,20 +1459,6 @@ function studio() {
       // the first compatible cached model as a sensible default.
       const compatible = this.modeCompatibleModels;
       this.gen.repo = compatible[0]?.repo || cached[0]?.repo || "";
-    },
-
-    setMode(mode) {
-      // Mode switch: update the selected model to one compatible with the new
-      // mode so the picker isn't stuck on something that can't run.
-      this.gen.mode = mode;
-      this._reconcileSelectedModel();
-      // Sensible defaults per mode
-      if (mode === "edit") {
-        // Edit usually wants to preserve more of the input than img2img
-        if (this.gen.imageStrength < 0.7) this.gen.imageStrength = 0.85;
-        // klein-edit is distilled — guidance pinned to 1.0 internally
-        if (this.gen.guidance > 1.5) this.gen.guidance = 1.0;
-      }
     },
 
     startJobStream() {
@@ -2998,14 +2860,6 @@ function studio() {
       this.gen.text = window.SAMPLE_PROMPTS[idx];
     },
 
-    async refreshLoras() {
-      try {
-        const r = await fetch("/api/loras");
-        const data = await r.json();
-        this.loras = data.loras || [];
-      } catch { /* keep last */ }
-    },
-
     startGenStream() {
       if (this._genStreamHandle) this._genStreamHandle.close();
       const es = new EventSource("/api/generate/stream");
@@ -3083,97 +2937,6 @@ function studio() {
       } else if (job.state === "cancelled") {
         this.pushToast({ kind: "warn", icon: "⏹", title: "Generation cancelled" });
       }
-    },
-
-    pickAspect(p) {
-      this.gen.aspect = p.ratio;
-      this.gen.width = p.width;
-      this.gen.height = p.height;
-    },
-
-    aspectShape(p) {
-      // Build a small rectangle whose proportions reflect the aspect ratio,
-      // capped to a tile-sized box so the grid stays orderly.
-      const max = 28;
-      const ratio = p.width / p.height;
-      const w = ratio >= 1 ? max : Math.round(max * ratio);
-      const h = ratio >= 1 ? Math.round(max / ratio) : max;
-      return `width:${w}px;height:${h}px;`;
-    },
-
-    magicPrompt() {
-      // Lightweight no-LLM enhancer: appends quality + style tags if not present.
-      const tags = "masterpiece, best quality, highly detailed, sharp focus, cinematic lighting";
-      const existing = this.gen.prompt.trim();
-      if (!existing) return;
-      if (existing.toLowerCase().includes("masterpiece")) return;
-      this.gen.prompt = existing + (existing.endsWith(",") ? " " : ", ") + tags;
-    },
-
-    randomPrompt() {
-      const pool = window.SAMPLE_PROMPTS || [];
-      if (pool.length === 0) {
-        alert("No sample prompts loaded.");
-        return;
-      }
-      // Pick uniformly at random, but never the same as the previous pick.
-      let idx;
-      if (pool.length === 1) {
-        idx = 0;
-      } else {
-        do { idx = Math.floor(Math.random() * pool.length); }
-        while (idx === this._lastRandomPromptIndex);
-      }
-      this._lastRandomPromptIndex = idx;
-      this.gen.prompt = pool[idx];
-    },
-
-    toggleLora(name, on) {
-      if (on) {
-        if (!this.gen.loraNames.includes(name)) this.gen.loraNames.push(name);
-        if (this.gen.loraWeights[name] === undefined) this.gen.loraWeights[name] = 1.0;
-      } else {
-        this.gen.loraNames = this.gen.loraNames.filter(n => n !== name);
-        delete this.gen.loraWeights[name];
-      }
-    },
-
-    // ──────── input image helpers (img2img) ────────
-    setInputImage(blobOrFile, name) {
-      // Clear any previous object URL so we don't leak memory.
-      if (this.gen.inputImageUrl) {
-        try { URL.revokeObjectURL(this.gen.inputImageUrl); } catch {}
-      }
-      this.gen.inputImageFile = blobOrFile;
-      this.gen.inputImageUrl = URL.createObjectURL(blobOrFile);
-      this.gen.inputImageName = name || blobOrFile.name || "image";
-      // If we're not already in img2img mode, switch — the user clearly wants it.
-      if (this.gen.mode !== "img2img") this.gen.mode = "img2img";
-    },
-
-    clearInputImage() {
-      if (this.gen.inputImageUrl) {
-        try { URL.revokeObjectURL(this.gen.inputImageUrl); } catch {}
-      }
-      this.gen.inputImageFile = null;
-      this.gen.inputImageUrl = "";
-      this.gen.inputImageName = "";
-    },
-
-    handleImageDrop(e) {
-      const file = e.dataTransfer?.files?.[0];
-      if (file && file.type.startsWith("image/")) {
-        this.setInputImage(file, file.name);
-      } else {
-        this.pushToast({ kind: "warn", icon: "⚠", title: "Not an image",
-          body: "Drop a PNG, JPG, or WEBP file." });
-      }
-    },
-
-    handleImageFileInput(e) {
-      const file = e.target.files?.[0];
-      if (file) this.setInputImage(file, file.name);
-      e.target.value = "";   // reset so picking the same file twice fires change
     },
 
     // Soft-block wrapper for hard-cap engines (Bark / Orpheus / XTTS). When
@@ -3354,18 +3117,6 @@ function studio() {
         }).join(" · ");
       }
       try { return JSON.stringify(d); } catch { return String(d); }
-    },
-
-    async copyAudioUrl(job) {
-      if (!job?.output_url) return;
-      const full = window.location.origin + job.output_url;
-      await this.copyText(full);
-    },
-
-    async cancelGenerate(jobId) {
-      try {
-        await fetch("/api/generate/jobs/" + encodeURIComponent(jobId), { method: "DELETE" });
-      } catch { /* surfaces via stream */ }
     },
 
     /** Cancel an individual queued / running job from the queue UI. The
@@ -3635,31 +3386,6 @@ function studio() {
       setTimeout(restore, 6000);
     },
 
-    genStateChipClass(state) {
-      if (!state) return "";
-      if (state === "done") return "ok";
-      if (state === "error") return "bad";
-      if (["cancelled", "cancelling"].includes(state)) return "warn";
-      return "";
-    },
-
-    genProgressLabel() {
-      const j = this.gen.currentJob;
-      if (!j) return "";
-      if (j.total_steps > 0) return `step ${j.current_step} / ${j.total_steps}`;
-      return "warming up…";
-    },
-
-    elapsedFor(job) {
-      // Backend computes duration_seconds when finished; for running jobs we
-      // tick locally so the display updates without depending on the SSE cadence.
-      if (!job || !job.started_at) return 0;
-      if (job.state === "running" || job.state === "queued") {
-        return Math.max(0, this._nowSec - job.started_at);
-      }
-      return job.duration_seconds ?? 0;
-    },
-
     formatDuration(sec) {
       if (sec == null || isNaN(sec)) return "—";
       sec = Math.round(sec);
@@ -3776,12 +3502,6 @@ function studio() {
       if (typeof p.echo_num_steps === "number") this.gen.echo_num_steps = p.echo_num_steps;
       if (typeof p.echo_cfg_scale_text === "number") this.gen.echo_cfg_scale_text = p.echo_cfg_scale_text;
       if (typeof p.echo_cfg_scale_speaker === "number") this.gen.echo_cfg_scale_speaker = p.echo_cfg_scale_speaker;
-    },
-
-    async copyImageUrl(job) {
-      if (!job?.output_url) return;
-      const full = window.location.origin + job.output_url;
-      await this.copyText(full);
     },
 
     async revealInFolder(path) {
@@ -3917,14 +3637,6 @@ function studio() {
       }
     },
 
-    recentTileTitle(j) {
-      if (!j) return "";
-      const prompt = j.params?.prompt ? `"${j.params.prompt.slice(0, 60)}"` : "(no prompt)";
-      const dur = j.duration_seconds != null ? this.formatDuration(j.duration_seconds) : j.state;
-      const seed = j.resolved_seed != null ? ` · seed ${j.resolved_seed}` : "";
-      return `${prompt} · ${dur}${seed}`;
-    },
-
     // ──────── formatters ────────
     formatGb(gb) {
       // Decimal (÷/×1000), matching humanBytes() and the catalog's own
@@ -3973,28 +3685,14 @@ function studio() {
       return { cached: "ok", partial: "warn", absent: "" }[state] || "";
     },
 
-    chipExplain(state) {
-      return {
-        cached:  "All files for this model are on disk and ready to generate from.",
-        partial: "Some files have downloaded; the model isn't usable yet. Clicking Download resumes from where it left off.",
-        absent:  "No files for this model on disk. Click Download to fetch them.",
-      }[state] || "";
-    },
-
     capabilityLabel(c) {
       return {
-        txt2img: "text → image",
-        img2img: "image → image",
-        edit:    "instruction edit",
+        "voice-cloning": "voice cloning",
+        multilingual: "multilingual",
+        expressive: "expressive",
+        "voice-mixing": "voice mixing",
+        streaming: "streaming",
       }[c] || c;
-    },
-
-    capabilityHint(c) {
-      return {
-        txt2img: "Generate a brand-new image from a text prompt alone.",
-        img2img: "Start from an input image and regenerate it biased toward your prompt. Composition can drift; great for stylistic variations.",
-        edit:    "Instruction-based editing — keeps the subject and composition intact, applies the change you describe. Best for 'add sunglasses', 'change the season', 'remove the car'.",
-      }[c] || "";
     },
 
     stateChipClass(state) {

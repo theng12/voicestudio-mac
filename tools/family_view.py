@@ -67,8 +67,6 @@ def build_mapping(host: str) -> tuple[dict[str, tuple[str, str]], list[str]]:
     fam_by_id = {}
     saw_companion_field = False
     for m in catalog.get("models", []):
-        if m.get("kind") == "cloud":
-            continue  # cloud models have no local weights
         fam_label = families.get(m["family"], {}).get("label") or m["family"]
         fam_by_id[m["family"]] = fam_label
         mapping[m["repo"]] = (fam_label, m["repo"].split("/")[-1])

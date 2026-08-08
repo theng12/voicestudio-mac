@@ -58,19 +58,13 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
    and safe removal actions. Existing Hugging Face downloads are indexed in
    place and are never moved or downloaded again just to appear in this view.
 
-### Cloud TTS providers were removed
+### Local-only boundary
 
-Voice Studio 1.33.0 removed the cloud audio gateway (ElevenLabs, GenAIPro, Fish
-Audio, fal.ai, Kie.ai) along with `GET /api/providers` and every
-`/api/providers/*` endpoint. Voice Studio synthesises with local Apple Silicon
-engines only; paid cloud generation is GenStudio's job and never went through
-this app. A generate request whose `repo` still starts with `provider:` now
-returns a clear `400` instead of attempting a cloud call.
-
-Voices that had provider-native IDs recorded keep them: the `providers` array is
-still stored in each voice's `metadata.json` and still returned by
-`GET /api/voices`. Only the editing UI and the write endpoint are gone. Existing
-history entries for old cloud jobs still load and still play.
+Voice Studio synthesises with local Apple Silicon engines only. The former
+hosted-provider endpoints, credential storage, voice-provider metadata, and
+cloud-job history schema are absent. A stale request whose `repo` starts with
+`provider:` receives a clear `400` before any local engine or catalog check.
+Unknown legacy settings are removed automatically when settings load.
 
 ### Local generation memory protection
 
@@ -310,8 +304,8 @@ or the protected session cookie established after successful authentication.
 Voice Studio rejects query-string credentials such as `?token=...` so fleet
 secrets do not leak through browser history, access logs, or copied links.
 Studio Hub uses `X-Studio-Token` for direct Studio calls and `X-Hub-Token` for
-controller-proxied calls. Recorded provider-native voice IDs and generated
-embeddings are intentionally not distributed.
+controller-proxied calls. Generated embeddings are intentionally not
+distributed.
 
 ### Private GenStudio reference execution
 

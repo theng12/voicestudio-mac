@@ -93,8 +93,6 @@ def build_mapping(host: str) -> tuple[dict[str, str], set[str], list[str]]:
     catalog = api(host, "/api/catalog")
     families = catalog.get("families", {})
     for m in catalog.get("models", []):
-        if m.get("kind") == "cloud":
-            continue
         fam = families.get(m["family"], {}).get("label") or m["family"]
         mapping[m["repo"]] = fam
         for c in (m.get("cache") or {}).get("companions") or []:

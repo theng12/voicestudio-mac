@@ -4,12 +4,14 @@ Removing the cloud audio gateway is only safe if the ways *into* it fail
 cleanly. A saved preset, a bookmarked Generate URL, or a Studio Hub batch item
 built before the removal can still carry a synthetic `provider:<key>:<model>`
 repo id. That request must get a truthful 400 rather than fall through to a
-local-catalog lookup and surface as "Unknown repo", and the provider endpoints
-must be gone rather than half-present.
+local-catalog lookup and surface as "Unknown repo". Provider endpoints,
+persisted settings, voice metadata, and job history must stay absent too.
 """
+import json
+
 from fastapi.testclient import TestClient
 
-from backend import main
+from backend import main, settings
 from backend.main import FLEET_TOKEN, app
 
 
@@ -71,37 +73,24 @@ def test_the_providers_module_is_gone() -> None:
     assert not hasattr(main, "providers")
 
 
-def test_recorded_provider_voice_ids_are_still_read_and_published() -> None:
-    """The owner's own clones carry Fish and ElevenLabs ids in their metadata.
+def test_voice_schema_drops_legacy_provider_metadata(tmp_path) -> None:
+    from backend.voices import Voice, VoiceLibrary
 
-    `app/voices/` is machine-local and gitignored, so this asserts the contract
-    rather than the data: the field survives a round trip through the loader and
-    reaches the API response. Those ElevenLabs ids may be the only local record
-    of them, so removing the editing UI must not quietly drop them.
-    """
-    from backend.voices import Voice, library
-
-    tags = [
-        {"provider": "elevenlabs", "voice_id": "abc123"},
-        {"provider": "fish", "voice_id": "def456"},
-    ]
-    voice = Voice(
-        id="deadbeef", name="Archived", language="en", gender="m", providers=tags
-    )
-    assert voice.serialize()["providers"] == tags
-    # Normalisation still accepts what is already on disk.
-    assert library._normalize_provider_tags(tags) == tags
-    # Every voice actually present on this machine still loads.
-    for existing in library.list():
-        assert isinstance(existing.providers, list)
+    payload = {
+        "id": "deadbeef",
+        "name": "Local voice",
+        "language": "en",
+        "gender": "m",
+        "providers": [{"provider": "elevenlabs", "voice_id": "abc123"}],
+    }
+    (tmp_path / "metadata.json").write_text(json.dumps(payload))
+    voice = VoiceLibrary._load_voice(tmp_path)
+    assert voice is not None
+    assert "providers" not in Voice.__dataclass_fields__
+    assert "providers" not in voice.serialize()
 
 
-def test_archived_cloud_history_still_loads() -> None:
-    """The one real ElevenLabs job predates the removal and must survive it.
-
-    `GenerationJob.provider*` stays in the schema precisely so `_from_disk`
-    keeps accepting rows written by the gateway.
-    """
+def test_archived_cloud_history_is_discarded() -> None:
     from backend.generation import GenerationManager
 
     job = GenerationManager._from_disk(
@@ -117,6 +106,46 @@ def test_archived_cloud_history_still_loads() -> None:
             "progress": 1.0,
         }
     )
-    assert job is not None
-    assert job.provider == "elevenlabs"
-    assert job.serialize()["provider"] == "elevenlabs"
+    assert job is None
+
+
+def test_history_load_rewrites_legacy_provider_rows(tmp_path, monkeypatch) -> None:
+    from backend import generation
+
+    path = tmp_path / ".history.json"
+    path.write_text(json.dumps({"jobs": [
+        {
+            "job_id": "cloud",
+            "state": "done",
+            "provider": "elevenlabs",
+            "params": {"repo": CLOUD_REPO, "text": "discard"},
+        },
+        {
+            "job_id": "local",
+            "state": "done",
+            "provider": None,
+            "provider_task_meta": {},
+            "params": {"repo": "local/model", "text": "keep"},
+        },
+    ]}))
+    monkeypatch.setattr(generation, "HISTORY_FILE", path)
+    manager = generation.GenerationManager()
+
+    assert [job.job_id for job in manager.list_jobs()] == ["local"]
+    rows = json.loads(path.read_text())["jobs"]
+    assert [row["job_id"] for row in rows] == ["local"]
+    assert not any(key.startswith("provider") for key in rows[0])
+
+
+def test_removed_cloud_settings_are_scrubbed(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({
+        "hf_token": "hf_local_download_token",
+        "providers": {"elevenlabs": {"api_key": "discard-me"}},
+    }))
+    monkeypatch.setattr(settings, "_PATH", path)
+    monkeypatch.setattr(settings, "_cache", {})
+    monkeypatch.setattr(settings, "_loaded", False)
+
+    assert settings.get_hf_token() == "hf_local_download_token"
+    assert json.loads(path.read_text()) == {"hf_token": "hf_local_download_token"}
