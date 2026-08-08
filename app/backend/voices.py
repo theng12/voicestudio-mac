@@ -609,11 +609,15 @@ class VoiceLibrary:
             return None
         try:
             data = json.loads(meta.read_text())
+            had_provider_metadata = "providers" in data
             # Drop any fields that aren't part of the current dataclass schema
             # (forward-compat for adding fields later).
             allowed = {f for f in Voice.__dataclass_fields__}
             data = {k: v for k, v in data.items() if k in allowed}
-            return Voice(**data)
+            voice = Voice(**data)
+            if had_provider_metadata:
+                meta.write_text(json.dumps(asdict(voice), indent=2, default=str))
+            return voice
         except Exception:
             return None
 

@@ -88,6 +88,7 @@ def test_voice_schema_drops_legacy_provider_metadata(tmp_path) -> None:
     assert voice is not None
     assert "providers" not in Voice.__dataclass_fields__
     assert "providers" not in voice.serialize()
+    assert "providers" not in json.loads((tmp_path / "metadata.json").read_text())
 
 
 def test_archived_cloud_history_is_discarded() -> None:

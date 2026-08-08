@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.0.1] — 2026-08-09
+
+### Fixed — legacy voice files are scrubbed, not only ignored
+
+- v2.0.0 removed provider metadata from the voice schema and API, but its
+  tolerant loader only ignored an old `providers` key on disk. Loading a voice
+  now rewrites that metadata file through the local-only schema, so the retired
+  IDs are actually removed. All ten disposable test voice records in this
+  checkout were migrated; no audio, transcript, fleet ownership, or local voice
+  metadata was removed.
+- The regression now verifies both the returned voice contract and the
+  rewritten file. No dependency reinstall is required. Run **Update**, then
+  restart Voice Studio.
+
 ## [2.0.0] — 2026-08-09
 
 ### Removed — the remaining cloud compatibility and inherited studio UI
