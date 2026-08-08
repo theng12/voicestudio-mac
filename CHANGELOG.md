@@ -10,6 +10,56 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [1.33.0] — 2026-08-08
+
+### Removed — Voice Studio is a local TTS studio again
+
+- The cloud audio gateway is gone: ElevenLabs, GenAIPro, Fish Audio, fal.ai and
+  Kie.ai, the ElevenLabs named-account pool with its quota-aware failover, and
+  the restart-safe paid-task recall machinery. `providers.py` (1,537 lines),
+  `PROVIDERS_PLAN.md`, and three provider test modules are deleted.
+- Gone with it: `GET /api/providers` and every `/api/providers/*` endpoint
+  (keys, paid consent, enable/pause, connection test, the account-pool CRUD,
+  `models/live`, `voices/live`), plus `PUT /api/voices/{id}/providers`. The
+  Settings panel, the cloud entries in the Generate model picker, the cloud
+  voice selector, and the per-voice provider mapping editor are removed from the
+  UI.
+- This removes a capability nothing used. Voice Studio's cloud path had been
+  unreachable through Studio Hub for some time — the Hub's broker requires a
+  cached local model and rejects this app's `cache.state="cloud"` — and paid
+  cloud generation belongs to GenStudio, which holds its own vendor adapters and
+  its own credential vault and calls the vendors directly. Exactly one cloud job
+  exists in this checkout's entire history. Hub consumers already treat a 404
+  from `/api/providers` as "not supported", so nothing on the Hub side changes.
+- `/api/catalog` still publishes `kind: "local"` on every model, which is what
+  Studio Hub reads.
+
+### Changed
+
+- A generate request whose `repo` still starts with `provider:` — a stale
+  bookmark, a saved preset, a replayed Hub batch item — now gets a `400`
+  reading "Cloud providers are no longer supported; choose a local model."
+  before any engine or catalog check, rather than falling through to an
+  "Unknown repo" error or a 503 that would send someone off to reinstall the
+  generation stack for no reason.
+- `httpx` is no longer a direct dependency of the base server; the only code
+  that imported it was the gateway. It stays pinned in `requirements.lock.txt`
+  because `huggingface_hub` 1.x requires it outright and Starlette's TestClient
+  needs it — the lockfile records transitive pins too.
+
+### Kept deliberately
+
+- **Recorded provider voice IDs.** The `providers` array stays on `Voice`, stays
+  in every `app/voices/*/metadata.json`, and is still returned by
+  `GET /api/voices`. Three voices — the owner's own clones — carry Fish and
+  ElevenLabs IDs, and this metadata may be the only local record of the
+  ElevenLabs half. Only the editing UI and the write endpoint were removed.
+- **Archived cloud history.** `GenerationJob.provider*` remains in the schema
+  and `_from_disk` stays tolerant, so pre-1.33 history rows load and play
+  exactly as before. `.history.json` was not migrated or rewritten.
+- Saved provider API keys are left untouched in the gitignored local settings
+  file. Revoking them at the vendor is the owner's call, not this release's.
+
 ## [1.32.11] — 2026-08-08
 
 ### Added — a check that compares an audit record to the code it describes

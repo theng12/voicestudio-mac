@@ -2,7 +2,7 @@
 
 Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX image generation) and **MusicStudio Mac** (MusicGen / Stable Audio). Same scaffolding, focused on TTS.
 
-> **Current status**: local TTS generation, voice cloning, transcription, model management, and a five-provider cloud audio gateway are available from one UI and API.
+> **Current status**: local TTS generation, voice cloning, transcription, and model management are available from one UI and API. Voice Studio is local-only — cloud TTS providers were removed in 1.33.0.
 
 ## What it does
 
@@ -38,8 +38,6 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   cleaned after success, and a transfer with no byte progress for 15 minutes
   automatically receives one fresh resumable attempt on the next fleet check.
 - **Imports** — link or move TTS weights from other launchers (e.g. a standalone VoxCPM webui).
-- **Cloud audio gateway** — connect ElevenLabs, GenAIPro, Fish Audio, fal.ai, or Kie.ai in Settings, explicitly allow paid use, map provider-native IDs onto voices in the library, then use cloud and local models from the same Generate workspace. ElevenLabs supports a centralized named account pool with quota-aware failover.
-- **Restart-safe cloud jobs** — asynchronous provider tasks are saved immediately and recalled after an Update or restart, so Voice Studio polls the existing paid task instead of submitting it twice.
 - **Hub-managed shared voices** — Studio Hub can securely install one reference
   voice under the same stable ID, audio hash, and transcript on every Voice
   Studio Mac. Existing machine-local voices are protected from collisions.
@@ -50,7 +48,7 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 1. Install: click **Install** in the Pinokio sidebar (creates the conda env).
 2. Start: click **Start** (runs uvicorn on port 47870 across all interfaces).
 3. Click **Open UI** to see the catalog. Pick models from **Models** → **Download**.
-4. **Install Generation** (the ✨ wand sidebar item) to use local models. Cloud models do not require the local generation engine.
+4. **Install Generation** (the ✨ wand sidebar item) to enable generation.
    The same action stays visible as **Reinstall Generation** while Voice Studio
    is running, including startup-service mode; it stops/restarts the appropriate
    server automatically. **What's New** is also always available in the sidebar
@@ -59,29 +57,20 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
    families, required tokenizers/codecs, missing companions, legacy packages,
    and safe removal actions. Existing Hugging Face downloads are indexed in
    place and are never moved or downloaded again just to appear in this view.
-6. For cloud speech, open **Settings → Cloud audio providers**. For ElevenLabs,
-   add each account to the pool on the main Hub Mac, check balances, and enable
-   paid usage. Then use **Voices → Edit** to map that same voice separately for
-   each account. Other providers continue to use one saved key.
 
-### ElevenLabs account pool
+### Cloud TTS providers were removed
 
-The pool lives in Voice Studio's private local settings on the Mac running the
-main Studio Hub. Remote Voice Studio Macs do not need ElevenLabs keys. Studio
-Hub routes ElevenLabs cloud jobs to this local Voice Studio gateway; remote Macs
-remain available for local TTS engines.
+Voice Studio 1.33.0 removed the cloud audio gateway (ElevenLabs, GenAIPro, Fish
+Audio, fal.ai, Kie.ai) along with `GET /api/providers` and every
+`/api/providers/*` endpoint. Voice Studio synthesises with local Apple Silicon
+engines only; paid cloud generation is GenStudio's job and never went through
+this app. A generate request whose `repo` still starts with `provider:` now
+returns a clear `400` instead of attempting a cloud call.
 
-Voice Studio selects an enabled account with a matching voice mapping, preferring
-the most known remaining credits. Exhausted or invalid accounts are skipped,
-temporary rate limits cool down automatically, and definite account-local
-failures move to the next mapped account. Keys created in the same ElevenLabs
-workspace share that workspace's quota, so use separate workspaces/accounts when
-you need genuinely separate plan balances.
-
-If a paid response connection drops, Voice Studio first recovers the exact
-result from ElevenLabs History. It only adopts one unambiguous text/model/voice
-match and never blindly resubmits an uncertain paid request. Connection failures
-that happen before submission retry automatically.
+Voices that had provider-native IDs recorded keep them: the `providers` array is
+still stored in each voice's `metadata.json` and still returned by
+`GET /api/voices`. Only the editing UI and the write endpoint are gone. Existing
+history entries for old cloud jobs still load and still play.
 
 ### Local generation memory protection
 
@@ -253,16 +242,6 @@ Once running, the API is at `http://<your-mac-ip>:47870`. Examples:
 const r = await fetch("http://localhost:47870/api/catalog");
 const { models, families } = await r.json();
 
-// Inspect all five cloud providers. Models appear after key + paid consent + enabled.
-const providers = await fetch("http://localhost:47870/api/providers").then(r => r.json());
-
-// Add a named ElevenLabs account (the response contains only masked key data).
-await fetch("http://localhost:47870/api/providers/elevenlabs/accounts", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ label: "ElevenLabs 2", api_key: "your-api-key" }),
-});
-
 // Start a download. An already-complete matching snapshot returns
 // { job: null, already_cached: true, cache: ... } instead of another history row.
 const download = await fetch("http://localhost:47870/api/downloads", {
@@ -286,16 +265,6 @@ r = requests.get("http://localhost:47870/api/catalog").json()
 for m in r["models"]:
     print(m["repo"], m["size_gb"], "GB", m["cache"]["state"])
 
-# List cloud-provider readiness and models
-providers = requests.get("http://localhost:47870/api/providers").json()
-print(providers)
-
-# Add another ElevenLabs account to the local gateway pool
-requests.post(
-    "http://localhost:47870/api/providers/elevenlabs/accounts",
-    json={"label": "ElevenLabs 2", "api_key": "your-api-key"},
-)
-
 # Start a download
 requests.post(
     "http://localhost:47870/api/downloads",
@@ -314,15 +283,6 @@ curl http://localhost:47870/api/model-storage | jq .
 
 # Remove one complete package after active-work and dependency safety checks
 curl -X DELETE http://localhost:47870/api/model-storage/owner/repository | jq .
-
-# Cloud provider status and current models
-curl http://localhost:47870/api/providers | jq .
-
-# Add an ElevenLabs account, then refresh all balances
-curl -X POST http://localhost:47870/api/providers/elevenlabs/accounts \
-  -H "content-type: application/json" \
-  -d '{"label":"ElevenLabs 2","api_key":"your-api-key"}'
-curl -X POST http://localhost:47870/api/providers/elevenlabs/accounts/refresh | jq .
 
 # Start a download
 curl -X POST http://localhost:47870/api/downloads \
@@ -350,8 +310,8 @@ or the protected session cookie established after successful authentication.
 Voice Studio rejects query-string credentials such as `?token=...` so fleet
 secrets do not leak through browser history, access logs, or copied links.
 Studio Hub uses `X-Studio-Token` for direct Studio calls and `X-Hub-Token` for
-controller-proxied calls. Provider-specific voice IDs and generated embeddings
-are intentionally not distributed.
+controller-proxied calls. Recorded provider-native voice IDs and generated
+embeddings are intentionally not distributed.
 
 ### Private GenStudio reference execution
 

@@ -16,7 +16,6 @@ Serves:
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -35,7 +34,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import (cache, catalog, memory_policy, model_storage, providers,
+from . import (cache, catalog, memory_policy, model_storage,
                reference_audio, settings as app_settings, storage_policy)
 from .generation import (
     manager as gen_manager,
@@ -167,60 +166,22 @@ class TokenTestBody(BaseModel):
     hf_token: Optional[str] = None
 
 
-class ProviderKeyBody(BaseModel):
-    api_key: Optional[str] = None
+CLOUD_REPO_PREFIX = "provider:"
 
 
-class ProviderToggleBody(BaseModel):
-    value: bool = False
+def _reject_cloud_repo(repo: str) -> None:
+    """Fail a replayed cloud request cleanly.
 
-
-class ProviderTestBody(BaseModel):
-    api_key: Optional[str] = None   # test a not-yet-saved key; falls back to saved
-
-
-class ProviderAccountCreateBody(BaseModel):
-    label: str
-    api_key: str
-
-
-class ProviderAccountUpdateBody(BaseModel):
-    label: Optional[str] = None
-    api_key: Optional[str] = None
-    enabled: Optional[bool] = None
-
-
-class VoiceProviderTagBody(BaseModel):
-    provider: str
-    voice_id: str
-    account_id: Optional[str] = None
-
-
-class UpdateVoiceProvidersBody(BaseModel):
-    providers: list[VoiceProviderTagBody] = Field(default_factory=list)
-
-
-def _validate_voice_provider_tags(tags: list[dict]) -> None:
-    unknown = sorted({tag["provider"] for tag in tags} - set(providers.PROVIDERS))
-    if unknown:
+    Voice Studio removed cloud TTS providers in 1.33.0. A stale bookmark, saved
+    preset, or retried Hub request can still carry a synthetic
+    `provider:<key>:<model>` repo id, and it must get a clear answer rather than
+    fall through to a local-catalog lookup.
+    """
+    if str(repo or "").startswith(CLOUD_REPO_PREFIX):
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown providers: {', '.join(unknown)}",
+            detail="Cloud providers are no longer supported; choose a local model.",
         )
-    for tag in tags:
-        account_id = str(tag.get("account_id") or "").strip()
-        if not account_id:
-            continue
-        if tag["provider"] != "elevenlabs":
-            raise HTTPException(
-                status_code=400,
-                detail="Account-specific voice mappings are supported for ElevenLabs only.",
-            )
-        if providers.get_elevenlabs_account(account_id) is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown ElevenLabs account: {account_id}",
-            )
 
 
 class Txt2SpeechBody(BaseModel):
@@ -563,11 +524,6 @@ def get_catalog() -> dict:
         d["active_download"] = active.serialize() if active else None
         d["kind"] = "local"
         models.append(d)
-    # Cloud provider models (ElevenLabs, ...) — only LIVE ones (key + paid + on).
-    # No download/cache; they're "ready" the moment the provider is live, so
-    # Story Studio sees one unified list of local + cloud models.
-    for cm in providers.cloud_models_for_catalog():
-        models.append({**cm, "cache": {"state": "cloud"}, "active_download": None})
     return {"families": families, "models": models}
 
 
@@ -881,171 +837,6 @@ def connectivity(request: Request) -> dict:
     }
 
 
-# ───────────── API: cloud TTS providers (the audio gateway) ─────────────
-
-@app.get("/api/providers")
-def list_providers() -> dict:
-    """All cloud audio providers with status + (when live) their model list.
-    A model only appears once the provider has a saved key AND the 'paid'
-    consent toggle is on — so nothing bills by accident."""
-    return {"providers": providers.list_providers_public(include_models=True)}
-
-
-@app.post("/api/providers/{key}/key")
-def set_provider_key(key: str, body: ProviderKeyBody) -> dict:
-    if key not in providers.PROVIDERS:
-        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
-    providers.set_key(key, body.api_key)
-    return providers.serialize_provider(key)
-
-
-@app.post("/api/providers/{key}/paid")
-def set_provider_paid(key: str, body: ProviderToggleBody) -> dict:
-    if key not in providers.PROVIDERS:
-        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
-    providers.set_paid(key, body.value)
-    return providers.serialize_provider(key)
-
-
-@app.post("/api/providers/{key}/enabled")
-def set_provider_enabled(key: str, body: ProviderToggleBody) -> dict:
-    if key not in providers.PROVIDERS:
-        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
-    providers.set_enabled(key, body.value)
-    return providers.serialize_provider(key)
-
-
-@app.post("/api/providers/{key}/test")
-def test_provider(key: str, body: ProviderTestBody) -> dict:
-    """Validate a provider's key (the one passed, else the saved one)."""
-    prov = providers.PROVIDERS.get(key)
-    if prov is None:
-        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
-    api_key = (body.api_key or "").strip() or providers.get_api_key(key)
-    if not api_key:
-        return {"ok": False, "message": "No API key set."}
-    ok, message = prov.adapter.test(api_key)
-    return {"ok": ok, "message": message}
-
-
-def _require_account_pool(key: str) -> None:
-    if key != "elevenlabs":
-        raise HTTPException(
-            status_code=400,
-            detail="Multiple accounts are currently supported for ElevenLabs only.",
-        )
-
-
-@app.get("/api/providers/{key}/accounts")
-def provider_accounts(key: str) -> dict:
-    _require_account_pool(key)
-    return {"accounts": providers.public_elevenlabs_accounts()}
-
-
-@app.post("/api/providers/{key}/accounts")
-def add_provider_account(key: str, body: ProviderAccountCreateBody) -> dict:
-    _require_account_pool(key)
-    try:
-        account = providers.add_elevenlabs_account(body.label, body.api_key)
-        providers.refresh_elevenlabs_account(account["id"])
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return providers.serialize_provider(key)
-
-
-@app.post("/api/providers/{key}/accounts/refresh")
-def refresh_provider_accounts(key: str) -> dict:
-    _require_account_pool(key)
-    account_ids = [account["id"] for account in providers.elevenlabs_accounts()]
-    if account_ids:
-        with ThreadPoolExecutor(max_workers=min(4, len(account_ids))) as pool:
-            list(pool.map(providers.refresh_elevenlabs_account, account_ids))
-    return providers.serialize_provider(key)
-
-
-@app.patch("/api/providers/{key}/accounts/{account_id}")
-def update_provider_account(
-    key: str, account_id: str, body: ProviderAccountUpdateBody,
-) -> dict:
-    _require_account_pool(key)
-    try:
-        providers.update_elevenlabs_account(
-            account_id,
-            label=body.label,
-            api_key=body.api_key,
-            enabled=body.enabled,
-        )
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Account not found.")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return providers.serialize_provider(key)
-
-
-@app.delete("/api/providers/{key}/accounts/{account_id}")
-def delete_provider_account(key: str, account_id: str) -> dict:
-    _require_account_pool(key)
-    try:
-        deleted = providers.delete_elevenlabs_account(account_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Account not found.")
-    # A mapping belongs to this credential/workspace. Remove it with the
-    # account so future voice edits never retain an invisible stale account ID.
-    for voice in voice_library.list():
-        current = voice.providers or []
-        cleaned = [
-            tag for tag in current
-            if not (
-                tag.get("provider") == "elevenlabs"
-                and tag.get("account_id") == account_id
-            )
-        ]
-        if len(cleaned) != len(current):
-            voice_library.update(voice.id, providers=cleaned)
-    return providers.serialize_provider(key)
-
-
-@app.post("/api/providers/{key}/accounts/{account_id}/test")
-def test_provider_account(key: str, account_id: str) -> dict:
-    _require_account_pool(key)
-    if providers.get_elevenlabs_account(account_id) is None:
-        raise HTTPException(status_code=404, detail="Account not found.")
-    providers.refresh_elevenlabs_account(account_id)
-    account = next(
-        item for item in providers.public_elevenlabs_accounts()
-        if item["id"] == account_id
-    )
-    return {
-        "ok": account["status"] in ("ready", "exhausted", "quota_unknown"),
-        "account": account,
-    }
-
-
-@app.get("/api/providers/{key}/models/live")
-def provider_models_live(key: str) -> dict:
-    """Force a fresh live fetch of a provider's models (bypasses the TTL cache) —
-    surfaces newly-shipped / deprecated models on demand."""
-    if key not in providers.PROVIDERS:
-        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
-    models = providers.models_for_provider(key, force=True)
-    return {"models": [{"id": m.id, "label": m.label, "notes": m.notes,
-                        "repo": providers.synthetic_id(key, m.id)} for m in models]}
-
-
-@app.get("/api/providers/{key}/voices/live")
-def provider_voices_live(key: str, account_id: Optional[str] = None) -> dict:
-    """Provider-native voices for mapping a library voice to its cloud ID."""
-    if key not in providers.PROVIDERS:
-        raise HTTPException(status_code=404, detail=f"Unknown provider: {key}")
-    if account_id and key == "elevenlabs" and providers.get_elevenlabs_account(account_id) is None:
-        raise HTTPException(status_code=404, detail="Account not found.")
-    return {"voices": providers.voices_for_provider(
-        key, force=True, account_id=account_id
-    )}
-
-
 # ───────────── API: generation ─────────────
 
 @app.get("/api/generate/availability")
@@ -1224,17 +1015,12 @@ class UpdateVoiceBody(BaseModel):
     notes: Optional[str] = None
     source_url: Optional[str] = None
     transcript: Optional[str] = None
-    providers: Optional[list[VoiceProviderTagBody]] = None
 
 
 @app.patch("/api/voices/{voice_id}")
 def update_voice(voice_id: str, body: UpdateVoiceBody) -> dict:
     """Edit a voice's metadata (most commonly: add a transcript to a clip
     that was uploaded without one — required for F5-TTS compatibility)."""
-    provider_tags = None
-    if body.providers is not None:
-        provider_tags = [tag.model_dump() for tag in body.providers]
-        _validate_voice_provider_tags(provider_tags)
     try:
         updated = voice_library.update(
             voice_id,
@@ -1245,27 +1031,7 @@ def update_voice(voice_id: str, body: UpdateVoiceBody) -> dict:
             notes=body.notes,
             source_url=body.source_url,
             transcript=body.transcript,
-            providers=provider_tags,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    if updated is None:
-        raise HTTPException(status_code=404, detail=f"voice {voice_id} not found")
-    return {"voice": _serialize_voice(updated)}
-
-
-@app.put("/api/voices/{voice_id}/providers")
-def update_voice_providers(voice_id: str, body: UpdateVoiceProvidersBody) -> dict:
-    """Replace a voice's provider mappings atomically.
-
-    One library voice may map to several cloud providers. ElevenLabs may have
-    one mapping per account; other providers have one mapping each.
-    Provider-native IDs are opaque and are never treated as paths.
-    """
-    tags = [tag.model_dump() for tag in body.providers]
-    _validate_voice_provider_tags(tags)
-    try:
-        updated = voice_library.update(voice_id, providers=tags)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if updated is None:
@@ -1323,35 +1089,26 @@ def list_loras_stub() -> dict:
 def start_txt2speech(body: Txt2SpeechBody) -> dict:
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="text is required")
+    _reject_cloud_repo(body.repo)
 
-    if providers.parse_id(body.repo):
-        # ── Cloud provider model ── the worker validates key/paid/model; here we
-        # just require a provider-native voice id (cloud TTS is voice-driven).
-        if not (body.voice or "").strip() and not (body.voice_library_id or "").strip():
-            raise HTTPException(
-                status_code=400,
-                detail="A mapped library voice is required for cloud providers.",
-            )
-    else:
-        # ── Local engine model ── needs the generation stack installed + cached.
-        if not gen_manager.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="TTS generation engine not installed. Run 'Install Generation' from the Pinokio sidebar.",
-            )
-        model = catalog.get_model(body.repo)
-        if model is None:
-            raise HTTPException(status_code=400, detail=f"Unknown repo: {body.repo}")
-        if "tts" not in (model.capabilities or ()):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Model {body.repo} doesn't support text-to-speech.",
-            )
-        if cache.cache_state(body.repo) != "cached":
-            raise HTTPException(
-                status_code=409,
-                detail=f"Model {body.repo} is not fully cached. Download it from the Models tab first.",
-            )
+    if not gen_manager.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="TTS generation engine not installed. Run 'Install Generation' from the Pinokio sidebar.",
+        )
+    model = catalog.get_model(body.repo)
+    if model is None:
+        raise HTTPException(status_code=400, detail=f"Unknown repo: {body.repo}")
+    if "tts" not in (model.capabilities or ()):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model {body.repo} doesn't support text-to-speech.",
+        )
+    if cache.cache_state(body.repo) != "cached":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Model {body.repo} is not fully cached. Download it from the Models tab first.",
+        )
 
     params = body.model_dump()
     try:
@@ -1384,11 +1141,7 @@ async def start_txt2speech_with_reference(
         raise HTTPException(status_code=400, detail=f"invalid TTS request: {exc}") from exc
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="text is required")
-    if providers.parse_id(body.repo):
-        raise HTTPException(
-            status_code=400,
-            detail="Private reference uploads are supported by local Voice Studio models only.",
-        )
+    _reject_cloud_repo(body.repo)
     model = catalog.get_model(body.repo)
     if model is None:
         raise HTTPException(status_code=400, detail=f"Unknown repo: {body.repo}")

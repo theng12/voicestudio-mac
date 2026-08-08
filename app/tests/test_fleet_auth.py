@@ -151,8 +151,6 @@ class FleetAuthTests(unittest.TestCase):
             main.gen_manager, "model_runtime_status", return_value=runtime,
         ), patch.object(
             main.manager, "active_for_repo", return_value=None,
-        ), patch.object(
-            main.providers, "cloud_models_for_catalog", return_value=[],
         ):
             item = next(row for row in main.get_catalog()["models"] if row["repo"] == repo)
 
