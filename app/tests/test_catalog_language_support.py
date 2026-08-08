@@ -120,7 +120,6 @@ def test_catalog_api_models_include_language_support_shape(monkeypatch) -> None:
     monkeypatch.setattr(main.manager, "active_for_repo", lambda _repo: None)
     monkeypatch.setattr(main.gen_manager, "model_runtime_status", lambda _model: {"runtime_ready": False})
     monkeypatch.setattr(main, "candidate_summary", lambda _repo: None)
-    monkeypatch.setattr(main.providers, "cloud_models_for_catalog", lambda: [])
 
     models = {item["repo"]: item for item in main.get_catalog()["models"]}
     support = models["mlx-community/chatterbox-4bit"]["language_support"]

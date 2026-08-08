@@ -252,7 +252,6 @@ function studio() {
       license: "self-owned",
       notes: "",
       transcript: "",
-      providerTags: {},
     },
 
     // Internal recording handles — kept off voiceUploader to avoid Alpine
@@ -332,23 +331,6 @@ function studio() {
       draft: { mode: "performance" }, dirty: false,
     },
 
-    // Cloud audio providers. `supported === false` is the graceful fallback
-    // for a frontend updated before its backend has restarted.
-    providersSupported: null,
-    voiceProviderTagsSupported: null,
-    providersLoading: false,
-    providers: [],
-    providerSearch: "",
-    focusedProvider: "",
-    providerKeyInputs: {},
-    providerShowKeys: {},
-    providerBusy: {},
-    providerFeedback: {},
-    providerLiveModels: {},
-    providerVoices: {},
-    providerAccountDraft: { label: "", api_key: "" },
-    providerAccountShowKey: false,
-
     // ──────── network/connectivity (where the API can be reached) ────────
     conn: {
       listen_port: null,
@@ -400,7 +382,6 @@ function studio() {
       setTimeout(() => this.refreshDiagnostics(), 750);
       await this.refreshLoras();
       await this.refreshSettings();
-      await this.refreshProviders();
       await this.refreshVoices();
       // STT/whisper availability — so the Models tab's "Subtitle models"
       // section is populated regardless of which tab the user opens first.
@@ -428,7 +409,7 @@ function studio() {
         const h = (location.hash || "").replace(/^#\/?/, "");
         if (["generate", "models", "downloads", "imports", "voices", "subtitles", "api", "settings"].includes(h)) this.tab = h;
         if (h === "imports") this.scanImports();
-        if (h === "settings") { this.refreshSettings(); this.refreshProviders(); }
+        if (h === "settings") this.refreshSettings();
         if (h === "subtitles") this.refreshTranscribe();
       };
       window.addEventListener("hashchange", applyHash);
@@ -494,7 +475,6 @@ function studio() {
     get modelsByFamily() {
       const out = {};
       for (const m of this.models) {
-        if (m.kind === "cloud") continue;
         (out[m.family] ||= []).push(m);
       }
       return out;
@@ -579,7 +559,7 @@ function studio() {
                          + (Number(m.size_gb) || 0) * 10
                          + (/recommended/i.test(m.label || "") ? 5 : 0);
       const pick = (predicate) => {
-        const c = (this.models || []).filter(m => m.kind !== "cloud" && fits(m) && predicate(m));
+        const c = (this.models || []).filter(m => fits(m) && predicate(m));
         if (!c.length) return null;
         return c.slice().sort((a, b) => score(b) - score(a))[0];
       };
@@ -652,7 +632,6 @@ function studio() {
       // 2. Group surviving models by family
       const out = {};
       for (const m of this.models) {
-        if (m.kind === "cloud") continue;
         if (!matches(m)) continue;
         (out[m.family] ||= []).push(m);
       }
@@ -675,7 +654,6 @@ function studio() {
     get availableCapabilities() {
       const set = new Set();
       for (const m of this.models) {
-        if (m.kind === "cloud") continue;
         for (const c of (m.capabilities || [])) set.add(c);
       }
       const order = { tts: 0, "voice-cloning": 1, expressive: 2, multilingual: 3, streaming: 4 };
@@ -688,7 +666,6 @@ function studio() {
       const seen = new Set();
       const out = [];
       for (const m of this.models) {
-        if (m.kind === "cloud") continue;
         if (seen.has(m.family)) continue;
         seen.add(m.family);
         out.push({ id: m.family, label: m.family_label || this.families?.[m.family]?.label || m.family });
@@ -1005,18 +982,7 @@ function studio() {
     },
 
     get generationModels() {
-      return this.models.filter(m =>
-        m.cache?.state === "cached"
-        || (m.kind === "cloud" && this.voiceProviderTagsSupported === true)
-      );
-    },
-
-    get localGenerationModels() {
-      return this.generationModels.filter(m => m.kind !== "cloud");
-    },
-
-    get cloudGenerationModels() {
-      return this.generationModels.filter(m => m.kind === "cloud");
+      return this.models.filter(m => m.cache?.state === "cached");
     },
 
     /** Local models grouped into one <optgroup> per family, so the picker reads
@@ -1027,7 +993,7 @@ function studio() {
     get localFamilyGroups() {
       const groups = [];
       const byId = new Map();
-      for (const m of this.localGenerationModels) {
+      for (const m of this.generationModels) {
         let g = byId.get(m.family);
         if (!g) {
           g = {
@@ -1065,27 +1031,6 @@ function studio() {
       return "not downloaded";
     },
 
-    /** Cloud models grouped by provider, mirroring the same idea. */
-    get cloudProviderGroups() {
-      const groups = [];
-      const byKey = new Map();
-      for (const m of this.cloudGenerationModels) {
-        const key = m.provider || this.cloudProviderKey(m.repo) || "cloud";
-        let g = byKey.get(key);
-        if (!g) {
-          g = {
-            id: key,
-            label: this.providers?.find(p => p.key === key)?.name || key,
-            models: [],
-          };
-          byKey.set(key, g);
-          groups.push(g);
-        }
-        g.models.push(m);
-      }
-      return groups;
-    },
-
     get modeCompatibleModels() {
       // Show only cached models that declare TTS support.
       return this.generationModels.filter(m => (m.capabilities || []).includes("tts"));
@@ -1097,10 +1042,6 @@ function studio() {
 
     get selectedVoiceSummary() {
       if (!this.selectedModel) return "—";
-      if (this.isCloudModel(this.gen.repo)) {
-        return this.voices.find(v => v.id === this.gen.voice_library_id)?.name
-            || "Choose tagged voice";
-      }
       const qwenMode = this.qwen3Mode(this.gen.repo);
       if (qwenMode === "custom") return this.gen.preset_speaker || "Choose speaker";
       if (this.isBark(this.gen.repo)) return this.gen.bark_voice_preset || "Random voice";
@@ -1118,11 +1059,6 @@ function studio() {
         return this.gen.voice || "Model default";
       }
       return "Model default";
-    },
-
-    get selectedCloudProvider() {
-      const key = this.cloudProviderKey(this.gen.repo);
-      return key ? this.providers.find(p => p.key === key) || null : null;
     },
 
     get selectedLibraryVoice() {
@@ -1143,12 +1079,6 @@ function studio() {
       return (this.gen.ref_transcript || "").trim()
           || this.selectedStoredTranscript
           || null;
-    },
-
-    get selectedCloudVoices() {
-      const key = this.cloudProviderKey(this.gen.repo);
-      if (!key) return [];
-      return this.voices.filter(v => this.voiceProviderTag(v, key));
     },
 
     // Per-family text-length guidance for the currently-selected model.
@@ -1188,11 +1118,10 @@ function studio() {
 
     get canSubmit() {
       if (this.gen.submitting) return false;
-      if (!this.gen.available && !this.isCloudModel(this.gen.repo)) return false;
+      if (!this.gen.available) return false;
       if (!this.gen.repo) return false;
       if (!this.gen.text.trim()) return false;
       if (!this.isModelReady(this.gen.repo)) return false;
-      if (this.isCloudModel(this.gen.repo) && !this.selectedCloudVoiceId()) return false;
       // Per-mode validation
       const mode = this.qwen3Mode(this.gen.repo);
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return false;
@@ -1210,13 +1139,10 @@ function studio() {
 
     get submitHint() {
       if (this.gen.submitting) return "";
-      if (!this.gen.available && !this.isCloudModel(this.gen.repo)) return "Install the generation engine to continue.";
+      if (!this.gen.available) return "Install the generation engine to continue.";
       if (!this.gen.repo) return "Choose a downloaded model to continue.";
       if (!this.gen.text.trim()) return "Type some text to enable Generate.";
       if (!this.isModelReady(this.gen.repo)) return "This model is not ready yet.";
-      if (this.isCloudModel(this.gen.repo) && !this.selectedCloudVoiceId()) {
-        return `Tag a library voice for ${this.selectedCloudProvider?.name || "this provider"}.`;
-      }
       const mode = this.qwen3Mode(this.gen.repo);
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return "Describe the voice you want.";
       if (mode === "clone" && !this.gen.voice_library_id) return "Pick a reference voice from your library.";
@@ -2021,390 +1947,6 @@ function studio() {
       }
     },
 
-    // ──────── cloud audio providers ────────
-    async refreshProviders() {
-      this.providersLoading = true;
-      try {
-        const r = await fetch("/api/providers");
-        if (r.status === 404) {
-          this.providersSupported = false;
-          this.providers = [];
-          return;
-        }
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this.providersSupported = true;
-        this.providers = data.providers || [];
-        this.voiceProviderTagsSupported = this.providers.some(
-          provider => provider.voice_mapping_supported === true
-        );
-        if (!this.providers.some(p => p.key === this.focusedProvider)) {
-          this.focusedProvider = this.providers[0]?.key || "";
-        }
-        this._reconcileSelectedModel();
-      } catch (e) {
-        if (this.providersSupported === null) this.providersSupported = false;
-      } finally {
-        this.providersLoading = false;
-      }
-    },
-
-    providerMatches(provider) {
-      const q = (this.providerSearch || "").trim().toLowerCase();
-      if (!q) return true;
-      const models = (provider.models || [])
-        .map(m => `${m.label || ""} ${m.id || ""} ${m.notes || ""}`)
-        .join(" ");
-      return [provider.name, provider.key, models]
-        .some(value => String(value || "").toLowerCase().includes(q));
-    },
-
-    visibleProviders() {
-      return this.providers.filter(provider => this.providerMatches(provider));
-    },
-
-    providerState(provider) {
-      if (provider.live) return { label: "Ready", tone: "ok" };
-      if (!provider.has_key) return { label: "Key needed", tone: "warn" };
-      if (!provider.paid) return { label: "Key saved", tone: "idle" };
-      if (!provider.enabled) return { label: "Paused", tone: "warn" };
-      return { label: "Checking", tone: "idle" };
-    },
-
-    providerModelSummary(provider) {
-      const visible = (this.providerLiveModels[provider.key] || provider.models || []).length;
-      if (visible) return `${visible} models`;
-      const available = Number(provider.available_model_count || 0);
-      if (!available) return "No TTS models";
-      if (provider.has_key && !provider.paid) return `${available} after consent`;
-      if (provider.has_key && !provider.enabled) return `${available} paused`;
-      return `${available} TTS models`;
-    },
-
-    providerActivationStatus(provider) {
-      if (provider.live) return "Ready for generation";
-      if (!provider.has_key) return "API key needed";
-      if (!provider.paid) return "Key saved · enable paid usage";
-      if (!provider.enabled) return "Provider paused";
-      return "Checking provider";
-    },
-
-    providerActivationHint(provider) {
-      if (!provider.has_key) return "Save an API key, then enable paid usage and keep this provider enabled before its cloud TTS models appear.";
-      if (!provider.paid) return `Your key is saved. Enable paid usage below to reveal ${provider.available_model_count || 0} TTS models. No request is made until you generate audio.`;
-      if (!provider.enabled) return "Paid usage is enabled, but this provider is paused. Turn on Provider enabled to make its cloud TTS models available.";
-      return "Cloud TTS models are ready for generation.";
-    },
-
-    get focusedProviderData() {
-      return this.providers.find(provider => provider.key === this.focusedProvider) || null;
-    },
-
-    focusProvider(key) {
-      this.focusedProvider = key;
-      setTimeout(() => {
-        document.querySelector(".provider-detail input[type='password'], .provider-detail input[data-provider-key]")
-          ?.focus({ preventScroll: true });
-      }, 80);
-    },
-
-    _replaceProvider(updated) {
-      const index = this.providers.findIndex(provider => provider.key === updated.key);
-      if (index >= 0) this.providers.splice(index, 1, updated);
-      else this.providers.push(updated);
-    },
-
-    _setProviderBusy(key, action) {
-      this.providerBusy = { ...this.providerBusy, [key]: action || "" };
-    },
-
-    _setProviderFeedback(key, ok, message) {
-      this.providerFeedback = { ...this.providerFeedback, [key]: { ok, message } };
-    },
-
-    async saveProviderKey(key) {
-      const apiKey = (this.providerKeyInputs[key] || "").trim();
-      if (!apiKey) {
-        this._setProviderFeedback(key, false, "Paste an API key first.");
-        return;
-      }
-      this._setProviderBusy(key, "save");
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/key`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ api_key: apiKey }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this._replaceProvider(data);
-        this.providerKeyInputs = { ...this.providerKeyInputs, [key]: "" };
-        this.providerShowKeys = { ...this.providerShowKeys, [key]: false };
-        this._setProviderFeedback(key, true, "Key saved on this Mac.");
-        this.pushToast({ kind: "success", icon: "✓", title: "Provider key saved", body: data.name });
-        await this.refreshCatalog();
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-      } finally {
-        this._setProviderBusy(key, "");
-      }
-    },
-
-    async clearProviderKey(key) {
-      const provider = this.providers.find(item => item.key === key);
-      if (!await this.askConfirm(
-        `Remove ${provider?.name || key} key?`,
-        "Cloud models from this provider will disappear, but local models and voice tags are kept.",
-        "Remove key"
-      )) return;
-      this._setProviderBusy(key, "clear");
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/key`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ api_key: "" }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this._replaceProvider(data);
-        this._setProviderFeedback(key, true, "Saved key removed.");
-        await this.refreshCatalog();
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-      } finally {
-        this._setProviderBusy(key, "");
-      }
-    },
-
-    async testProvider(key) {
-      const apiKey = (this.providerKeyInputs[key] || "").trim();
-      this._setProviderBusy(key, "test");
-      this._setProviderFeedback(key, true, "Testing connection…");
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/test`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ api_key: apiKey || null }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this._setProviderFeedback(key, !!data.ok, data.message || (data.ok ? "Connected." : "Connection failed."));
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-      } finally {
-        this._setProviderBusy(key, "");
-      }
-    },
-
-    async setProviderToggle(key, field, value) {
-      this._setProviderBusy(key, field);
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/${field}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ value: !!value }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this._replaceProvider(data);
-        const message = field === "paid"
-          ? (value ? "Paid usage enabled." : "Paid usage disabled.")
-          : (value ? "Provider enabled." : "Provider paused.");
-        this._setProviderFeedback(key, true, message);
-        await this.refreshCatalog();
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-        await this.refreshProviders();
-      } finally {
-        this._setProviderBusy(key, "");
-      }
-    },
-
-    async refreshProviderModels(key) {
-      this._setProviderBusy(key, "models");
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/models/live`);
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this.providerLiveModels = { ...this.providerLiveModels, [key]: data.models || [] };
-        this._setProviderFeedback(key, true, `Found ${(data.models || []).length} current models.`);
-        await this.refreshProviders();
-        await this.refreshCatalog();
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-      } finally {
-        this._setProviderBusy(key, "");
-      }
-    },
-
-    providerAccountBusyKey(accountId) {
-      return `elevenlabs-account:${accountId}`;
-    },
-
-    providerTagKey(providerKey, accountId = "") {
-      return accountId ? `${providerKey}::${accountId}` : providerKey;
-    },
-
-    providerAccountStatus(account) {
-      return ({
-        ready: "Ready",
-        exhausted: "No credits",
-        invalid: "Invalid key",
-        unavailable: "Unavailable",
-        quota_unknown: "Quota hidden",
-        cooldown: "Cooling down",
-        paused: "Paused",
-        unchecked: "Not checked",
-      })[account?.status] || "Not checked";
-    },
-
-    providerAccountNumber(value) {
-      return Number.isFinite(Number(value)) ? Number(value).toLocaleString() : "—";
-    },
-
-    providerAccountTime(value) {
-      if (!value) return "Not checked yet";
-      const date = new Date(Number(value) * 1000);
-      return Number.isNaN(date.getTime()) ? "Not checked yet" : date.toLocaleString();
-    },
-
-    providerAccountUsagePercent(account) {
-      const used = Number(account?.character_count);
-      const limit = Number(account?.character_limit);
-      if (!Number.isFinite(used) || !Number.isFinite(limit) || limit <= 0) return 0;
-      return Math.max(0, Math.min(100, (used / limit) * 100));
-    },
-
-    async addProviderAccount(key) {
-      const label = (this.providerAccountDraft.label || "").trim();
-      const apiKey = (this.providerAccountDraft.api_key || "").trim();
-      if (!label || !apiKey) {
-        this._setProviderFeedback(key, false, "Enter an account name and API key.");
-        return;
-      }
-      this._setProviderBusy(key, "account-add");
-      this._setProviderFeedback(key, true, "Adding and checking the account…");
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ label, api_key: apiKey }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this._replaceProvider(data);
-        this.providerAccountDraft = { label: "", api_key: "" };
-        this.providerAccountShowKey = false;
-        this._setProviderFeedback(key, true, "Account added to the local pool.");
-        await this.refreshCatalog();
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-      } finally {
-        this._setProviderBusy(key, "");
-      }
-    },
-
-    async refreshProviderAccounts(key) {
-      this._setProviderBusy(key, "accounts-refresh");
-      this._setProviderFeedback(key, true, "Checking balances and account health…");
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts/refresh`, {
-          method: "POST",
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this._replaceProvider(data);
-        this._setProviderFeedback(key, true, "Account balances refreshed.");
-        await this.refreshCatalog();
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-      } finally {
-        this._setProviderBusy(key, "");
-      }
-    },
-
-    async testProviderAccount(key, accountId) {
-      const busyKey = this.providerAccountBusyKey(accountId);
-      this._setProviderBusy(busyKey, "test");
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts/${encodeURIComponent(accountId)}/test`, {
-          method: "POST",
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        await this.refreshProviders();
-        this._setProviderFeedback(key, !!data.ok, data.account?.message || (data.ok ? "Connected." : "Connection failed."));
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-      } finally {
-        this._setProviderBusy(busyKey, "");
-      }
-    },
-
-    async setProviderAccountEnabled(key, account, enabled) {
-      const busyKey = this.providerAccountBusyKey(account.id);
-      this._setProviderBusy(busyKey, "toggle");
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts/${encodeURIComponent(account.id)}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: !!enabled }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this._replaceProvider(data);
-        this._setProviderFeedback(key, true, enabled ? `${account.label} resumed.` : `${account.label} paused.`);
-        await this.refreshCatalog();
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-      } finally {
-        this._setProviderBusy(busyKey, "");
-      }
-    },
-
-    async deleteProviderAccount(key, account) {
-      if (!await this.askConfirm(
-        `Remove ${account.label}?`,
-        "The API key is removed from this Mac. Existing per-account voice mappings stay visible until you edit those voices.",
-        "Remove account"
-      )) return;
-      const busyKey = this.providerAccountBusyKey(account.id);
-      this._setProviderBusy(busyKey, "delete");
-      try {
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/accounts/${encodeURIComponent(account.id)}`, {
-          method: "DELETE",
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this._replaceProvider(data);
-        this._setProviderFeedback(key, true, `${account.label} removed.`);
-        await this.refreshCatalog();
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-      } finally {
-        this._setProviderBusy(busyKey, "");
-      }
-    },
-
-    async refreshProviderVoices(key, force = false, accountId = "") {
-      const cacheKey = this.providerTagKey(key, accountId);
-      if (!force && this.providerVoices[cacheKey]) return this.providerVoices[cacheKey];
-      this._setProviderBusy(cacheKey, "voices");
-      try {
-        const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : "";
-        const r = await fetch(`/api/providers/${encodeURIComponent(key)}/voices/live${query}`);
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(this._formatApiError(data, r.status));
-        this.providerVoices = { ...this.providerVoices, [cacheKey]: data.voices || [] };
-        return data.voices || [];
-      } catch (e) {
-        this._setProviderFeedback(key, false, String(e.message || e));
-        return [];
-      } finally {
-        this._setProviderBusy(cacheKey, "");
-      }
-    },
-
     async clearFinishedDownloads() {
       try {
         const r = await fetch("/api/downloads", { method: "DELETE" });
@@ -2994,7 +2536,6 @@ function studio() {
       // Fetch the transcript fresh from the API so we get current state
       // (the listing response doesn't include the transcript body).
       let transcript = "";
-      let providerTags = voice.providers || [];
       try {
         const r = await fetch("/api/voices/" + encodeURIComponent(voice.id));
         if (r.ok) {
@@ -3002,7 +2543,6 @@ function studio() {
           // GET /api/voices/{id} returns the voice flat at the top level
           // and tucks the transcript into a separate `transcript` field.
           transcript = data.transcript || "";
-          providerTags = data.providers || providerTags;
         }
       } catch {}
       Object.assign(this.voiceEditor, {
@@ -3016,27 +2556,7 @@ function studio() {
         license: voice.license || "self-owned",
         notes: voice.notes || "",
         transcript,
-        providerTags: Object.fromEntries(providerTags.filter(tag => {
-          if (tag.provider !== "elevenlabs" || !tag.account_id) return true;
-          const accountIds = new Set(
-            (this.providers.find(item => item.key === "elevenlabs")?.accounts || [])
-              .map(account => account.id)
-          );
-          return accountIds.has(tag.account_id);
-        }).map(tag => [
-          this.providerTagKey(tag.provider, tag.account_id || ""),
-          tag.voice_id,
-        ])),
       });
-      for (const provider of this.providers.filter(item => item.has_key)) {
-        if (provider.key === "elevenlabs" && provider.accounts?.length) {
-          for (const account of provider.accounts) {
-            this.refreshProviderVoices(provider.key, false, account.id);
-          }
-        } else {
-          this.refreshProviderVoices(provider.key);
-        }
-      }
     },
     closeVoiceEditor() {
       this.voiceEditor.open = false;
@@ -3057,16 +2577,6 @@ function studio() {
           license: e.license,
           notes: e.notes,
           transcript: e.transcript,
-          providers: Object.entries(e.providerTags || {})
-            .filter(([, voiceId]) => String(voiceId || "").trim())
-            .map(([mappingKey, voiceId]) => {
-              const [provider, accountId = ""] = mappingKey.split("::", 2);
-              return {
-                provider,
-                voice_id: String(voiceId).trim(),
-                ...(accountId ? { account_id: accountId } : {}),
-              };
-            }),
         };
         const r = await fetch("/api/voices/" + encodeURIComponent(e.voice.id), {
           method: "PATCH",
@@ -3115,30 +2625,6 @@ function studio() {
 
     genderLabel(g) {
       return ({ m: "♂ male", f: "♀ female", n: "neutral" })[g] || g;
-    },
-
-    voiceProviderTag(voice, providerKey, accountId = "") {
-      return (voice?.providers || []).find(tag =>
-        tag.provider === providerKey
-        && (!accountId || tag.account_id === accountId)
-      ) || null;
-    },
-
-    providerVoiceLabel(providerKey, voiceId, accountId = "") {
-      const cacheKey = this.providerTagKey(providerKey, accountId);
-      const match = (this.providerVoices[cacheKey] || []).find(voice => voice.id === voiceId);
-      return match?.label || voiceId;
-    },
-
-    cloudVoiceOptionLabel(voice, providerKey) {
-      const tags = (voice?.providers || []).filter(tag => tag.provider === providerKey);
-      if (providerKey === "elevenlabs" && tags.some(tag => tag.account_id)) {
-        return `${voice.name} · ${tags.length} account${tags.length === 1 ? "" : "s"} mapped`;
-      }
-      const tag = tags[0];
-      return tag
-        ? `${voice.name} · ${this.providerVoiceLabel(providerKey, tag.voice_id, tag.account_id || "")}`
-        : voice.name;
     },
 
     licenseLabel(lic) {
@@ -3393,10 +2879,6 @@ function studio() {
       // not-cached. (The $watch on gen.repo also sets this, but flipping it
       // here too means we don't depend on watcher ordering.)
       this._repoUserConfirmed = true;
-      if (this.isCloudModel(this.gen.repo)) {
-        const valid = this.selectedCloudVoices.some(voice => voice.id === this.gen.voice_library_id);
-        if (!valid) this.gen.voice_library_id = this.selectedCloudVoices[0]?.id || "";
-      }
       // Apply per-family default knob values when the user switches engines.
       // Saves the user from having to remember each model's sweet-spot defaults.
       if (this.isVoxCPMMlx(this.gen.repo) && !this.gen.inference_timesteps) {
@@ -3456,7 +2938,6 @@ function studio() {
     },
     isModelReady(repo) {
       if (!repo) return false;
-      if (this.isCloudModel(repo)) return true;
       const e = this.modelEngine(repo);
       // No diagnostic data yet → don't block. We assume ready until we know
       // otherwise; the backend will still 503 on submit if it's actually broken.
@@ -3476,7 +2957,6 @@ function studio() {
       return e ? (e.missing || []) : [];
     },
     modelOptionLabel(m) {
-      if (m.kind === "cloud") return `${m.label} · cloud`;
       const e = (this.diag.engines || []).find(x => x.family === m.family);
       if (!e || e.ready) return m.label;
       // Distinguish "missing packages" (fixable by user) from "worker in roadmap"
@@ -3504,33 +2984,9 @@ function studio() {
       if (!choices.some(item => item.id === this.gen.kokoro_blend_voice)) this.gen.kokoro_blend_voice = "";
     },
 
-    isCloudModel(repo) {
-      if (!repo) return false;
-      const model = (this.models || []).find(item => item.repo === repo);
-      return model?.kind === "cloud" || repo.startsWith("provider:");
-    },
-
     huggingFaceUrl(repo) {
-      // Cloud/gateway models use a synthetic "provider:key:model_id" repo id —
-      // there's no Hugging Face page to link to for those.
-      if (!repo || this.isCloudModel(repo)) return "";
+      if (!repo) return "";
       return `https://huggingface.co/${repo}`;
-    },
-
-    cloudProviderKey(repo) {
-      if (!this.isCloudModel(repo)) return "";
-      const model = (this.models || []).find(item => item.repo === repo);
-      if (model?.provider) return model.provider;
-      return String(repo || "").split(":")[1] || "";
-    },
-
-    selectedCloudVoiceId() {
-      const providerKey = this.cloudProviderKey(this.gen.repo);
-      if (!providerKey || !this.gen.voice_library_id) return "";
-      return this.voiceProviderTag(
-        this.voices.find(voice => voice.id === this.gen.voice_library_id),
-        providerKey
-      )?.voice_id || "";
     },
     randomTextPrompt() {
       if (!window.SAMPLE_PROMPTS || !window.SAMPLE_PROMPTS.length) return;
@@ -3733,14 +3189,14 @@ function studio() {
     },
 
     async submitGenerate() {
-      if (!this.gen.available && !this.isCloudModel(this.gen.repo)) {
+      if (!this.gen.available) {
         this.pushToast({ kind: "warn", icon: "⚠", title: "Engine not installed",
           body: "Click Install Generation in the Pinokio sidebar." });
         return;
       }
       if (!this.selectedModel) {
         this.pushToast({ kind: "warn", icon: "⚠", title: "Pick an available model first",
-          body: "Download a local model or connect a cloud provider." });
+          body: "Download a model from the Models tab." });
         return;
       }
       if (!this.gen.text.trim()) return;
@@ -3763,8 +3219,7 @@ function studio() {
 
         // Voice field: passed for the MLX voice-picker families (Kokoro and
         // Orpheus) and Spark-TTS-MLX, which accepts an optional preset voice.
-        const passesVoice = this.isCloudModel(repo) || this.isMlxVoicePicker(repo)
-                          || this.isSparkTtsMlx(repo);
+        const passesVoice = this.isMlxVoicePicker(repo) || this.isSparkTtsMlx(repo);
 
         // Instruct / voice description: Qwen3 custom (tone), Qwen3 design (full
         // prompt), VoxCPM2 (voice/style control), Spark-TTS-MLX (style hint),
@@ -3779,20 +3234,17 @@ function studio() {
                                 || this.isFishAudio(repo);
 
         // Voice library: every cloner family + Qwen3 clone mode + F5-TTS.
-        const passesLibraryVoice = this.isCloudModel(repo)
-                                || mode === "clone"
+        const passesLibraryVoice = mode === "clone"
                                 || this.isMlxCloner(repo)
                                 || this.isF5TTS(repo);
 
         return {
           repo,
           text: this.gen.text.trim(),
-          voice: this.isCloudModel(repo)
-                 ? (this.selectedCloudVoiceId() || null)
-                 : (passesVoice
-                    ? ([this.gen.voice, this.isKokoroMlx(repo) ? this.gen.kokoro_blend_voice : ""]
-                       .map(value => (value || "").trim()).filter(Boolean).join(",") || null)
-                    : null),
+          voice: passesVoice
+                 ? ([this.gen.voice, this.isKokoroMlx(repo) ? this.gen.kokoro_blend_voice : ""]
+                    .map(value => (value || "").trim()).filter(Boolean).join(",") || null)
+                 : null,
           language: (this.isKokoroMlx(repo) ? this.gen.kokoro_language : this.gen.language || "").trim() || null,
           speed: Number(this.gen.speed),
           temperature: Number(this.gen.temperature),
@@ -4256,7 +3708,7 @@ function studio() {
         .slice(0, 40) || "speech";
       const seed = job.resolved_seed ?? "seed";
       const voice = job.params?.voice ? `-${job.params.voice}` : "";
-      const extension = job.provider || /\.mp3$/i.test(job.output_path || "") ? "mp3" : "wav";
+      const extension = /\.mp3$/i.test(job.output_path || "") ? "mp3" : "wav";
       return `${text}${voice}-${seed}-${job.id}.${extension}`;
     },
 
@@ -4272,12 +3724,7 @@ function studio() {
         }
       }
       this.gen.text = p.text || "";
-      if (p.voice && this.isCloudModel(p.repo)) {
-        const providerKey = this.cloudProviderKey(p.repo);
-        this.gen.voice_library_id = this.voices.find(voice =>
-          this.voiceProviderTag(voice, providerKey)?.voice_id === p.voice
-        )?.id || "";
-      } else if (p.voice) {
+      if (p.voice) {
         const [voice, blend = ""] = p.voice.split(",");
         this.gen.voice = voice;
         this.gen.kokoro_blend_voice = this.isKokoroMlx(p.repo) ? blend : "";

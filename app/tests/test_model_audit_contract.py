@@ -227,7 +227,6 @@ def test_catalog_exposes_candidate_evidence_without_exposure_authority(
         },
     )
     monkeypatch.setattr(main.manager, "active_for_repo", lambda _repo: None)
-    monkeypatch.setattr(main.providers, "cloud_models_for_catalog", lambda: [])
 
     item = {
         row["repo"]: row for row in main.get_catalog()["models"]
