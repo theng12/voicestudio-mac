@@ -32,21 +32,17 @@ MODES = {
 # at all. The idle-release thread was running the whole time — it just had
 # nothing to do, because idle_seconds is None in this mode.
 #
-# The default now reflects the machine instead of an imagined solo one. An
+# A five-machine production pressure run on 2026-08-09 showed that waiting even
+# two minutes is too long for a Mac that must switch between sibling Studios.
+# Image throughput was unchanged, while the following Voice job on an M4 16 GB
+# fell from 52.7 s to 4.0 s once the prior Studio released immediately. An
 # operator's explicit choice, persisted in memory_policy.json, always wins.
-_SMALL_MACHINE_GB = 12
-DEFAULT_MODE = "balanced"
-SMALL_MACHINE_DEFAULT_MODE = "memory_saver"
+DEFAULT_MODE = "immediate"
 
 
 def default_mode() -> str:
     """Mode to use when the operator has not chosen one."""
-    try:
-        import psutil
-        total_gb = psutil.virtual_memory().total / 1e9
-    except Exception:
-        return DEFAULT_MODE
-    return SMALL_MACHINE_DEFAULT_MODE if total_gb < _SMALL_MACHINE_GB else DEFAULT_MODE
+    return DEFAULT_MODE
 
 
 CHECK_INTERVAL_SECONDS = 5

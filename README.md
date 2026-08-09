@@ -105,12 +105,12 @@ loaded state, the cold/loaded free-memory requirements, the minimum total
 unified memory, and whether the
 model is eligible on the current machine at that moment.
 
-Settings now also provides model-memory modes. The default follows the host's
-memory: **Memory Saver** below 12 GB, **Balanced** at or above it — an explicit
-operator choice always wins. **Performance** preserves loaded local TTS and
-Whisper models for faster repeat work and never releases on idle. Balanced
-unloads after 10 idle minutes, Memory Saver after 2 minutes, and Immediate
-after each completed local task. **Release Memory / Unload Model** manually
+Settings now also provides model-memory modes. Fresh installs use
+**Immediate** so model memory is released after each completed local task and
+the Mac is ready for another sibling Studio; an explicit operator choice always
+wins. **Performance** preserves loaded local TTS and Whisper models for faster
+repeat work and never releases on idle. Balanced unloads after 10 idle minutes
+and Memory Saver after 2 minutes. **Release Memory / Unload Model** manually
 releases both caches when no generation or transcription is active. Weights,
 shared voices, clone references, and outputs remain on disk. The same controls
 are available through `GET/PUT /api/memory-policy` and

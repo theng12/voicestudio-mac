@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.0.3] — 2026-08-09
+
+### Changed — new installs favor cross-Studio switching
+
+- Fresh installs now default to **Immediate** model-memory release. Existing
+  saved operator choices remain authoritative.
+- A controlled M1/M2/M4 fleet pressure run completed every Image and Voice job
+  with valid artifacts. On an M4 16 GB Mac, Immediate release left Image time
+  unchanged at about 72 seconds and reduced the following Voice job from 52.7
+  seconds to 4.0 seconds.
+
 ## [2.0.2] — 2026-08-09
 
 ### Fixed — the documented download transport matches production
