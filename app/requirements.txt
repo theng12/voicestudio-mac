@@ -1,4 +1,6 @@
 fastapi>=0.139
+pydantic>=2.12
+starlette>=0.52,<2
 uvicorn[standard]>=0.30
 huggingface_hub>=1.0
 sse-starlette>=2.1

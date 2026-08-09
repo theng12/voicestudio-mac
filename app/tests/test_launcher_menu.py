@@ -92,12 +92,12 @@ def test_whats_new_displays_the_local_changelog() -> None:
     assert 'path: "CHANGELOG.md"' in source
 
 
-def test_huggingface_downloads_use_high_performance_xet_in_every_launch_mode() -> None:
+def test_launchers_do_not_override_the_backend_download_transport_policy() -> None:
     regular = (ROOT / "start.js").read_text(encoding="utf-8")
     service = (ROOT / "voicestudio-serve.sh").read_text(encoding="utf-8")
 
-    assert '"HF_XET_HIGH_PERFORMANCE": "1"' in regular
-    assert "export HF_XET_HIGH_PERFORMANCE=1" in service
+    assert "HF_XET_HIGH_PERFORMANCE" not in regular
+    assert "HF_XET_HIGH_PERFORMANCE" not in service
 
 
 def test_common_actions_use_consistent_names_and_safe_order() -> None:

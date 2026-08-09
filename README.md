@@ -29,10 +29,11 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   native MLX conversion with all 130 multilingual presets and complete sampling controls.
 - **Smart downloads** — filters out redundant duplicate weight formats,
   recognizes an already-complete immutable snapshot without creating another
-  history entry, and enables Hugging Face Xet's high-performance transfer mode
-  in both regular and always-on service launches. F5-TTS goes from 6.3 GB →
-  1.3 GB, Bark avoids more than 4 GB of duplicate preset files, and Chatterbox
-  goes from 11 GB → 3 GB.
+  history entry, and uses resumable classic HTTP by default after Xet stalls
+  were observed on fleet downloads. Set `VOICESTUDIO_ENABLE_XET=1` only on a
+  diagnosed machine to opt back in. F5-TTS goes from 6.3 GB → 1.3 GB, Bark
+  avoids more than 4 GB of duplicate preset files, and Chatterbox goes from
+  11 GB → 3 GB.
 - **Resume on retry** — partial downloads pick up where they left off.
   A normal partial is preserved until it finishes; proven-stale leftovers are
   cleaned after success, and a transfer with no byte progress for 15 minutes

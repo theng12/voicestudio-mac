@@ -9,8 +9,7 @@ module.exports = {
           "path": "{{path.resolve(cwd, 'conda_env')}}"
         },
         env: {
-          "PYTHONUNBUFFERED": "1",
-          "HF_XET_HIGH_PERFORMANCE": "1"
+          "PYTHONUNBUFFERED": "1"
         },
         message: [
           "if [ -f ../service/.installed ]; then echo \"Startup service mode is installed. Use 'Open UI (service)' or uninstall the startup service before using Start.\"; exit 1; fi",

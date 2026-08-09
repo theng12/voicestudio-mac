@@ -10,6 +10,26 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.0.2] — 2026-08-09
+
+### Fixed — the documented download transport matches production
+
+- The README and both launch modes still claimed to enable Hugging Face Xet's
+  high-performance transfer mode, even though Voice Studio has deliberately
+  disabled Xet by default since 1.27.15 after repeat fleet stalls and held
+  cache locks. Removed the inert `HF_XET_HIGH_PERFORMANCE` launch flags and now
+  document resumable classic HTTP as the safe default, with the existing
+  `VOICESTUDIO_ENABLE_XET=1` diagnostic opt-in.
+- Declared Pydantic and Starlette as direct base dependencies because Voice
+  Studio imports both at runtime. The existing base and generation lock
+  versions already satisfy the compatible floors, so no model runtime changed.
+
+The 17 local TTS families, model download/resume implementation, fleet voice
+sync, generation, transcription, memory admission and idle release, safe
+updates, and local-only API remain unchanged. Verification: 358 tests,
+dependency integrity, Python compilation, JavaScript and launcher syntax,
+catalog truth, and contract-to-runtime audits pass.
+
 ## [2.0.1] — 2026-08-09
 
 ### Fixed — legacy voice files are scrubbed, not only ignored

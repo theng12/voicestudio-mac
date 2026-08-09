@@ -13,6 +13,14 @@ ROOT = Path(__file__).resolve().parents[2]
 APP_DIR = ROOT / "app"
 
 
+def test_readme_describes_the_safe_default_transport() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "resumable classic HTTP by default" in readme
+    assert "VOICESTUDIO_ENABLE_XET=1" in readme
+    assert "enables Hugging Face Xet's high-performance transfer mode" not in readme
+
+
 def _fake_huggingface_hub(tmp_path: Path) -> Path:
     """Create an import probe without needing the heavy generation environment."""
     package = tmp_path / "huggingface_hub"
