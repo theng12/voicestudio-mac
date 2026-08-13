@@ -11,11 +11,13 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"   # launcher root (this file's folder)
+PINOKIO_HOME="$(cd "$HERE/../.." && pwd)"
 
 # Pin the model cache to the same place Pinokio uses, or the app won't find the
 # models you already downloaded. The backend selects the safe Hugging Face
 # transport before importing the Hub client.
 export HF_HOME="$HERE/cache/HF_HOME"
+export PATH="$PINOKIO_HOME/bin/miniforge/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 export PYTHONUNBUFFERED=1
 
 cd "$HERE/app"

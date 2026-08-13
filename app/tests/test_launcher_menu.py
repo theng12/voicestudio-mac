@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -98,6 +99,42 @@ def test_launchers_do_not_override_the_backend_download_transport_policy() -> No
 
     assert "HF_XET_HIGH_PERFORMANCE" not in regular
     assert "HF_XET_HIGH_PERFORMANCE" not in service
+
+
+def test_startup_service_can_find_pinokio_bundled_media_tools(tmp_path: Path) -> None:
+    pinokio_home = tmp_path / "pinokio"
+    app_root = pinokio_home / "api" / "voicestudio-mac.git"
+    app_root.mkdir(parents=True)
+    (app_root / "app").mkdir()
+    service = app_root / "voicestudio-serve.sh"
+    service.write_text(
+        (ROOT / "voicestudio-serve.sh").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    service.chmod(0o755)
+
+    fake_python = app_root / "conda_env" / "bin" / "python"
+    fake_python.parent.mkdir(parents=True)
+    fake_python.write_text(
+        "#!/bin/sh\ncommand -v ffprobe\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    ffprobe = pinokio_home / "bin" / "miniforge" / "bin" / "ffprobe"
+    ffprobe.parent.mkdir(parents=True)
+    ffprobe.write_text("#!/bin/sh\n", encoding="utf-8")
+    ffprobe.chmod(0o755)
+
+    result = subprocess.run(
+        [str(service)],
+        env={"PATH": "/usr/bin:/bin"},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == str(ffprobe)
 
 
 def test_common_actions_use_consistent_names_and_safe_order() -> None:

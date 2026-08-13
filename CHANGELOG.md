@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.0.7] — 2026-08-14
+
+### Fixed — startup-service generation can find Pinokio's bundled media tools
+
+- The macOS startup service inherited launchd's minimal executable search path,
+  unlike a foreground Pinokio run. F5-TTS could load its local checkpoint but
+  then failed before inference because its reference-audio preprocessor could
+  not find Pinokio's bundled `ffprobe`.
+- The self-locating service entrypoint now prepends the current Pinokio home's
+  Miniforge tools directory to `PATH`. It is derived from the installed app
+  location and contains no username-specific path.
+- Added an executable service regression that starts the real entrypoint under
+  a launchd-like minimal environment and proves a bundled media tool remains
+  discoverable. No model, generation control, or API contract changed.
+
 ## [2.0.6] — 2026-08-13
 
 ### Fixed — OmniVoice section cleanup can no longer delete quiet words
