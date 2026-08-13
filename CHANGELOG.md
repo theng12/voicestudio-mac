@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.0.4] — 2026-08-13
+
+### Fixed — OmniVoice sections leave natural breathing room
+
+- Replaced OmniVoice's abrupt fixed 120 ms section join with boundary-aware
+  pacing: 300 ms after ordinary sentences, 600 ms between paragraphs, and
+  180 ms when an oversized sentence needs a softer internal split.
+- Join silence is pre-scaled before OmniVoice's final pitch-preserving tempo
+  pass, so the audible gaps remain stable when generation speed changes.
+- The production script that exposed the problem resolves to nine sentence
+  joins and eight paragraph joins: 7.50 seconds of deliberate breathing space
+  instead of 2.04 seconds across its 18 sections. No Hub or GenStudio request
+  contract changed.
+- Advanced the OmniVoice adapter contract to 1.2 and recorded the owner-approved
+  pacing policy. The existing model, 288-character section budget, voice-clone
+  inputs, local routing, and generation controls remain unchanged.
+
 ## [2.0.3] — 2026-08-09
 
 ### Changed — new installs favor cross-Studio switching

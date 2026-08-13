@@ -18,7 +18,7 @@ from backend import catalog, generation, long_form_policy, model_audits
         ("voxcpm-mlx", "mlx-community/VoxCPM2-4bit", 400, 120),
         ("kokoro-mlx", "mlx-community/Kokoro-82M-bf16", 3000, 120),
         ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit", 3000, 120),
-        ("omnivoice", "mlx-community/OmniVoice-bfloat16", 288, 120),
+        ("omnivoice", "mlx-community/OmniVoice-bfloat16", 288, 300),
         ("fish-audio-mlx", "mlx-community/fish-audio-s2-pro-8bit", 300, 120),
     ],
 )

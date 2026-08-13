@@ -1019,8 +1019,33 @@ def _long_form_join_pause_s(family: str, repo: str) -> float:
     return float(policy["join_pause_seconds"])
 
 
+def _omnivoice_join_pauses_s(text: str, chunks: list[str], speed: float) -> list[float]:
+    """Keep natural OmniVoice boundaries stable after final tempo adjustment."""
+    pauses: list[float] = []
+    cursor = 0
+    speed = max(0.5, min(float(speed), 2.0))
+    for index, chunk in enumerate(chunks[:-1]):
+        start = text.find(chunk, cursor)
+        end = start + len(chunk) if start >= 0 else cursor
+        next_start = text.find(chunks[index + 1], end)
+        separator = text[end:next_start] if next_start >= 0 else ""
+        visible_end = chunk.rstrip()
+        while visible_end and visible_end[-1] in _QWEN_TRAILING_CLOSERS:
+            visible_end = visible_end[:-1].rstrip()
+        if separator.count("\n") >= 2:
+            pause = long_form_policy.OMNIVOICE_PARAGRAPH_JOIN_PAUSE_SECONDS
+        elif visible_end and visible_end[-1] in _QWEN_SENTENCE_ENDINGS:
+            pause = long_form_policy.OMNIVOICE_JOIN_PAUSE_SECONDS
+        else:
+            pause = long_form_policy.OMNIVOICE_SOFT_JOIN_PAUSE_SECONDS
+        pauses.append(pause * speed)
+        cursor = max(end, next_start if next_start >= 0 else end)
+    return pauses
+
+
 def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,
-                         family: str, pause_s: float = _LONG_FORM_JOIN_PAUSE_S) -> None:
+                         family: str, pause_s: float = _LONG_FORM_JOIN_PAUSE_S,
+                         pause_sequence_s: Optional[list[float]] = None) -> None:
     """Validate and atomically stream independently synthesized WAV sections."""
     if not segment_paths:
         raise ValueError(f"No {family} audio segments were generated")
@@ -1043,10 +1068,9 @@ def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,
         if info.frames <= 0:
             raise RuntimeError(f"{family} returned an empty audio segment: {path.name}")
 
-    pause = np.zeros(
-        (round(max(0.0, pause_s) * sample_rate), channels),
-        dtype=np.float32,
-    )
+    if pause_sequence_s is not None and len(pause_sequence_s) != len(segment_paths) - 1:
+        raise ValueError("Long-form pause sequence must match the section boundaries")
+    pauses = pause_sequence_s or [pause_s] * (len(segment_paths) - 1)
     joining_path = output_path.parent / (
         f".{output_path.name}.{uuid.uuid4().hex}.joining"
     )
@@ -1070,8 +1094,12 @@ def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,
                         if len(block) == 0:
                             break
                         destination.write(block)
-                if index < len(segment_paths) - 1 and len(pause):
-                    destination.write(pause)
+                if index < len(pauses):
+                    pause_frames = round(max(0.0, pauses[index]) * sample_rate)
+                    if pause_frames:
+                        destination.write(
+                            np.zeros((pause_frames, channels), dtype=np.float32)
+                        )
         os.replace(joining_path, output_path)
     finally:
         joining_path.unlink(missing_ok=True)
@@ -2803,6 +2831,15 @@ class GenerationManager:
             output_path,
             family,
             pause_s=_long_form_join_pause_s(family, model_repo),
+            pause_sequence_s=(
+                _omnivoice_join_pauses_s(
+                    str(gen_kwargs.get("text") or ""),
+                    chunks,
+                    float(job.params.get("speed") or 1.0),
+                )
+                if family == "omnivoice"
+                else None
+            ),
         )
 
     def _generate_qwen_clone_long_form(self, job: GenerationJob, model, gen_kwargs: dict,

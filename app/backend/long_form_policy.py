@@ -13,6 +13,9 @@ from typing import Optional
 
 DEFAULT_JOIN_PAUSE_SECONDS = 0.12
 QWEN_CLONE_JOIN_PAUSE_SECONDS = 0.18
+OMNIVOICE_JOIN_PAUSE_SECONDS = 0.30
+OMNIVOICE_PARAGRAPH_JOIN_PAUSE_SECONDS = 0.60
+OMNIVOICE_SOFT_JOIN_PAUSE_SECONDS = 0.18
 QWEN_CLONE_SECTION_MAX_CHARACTERS = 288
 QWEN_PRESET_SECTION_MAX_CHARACTERS = 360
 CHATTERBOX_STANDARD_SECTION_MAX_CHARACTERS = 500
@@ -176,12 +179,13 @@ def _runtime_default(family: str, repo: str) -> Optional[LongFormPolicy]:
     if family == "omnivoice":
         return LongFormPolicy(
             section_max_characters=OMNIVOICE_SECTION_MAX_CHARACTERS,
-            join_pause_seconds=DEFAULT_JOIN_PAUSE_SECONDS,
+            join_pause_seconds=OMNIVOICE_JOIN_PAUSE_SECONDS,
             note=(
                 "Conservative cloning setting using the same reference for every "
-                "section. Fleet measurement puts OmniVoice's memory ceiling near "
-                "1286 characters even on 8 GB; this budget is retained until the "
-                "long-section quality gate has run."
+                "section, with 300 ms sentence joins, 600 ms paragraph joins, and "
+                "180 ms soft joins. Fleet measurement puts OmniVoice's memory "
+                "ceiling near 1286 characters even on 8 GB; this budget is retained "
+                "until the long-section quality gate has run."
             ),
         )
     if family == "fish-audio-mlx":

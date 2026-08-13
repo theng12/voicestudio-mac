@@ -670,7 +670,65 @@ def test_qwen_clone_join_preserves_segment_audio_and_pause(tmp_path: Path) -> No
     assert np.allclose(audio[20:], -0.25, atol=1e-3)
 
 
-def test_qwen_clone_uses_relaxed_join_pause_without_changing_other_models() -> None:
+def test_omnivoice_long_form_join_uses_boundary_aware_speed_compensated_gaps(
+    tmp_path: Path,
+) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    chunks = [
+        "First complete sentence.",
+        "Second complete sentence.",
+        "Third soft phrase,",
+        "fourth soft phrase continues",
+    ]
+    full_text = f"{chunks[0]} {chunks[1]}\n\n{chunks[2]} {chunks[3]}"
+    output = tmp_path / "omnivoice.wav"
+    sections = tmp_path / "sections"
+    sections.mkdir()
+    calls = 0
+
+    def fake_generate_audio(*, model, output_path, join_audio, **kwargs) -> None:
+        nonlocal calls
+        calls += 1
+        sf.write(
+            Path(output_path) / "audio.wav",
+            np.full(10, calls / 10, dtype=np.float32),
+            1000,
+            subtype="PCM_16",
+        )
+
+    manager = object.__new__(generation.GenerationManager)
+    job = generation.GenerationJob(
+        job_id="omnivoice-boundaries",
+        mode="txt2speech",
+        params={"speed": 1.25},
+    )
+    manager._generate_mlx_long_form_sections(
+        job,
+        "omnivoice",
+        "omni-model",
+        {"text": full_text},
+        chunks,
+        sections,
+        output,
+        fake_generate_audio,
+        "mlx-community/OmniVoice-bfloat16",
+    )
+
+    audio, sample_rate = sf.read(output, dtype="float32")
+
+    assert sample_rate == 1000
+    # Target output gaps are 300 ms for a sentence, 600 ms for a paragraph,
+    # and 180 ms for a soft punctuation split. Pre-scaling by 1.25 keeps those
+    # durations stable after the finished WAV receives its 1.25x tempo pass.
+    assert len(audio) == 10 + 375 + 10 + 750 + 10 + 225 + 10
+    assert np.allclose(audio[10:385], 0.0, atol=1e-6)
+    assert np.allclose(audio[395:1145], 0.0, atol=1e-6)
+    assert np.allclose(audio[1155:1380], 0.0, atol=1e-6)
+
+
+def test_qwen_clone_and_omnivoice_use_their_owned_join_pauses() -> None:
     assert generation._long_form_join_pause_s(
         "qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
     ) == pytest.approx(0.18)
@@ -679,7 +737,7 @@ def test_qwen_clone_uses_relaxed_join_pause_without_changing_other_models() -> N
     ) == pytest.approx(0.12)
     assert generation._long_form_join_pause_s(
         "omnivoice", "mlx-community/OmniVoice-bfloat16"
-    ) == pytest.approx(0.12)
+    ) == pytest.approx(0.30)
 
 
 def test_qwen_speed_is_pitch_preserving_and_changes_duration(tmp_path: Path) -> None:

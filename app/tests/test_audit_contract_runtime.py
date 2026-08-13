@@ -130,7 +130,7 @@ KNOWN_BAD = {
         "an 8/12/15 s reference window (Qwen3-TTS Base's), "
         "against ref_audio_max_duration_s = 10.0"
     ),
-    "join_pause": "private_join_pause_milliseconds 180 (Qwen's), against 120",
+    "join_pause": "private_join_pause_milliseconds 180 (Qwen's), against 300",
     "language_control": (
         "a 10-value controls.language enum, against an adapter that passes no "
         "language kwarg and a catalog that enumerates none"

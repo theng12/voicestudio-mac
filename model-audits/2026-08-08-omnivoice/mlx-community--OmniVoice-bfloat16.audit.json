@@ -1,8 +1,8 @@
 {
   "schema": "studio.model-audit-record",
   "schema_version": 1,
-  "audit_id": "voicestudio-20260808-omnivoice-6119f707-contract-corrected",
-  "audited_at": "2026-08-08T00:00:00Z",
+  "audit_id": "voicestudio-20260813-omnivoice-6119f707-pacing-v2",
+  "audited_at": "2026-08-13T01:32:00Z",
   "subject": {
     "model_id": "mlx-community/OmniVoice-bfloat16",
     "upstream_model_id": "k2-fsa/OmniVoice",
@@ -22,7 +22,7 @@
     ],
     "adapter": {
       "id": "voicestudio.mlx-audio.omnivoice",
-      "version": "1.1",
+      "version": "1.2",
       "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
       "engine_mode": "omnivoice",
       "synthesis": "flow_matching"
@@ -105,7 +105,9 @@
       "text_min_characters": 1,
       "text_max_characters": 25000,
       "private_section_max_characters": 288,
-      "private_join_pause_milliseconds": 120,
+      "private_join_pause_milliseconds": 300,
+      "private_paragraph_join_pause_milliseconds": 600,
+      "private_soft_join_pause_milliseconds": 180,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
       "supports_cancellation_between_chunks": true,
@@ -171,19 +173,19 @@
   "genstudio_candidate": {
     "schema": "studio.model-audit",
     "schema_version": 1,
-    "audit_id": "voicestudio-20260808-omnivoice-6119f707-contract-corrected",
+    "audit_id": "voicestudio-20260813-omnivoice-6119f707-pacing-v2",
     "audit_status": "passed",
     "candidate_for_genstudio": true,
-    "contract_hash": "sha256:d9710ace805d7f39cae9f6b026b37403538c472a80cd9ad92a60970bba52f36a",
+    "contract_hash": "sha256:3f23d49e9796d87b1f5f7253c1d8cb80be2047d2cbc0f758c8cf22a17c112db5",
     "model_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
-    "audited_at": "2026-08-08T00:00:00Z",
+    "audited_at": "2026-08-13T01:32:00Z",
     "runtime_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
     "approved_operations": [
       "voice.tts"
     ],
     "adapter": {
       "id": "voicestudio.mlx-audio.omnivoice",
-      "version": "1.1",
+      "version": "1.2",
       "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
       "engine_mode": "omnivoice",
       "synthesis": "flow_matching"
@@ -266,7 +268,9 @@
       "text_min_characters": 1,
       "text_max_characters": 25000,
       "private_section_max_characters": 288,
-      "private_join_pause_milliseconds": 120,
+      "private_join_pause_milliseconds": 300,
+      "private_paragraph_join_pause_milliseconds": 600,
+      "private_soft_join_pause_milliseconds": 180,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
       "supports_cancellation_between_chunks": true,
@@ -326,8 +330,8 @@
     }
   },
   "evidence": {
-    "supersedes_audit_id": "voicestudio-20260808-omnivoice-6119f707-section288",
-    "reason": "The superseded record was authored concurrently by another session and shipped in v1.32.8. It validates structurally, but four contract fields are contradicted by this repository's own code and would have been published as a routing contract.",
+    "supersedes_audit_id": "voicestudio-20260808-omnivoice-6119f707-contract-corrected",
+    "reason": "The owner found the former 120 ms fixed join audibly abrupt in production narration and approved boundary-aware pacing while preserving the qualified model, section budget, and local routing contract.",
     "corrections": [
       {
         "field": "controls.language",
@@ -352,6 +356,12 @@
         "was": 180,
         "now": 120,
         "grounds": "long_form_policy.py:176-186 builds the OmniVoice policy with DEFAULT_JOIN_PAUSE_SECONDS, which is 0.12 (long_form_policy.py:14). 180 ms is Qwen's value."
+      },
+      {
+        "field": "input_limits OmniVoice join pauses",
+        "was": "120 ms at every section boundary",
+        "now": "300 ms sentence, 600 ms paragraph, 180 ms soft split; pre-scaled so final tempo adjustment preserves those effective gaps",
+        "grounds": "Owner production listening on 2026-08-13 found the fixed join too abrupt and accepted these boundary-aware values for the next three-minute listening check."
       }
     ],
     "additions": [
@@ -362,6 +372,13 @@
       "output_limits.max_single_pass_duration_seconds and latent_frames_per_second — the 120 s clamp and the 25 frames/s constant that together set the 3000-frame ceiling."
     ],
     "qualification_run": "2026-08-08-owner-fleet",
+    "pacing_policy_review": {
+      "reviewed_at": "2026-08-13T01:32:00Z",
+      "reviewer": "owner",
+      "issue": "120 ms fixed section joins made otherwise natural OmniVoice narration sound crowded at boundaries",
+      "approved_policy": "300 ms sentence, 600 ms paragraph, 180 ms soft split, stable across final tempo adjustment",
+      "next_evidence": "owner three-minute listening check"
+    },
     "cache": {
       "state": "cached",
       "snapshot_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
