@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.0.6] — 2026-08-13
+
+### Fixed — OmniVoice section cleanup can no longer delete quiet words
+
+- Removed adapter 1.3's destructive energy-based edge trimming after the
+  owner's 4m42s Rowan production check proved it removed the sentence-opening
+  word “The.” Fleet-internal Whisper Large independently transcribed the same
+  omission and identified the retained tail artifact as an extra “D.”
+- Signal energy cannot distinguish a quiet intended word from a voiced
+  conditioning fragment. Adapter 1.4 therefore preserves every generated frame
+  and applies only the existing speed-compensated 10 ms micro-fades. The
+  approved 300 ms sentence, 600 ms paragraph, and 180 ms soft-split pacing is
+  unchanged, with no speech crossfade.
+- This deliberately prefers an occasional section-edge crumb over irreversible
+  narration word loss. A future artifact remover must be transcript-aligned and
+  separately qualified; Voice Studio does not add fleet-wide Whisper latency or
+  memory pressure to the 8 GB production path in this safety release.
+- Published the replacement hash-bound OmniVoice adapter 1.4 contract and added
+  regressions proving quiet 180 ms opening words, measured 17–260 ms edge
+  activity, mono/stereo audio, WAV format, and total frame counts are preserved.
+
 ## [2.0.5] — 2026-08-13
 
 ### Fixed — OmniVoice section edges reject conditioning noise without clipping uncertain speech

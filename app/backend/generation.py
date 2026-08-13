@@ -1166,19 +1166,13 @@ _TERMINAL_SILENCE_FLOOR = 0.0005
 _TERMINAL_BLIP_MAX_SECONDS = 0.10
 _TERMINAL_BLIP_BRIDGE_SECONDS = 0.12
 
-# OmniVoice can add a quiet conditioning blob at an independently rendered
-# section edge. Only a short, confidently non-speech boundary may be removed:
-# ambiguous activity wins over cleanup, and a small pad remains around the
-# sustained speech boundary. The finished WAV receives its speed pass later,
-# so the edge fade is pre-scaled to remain about 10 ms in the delivered audio.
-_OMNIVOICE_EDGE_WINDOW_SECONDS = 0.300
-_OMNIVOICE_EDGE_SPEECH_PAD_SECONDS = 0.020
+# Independently rendered OmniVoice sections receive a short micro-fade before
+# joining. Do not trim from signal energy: quiet sentence-opening words and
+# unwanted phoneme fragments can have the same acoustic shape, so only a
+# transcript-aligned process could safely decide which samples are disposable.
+# The finished WAV receives its speed pass later, so the fade is pre-scaled to
+# remain about 10 ms in the delivered audio.
 _OMNIVOICE_EDGE_FADE_SECONDS = 0.010
-_OMNIVOICE_EDGE_FRAME_SECONDS = 0.010
-_OMNIVOICE_EDGE_ABSOLUTE_SPEECH_FLOOR = 0.0015
-_OMNIVOICE_EDGE_RELATIVE_SPEECH_THRESHOLD = 0.10
-_OMNIVOICE_EDGE_SUSTAINED_WINDOW_FRAMES = 8
-_OMNIVOICE_EDGE_SUSTAINED_ACTIVE_FRAMES = 6
 
 
 def _terminal_silence_correction_label(repo: str, family: str) -> Optional[str]:
@@ -1323,12 +1317,7 @@ def _trim_qwen_custom_terminal_silence(output_path: Path, repo: str) -> float:
 def _clean_omnivoice_section_edges(
     output_path: Path, speed: float
 ) -> tuple[float, float]:
-    """Safely trim quiet OmniVoice edge artifacts and apply micro-fades.
-
-    Returns the leading and trailing seconds removed. A boundary is trimmed
-    only when an 80 ms window contains sustained speech and no earlier/later
-    above-threshold activity could be a word. Uncertain bounds remain intact.
-    """
+    """Apply word-safe micro-fades without deleting OmniVoice audio frames."""
     import numpy as np
     import soundfile as sf
 
@@ -1336,67 +1325,7 @@ def _clean_omnivoice_section_edges(
     if info.frames <= 0 or info.samplerate <= 0 or info.channels <= 0:
         raise RuntimeError("OmniVoice produced an invalid WAV before edge cleanup")
 
-    frame_size = max(1, round(info.samplerate * _OMNIVOICE_EDGE_FRAME_SECONDS))
-    block_frames = frame_size * 500
-    frame_rms: list[float] = []
-    with sf.SoundFile(str(output_path), mode="r") as reader:
-        while True:
-            samples = reader.read(block_frames, dtype="float32", always_2d=True)
-            if len(samples) == 0:
-                break
-            if not bool(np.all(np.isfinite(samples))):
-                raise RuntimeError("OmniVoice produced non-finite audio samples")
-            full_frames = len(samples) // frame_size
-            if full_frames:
-                framed = samples[:full_frames * frame_size].reshape(
-                    full_frames, frame_size, info.channels
-                )
-                rms = np.sqrt(np.mean(np.square(framed), axis=(1, 2)))
-                frame_rms.extend(float(value) for value in rms)
-            if full_frames * frame_size < len(samples):
-                remainder = samples[full_frames * frame_size:]
-                frame_rms.append(float(np.sqrt(np.mean(np.square(remainder)))))
-
-    threshold = max(
-        _OMNIVOICE_EDGE_ABSOLUTE_SPEECH_FLOOR,
-        float(np.percentile(frame_rms, 90))
-        * _OMNIVOICE_EDGE_RELATIVE_SPEECH_THRESHOLD,
-    )
-    active = [value >= threshold for value in frame_rms]
-    window = _OMNIVOICE_EDGE_SUSTAINED_WINDOW_FRAMES
-    required = _OMNIVOICE_EDGE_SUSTAINED_ACTIVE_FRAMES
-
-    first_sustained: Optional[int] = None
-    last_sustained: Optional[int] = None
-    if len(active) >= window:
-        for index in range(len(active) - window + 1):
-            candidate = active[index:index + window]
-            if sum(candidate) >= required:
-                first_sustained = index + candidate.index(True)
-                break
-        for index in range(len(active) - window, -1, -1):
-            candidate = active[index:index + window]
-            if sum(candidate) >= required:
-                last_sustained = index + len(candidate) - 1 - candidate[::-1].index(True)
-                break
-
-    pad_frames = round(info.samplerate * _OMNIVOICE_EDGE_SPEECH_PAD_SECONDS)
-    max_trim_frames = round(info.samplerate * _OMNIVOICE_EDGE_WINDOW_SECONDS)
-    keep_start = 0
-    keep_end = info.frames
-    if first_sustained is not None and not any(active[:first_sustained]):
-        speech_start = first_sustained * frame_size
-        if speech_start <= max_trim_frames:
-            keep_start = max(0, speech_start - pad_frames)
-    if last_sustained is not None and not any(active[last_sustained + 1:]):
-        speech_end = min(info.frames, (last_sustained + 1) * frame_size)
-        if info.frames - speech_end <= max_trim_frames:
-            keep_end = min(info.frames, speech_end + pad_frames)
-    if keep_end <= keep_start:
-        keep_start = 0
-        keep_end = info.frames
-
-    cleaned_frames = keep_end - keep_start
+    cleaned_frames = info.frames
     speed = float(speed)
     if not math.isfinite(speed):
         raise ValueError("OmniVoice speed must be finite")
@@ -1424,7 +1353,6 @@ def _clean_omnivoice_section_edges(
             format=info.format,
             subtype=info.subtype,
         ) as destination:
-            source.seek(keep_start)
             position = 0
             while position < cleaned_frames:
                 samples = source.read(
@@ -1434,6 +1362,8 @@ def _clean_omnivoice_section_edges(
                 )
                 if len(samples) == 0:
                     raise RuntimeError("OmniVoice WAV ended during edge cleanup")
+                if not bool(np.all(np.isfinite(samples))):
+                    raise RuntimeError("OmniVoice produced non-finite audio samples")
                 block_end = position + len(samples)
                 if fade_frames and position < fade_frames:
                     fade_end = min(block_end, fade_frames)
@@ -1451,7 +1381,7 @@ def _clean_omnivoice_section_edges(
     finally:
         temporary.unlink(missing_ok=True)
 
-    return keep_start / info.samplerate, (info.frames - keep_end) / info.samplerate
+    return 0.0, 0.0
 
 
 def _apply_mlx_output_speed(output_path: Path, speed: float, family: str) -> bool:

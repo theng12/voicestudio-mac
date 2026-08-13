@@ -20,7 +20,7 @@ def _tone(seconds: float, sample_rate: int = 1_000) -> np.ndarray:
     return 0.3 * np.sin(2 * np.pi * 110 * np.arange(samples) / sample_rate)
 
 
-def test_omnivoice_section_edge_cleanup_removes_clear_low_energy_artifacts(
+def test_omnivoice_section_edge_cleanup_preserves_quiet_edges_and_only_fades(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "omnivoice-edge-artifacts.wav"
@@ -38,16 +38,16 @@ def test_omnivoice_section_edge_cleanup_removes_clear_low_energy_artifacts(
     corrected, corrected_rate = sf.read(output, dtype="float32")
 
     assert corrected_rate == sample_rate
-    assert removed_start == pytest.approx(0.250, abs=0.011)
-    assert removed_end == pytest.approx(0.240, abs=0.011)
-    assert len(corrected) == len(original) - round(
-        (removed_start + removed_end) * sample_rate
-    )
+    assert removed_start == 0.0
+    assert removed_end == 0.0
+    assert len(corrected) == len(original)
+    assert abs(corrected[0]) < 1e-3
+    assert abs(corrected[-1]) < 1e-3
     assert np.max(np.abs(corrected[300:-300])) > 0.2
 
 
 @pytest.mark.parametrize("artifact_seconds", [0.017, 0.080, 0.260])
-def test_omnivoice_section_edge_cleanup_handles_measured_orphan_lengths(
+def test_omnivoice_section_edge_cleanup_does_not_guess_about_orphan_lengths(
     tmp_path: Path, artifact_seconds: float
 ) -> None:
     output = tmp_path / f"omnivoice-orphan-{artifact_seconds}.wav"
@@ -62,9 +62,11 @@ def test_omnivoice_section_edge_cleanup_handles_measured_orphan_lengths(
     removed_start, removed_end = generation._clean_omnivoice_section_edges(
         output, speed=1.0
     )
+    corrected, _ = sf.read(output, dtype="float32")
 
     assert removed_start == 0.0
-    assert removed_end == pytest.approx(artifact_seconds + 0.020, abs=0.011)
+    assert removed_end == 0.0
+    assert len(corrected) == len(original)
 
 
 def test_omnivoice_section_edge_cleanup_preserves_immediate_stereo_speech(
@@ -137,6 +139,31 @@ def test_omnivoice_section_edge_cleanup_keeps_ambiguous_possible_speech(
     assert removed_end == 0.0
     assert len(corrected) == len(original)
     assert np.max(np.abs(corrected[: len(possible_word)])) > 0.07
+
+
+def test_omnivoice_section_edge_cleanup_never_removes_a_quiet_opening_word(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "omnivoice-quiet-opening-word.wav"
+    sample_rate = 10_000
+    quiet_opening_word = np.full(
+        round(0.180 * sample_rate), 0.004, dtype=np.float32
+    )
+    original = np.concatenate((
+        quiet_opening_word,
+        np.full(round(0.600 * sample_rate), 0.25, dtype=np.float32),
+    ))
+    sf.write(output, original, sample_rate, subtype="PCM_16")
+
+    removed_start, removed_end = generation._clean_omnivoice_section_edges(
+        output, speed=1.0
+    )
+    corrected, _ = sf.read(output, dtype="float32")
+
+    assert removed_start == 0.0
+    assert removed_end == 0.0
+    assert len(corrected) == len(original)
+    assert np.max(np.abs(corrected[200:1_700])) > 0.003
 
 
 def test_omnivoice_section_edge_cleanup_keeps_short_uncertain_section_bounds(

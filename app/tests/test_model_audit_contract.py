@@ -125,22 +125,21 @@ def test_rejected_group_b_qualifications_are_closed_and_never_candidates() -> No
         assert "approved_for_genstudio" not in json.dumps(record)
 
 
-def test_omnivoice_edge_cleanup_is_published_as_a_new_hash_bound_contract() -> None:
+def test_omnivoice_word_safe_edges_are_published_as_a_new_hash_bound_contract() -> None:
     record = model_audits.audit_record("mlx-community/OmniVoice-bfloat16")
     assert record is not None
     assert record["audit_id"] == (
-        "voicestudio-20260813-omnivoice-6119f707-edge-cleanup-v3"
+        "voicestudio-20260813-omnivoice-6119f707-word-safe-fades-v4"
     )
     candidate = record["genstudio_candidate"]
     assert candidate["audit_id"] == record["audit_id"]
-    assert candidate["adapter"]["version"] == "1.3"
+    assert candidate["adapter"]["version"] == "1.4"
     assert candidate["contract_hash"] == model_audits.contract_hash(
         record["contract"]
     )
     for contract in (record["contract"], candidate):
         limits = contract["input_limits"]
-        assert limits["private_edge_trim_window_milliseconds"] == 300
-        assert limits["private_edge_speech_pad_milliseconds"] == 20
+        assert limits["private_edge_destructive_trim"] is False
         assert limits["private_edge_fade_milliseconds"] == 10
         assert limits["private_join_pause_milliseconds"] == 300
         assert limits["private_paragraph_join_pause_milliseconds"] == 600
@@ -148,8 +147,11 @@ def test_omnivoice_edge_cleanup_is_published_as_a_new_hash_bound_contract() -> N
     review = record["evidence"]["edge_cleanup_review"]
     assert review["observed_artifact_range_milliseconds"] == {"minimum": 17, "maximum": 270}
     assert review["speech_preservation"] == (
-        "ambiguous or too-short section edges keep their original frame bounds"
+        "all section edges keep their original frame bounds"
     )
+    regression = record["evidence"]["edge_cleanup_regression"]
+    assert regression["missing_expected_word"] == "The"
+    assert regression["unexpected_observed_word"] == "D"
 
 
 def test_rejected_qwen_customvoice_records_exact_preset_roster() -> None:

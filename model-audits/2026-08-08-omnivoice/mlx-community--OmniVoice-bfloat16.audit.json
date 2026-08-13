@@ -1,8 +1,8 @@
 {
   "schema": "studio.model-audit-record",
   "schema_version": 1,
-  "audit_id": "voicestudio-20260813-omnivoice-6119f707-edge-cleanup-v3",
-  "audited_at": "2026-08-13T12:01:24Z",
+  "audit_id": "voicestudio-20260813-omnivoice-6119f707-word-safe-fades-v4",
+  "audited_at": "2026-08-13T14:00:32Z",
   "subject": {
     "model_id": "mlx-community/OmniVoice-bfloat16",
     "upstream_model_id": "k2-fsa/OmniVoice",
@@ -22,7 +22,7 @@
     ],
     "adapter": {
       "id": "voicestudio.mlx-audio.omnivoice",
-      "version": "1.3",
+      "version": "1.4",
       "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
       "engine_mode": "omnivoice",
       "synthesis": "flow_matching"
@@ -108,8 +108,7 @@
       "private_join_pause_milliseconds": 300,
       "private_paragraph_join_pause_milliseconds": 600,
       "private_soft_join_pause_milliseconds": 180,
-      "private_edge_trim_window_milliseconds": 300,
-      "private_edge_speech_pad_milliseconds": 20,
+      "private_edge_destructive_trim": false,
       "private_edge_fade_milliseconds": 10,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
@@ -176,19 +175,19 @@
   "genstudio_candidate": {
     "schema": "studio.model-audit",
     "schema_version": 1,
-    "audit_id": "voicestudio-20260813-omnivoice-6119f707-edge-cleanup-v3",
+    "audit_id": "voicestudio-20260813-omnivoice-6119f707-word-safe-fades-v4",
     "audit_status": "passed",
     "candidate_for_genstudio": true,
-    "contract_hash": "sha256:0f3e926f2fa8f13870569d71ddca35f2f5191778fb53f4627c4f9d46807064b8",
+    "contract_hash": "sha256:0b357ea1fa685e0eb8c6c636532ae04d7b49aa321c4b149f5ab963796dcc09dc",
     "model_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
-    "audited_at": "2026-08-13T12:01:24Z",
+    "audited_at": "2026-08-13T14:00:32Z",
     "runtime_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
     "approved_operations": [
       "voice.tts"
     ],
     "adapter": {
       "id": "voicestudio.mlx-audio.omnivoice",
-      "version": "1.3",
+      "version": "1.4",
       "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
       "engine_mode": "omnivoice",
       "synthesis": "flow_matching"
@@ -274,8 +273,7 @@
       "private_join_pause_milliseconds": 300,
       "private_paragraph_join_pause_milliseconds": 600,
       "private_soft_join_pause_milliseconds": 180,
-      "private_edge_trim_window_milliseconds": 300,
-      "private_edge_speech_pad_milliseconds": 20,
+      "private_edge_destructive_trim": false,
       "private_edge_fade_milliseconds": 10,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
@@ -336,8 +334,8 @@
     }
   },
   "evidence": {
-    "supersedes_audit_id": "voicestudio-20260813-omnivoice-6119f707-pacing-v2",
-    "reason": "Production listening found occasional 17-270 ms non-speech artifacts at independently rendered OmniVoice section edges. The owner approved conservative energy cleanup and micro-fades while preserving the qualified model, section budget, local routing contract, and 300/600/180 pacing.",
+    "supersedes_audit_id": "voicestudio-20260813-omnivoice-6119f707-edge-cleanup-v3",
+    "reason": "Production listening proved that adapter 1.3's energy-only edge classifier removed the real sentence-opening word 'The' while preserving a voiced tail artifact transcribed as 'D'. Adapter 1.4 removes destructive edge trimming, keeps only micro-fades, and preserves the qualified model, section budget, local routing contract, and 300/600/180 pacing.",
     "corrections": [
       {
         "field": "controls.language",
@@ -376,7 +374,7 @@
       "hardware.measured_peak_memory_gb and measured_safe_latent_frames_by_tier — the fleet memory ceiling, absent from the superseded record.",
       "adapter.runtime pinned to the exact mlx-audio release and commit from requirements-generation.txt:85.",
       "output_limits.max_single_pass_duration_seconds and latent_frames_per_second — the 120 s clamp and the 25 frames/s constant that together set the 3000-frame ceiling.",
-      "adapter 1.3 join-time edge cleanup — at most 300 ms per edge, a 20 ms speech-protection pad, and a speed-compensated 10 ms micro-fade without speech crossfading."
+      "adapter 1.4 word-safe section edges — no destructive trimming, plus a speed-compensated 10 ms micro-fade without speech crossfading."
     ],
     "edge_cleanup_review": {
       "reviewed_at": "2026-08-13T12:01:24Z",
@@ -387,10 +385,21 @@
         "maximum": 270
       },
       "observed_locations_seconds": [0.0, 4.98, 47.3, 117.8, 149.9],
-      "policy": "trim only a clear quiet-to-sustained-speech boundary within 300 ms, retain 20 ms around speech, then apply a speed-compensated 10 ms fade at each section edge",
-      "speech_preservation": "ambiguous or too-short section edges keep their original frame bounds",
+      "policy": "preserve every generated frame and apply only a speed-compensated 10 ms fade at each section edge",
+      "speech_preservation": "all section edges keep their original frame bounds",
       "crossfade": false,
       "pacing_unchanged": "300 ms sentence, 600 ms paragraph, 180 ms soft split"
+    },
+    "edge_cleanup_regression": {
+      "reviewed_at": "2026-08-13T14:00:32Z",
+      "source_job_id": "job_e379291b7467453ea62ca710724c4ebd",
+      "voice": "Rowan",
+      "voice_id": "house_voice_029c4d500004829cd907e572",
+      "missing_expected_word": "The",
+      "unexpected_observed_word": "D",
+      "verification": "Owner listening and fleet-internal Whisper Large transcription independently confirmed both defects in the preserved 4m42s Voice Studio 2.0.5 artifact.",
+      "root_cause": "Signal energy cannot distinguish a quiet intended word from a voiced conditioning fragment; changing thresholds only trades word deletion for retained artifacts.",
+      "production_decision": "Disable destructive edge trimming. Occasional section-edge crumbs remain preferable to irreversible narration word loss until a transcript-aligned solution is qualified."
     },
     "qualification_run": "2026-08-08-owner-fleet",
     "pacing_policy_review": {
@@ -558,7 +567,7 @@
       }
     ],
     "authoring_choices": [
-      "adapter.version = 1.1 is an authoring choice — no adapter-version registry exists in code. 1.1 rather than 1.0 because the superseded record already published 1.0 against a different contract."
+      "adapter.version = 1.4 records the word-safe edge behavior that supersedes adapter 1.3's destructive energy trim; no separate adapter-version registry exists in code."
     ],
     "recorded_by": "Contract authored and verified by the Voice Studio session against this repository's own code; owner verdicts and fleet-cache observations carried over from the GenStudio session's record, which was written concurrently at the owner's explicit direction and shipped as v1.32.8. Neither session's evidence was discarded: the quality judgements are the owner's, the contract fields are the code's.",
     "safety": {
