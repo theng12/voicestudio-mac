@@ -29,8 +29,9 @@ Word preservation is the primary safety rule:
 - Never trim farther than 300 ms from either edge.
 - Preserve a protective 20 ms pad around detected sustained speech.
 - If a sustained boundary cannot be established, leave that edge unchanged.
-- If cleanup would leave too little valid audio, leave the whole section
-  unchanged and let the existing artifact validation continue normally.
+- If cleanup would leave too little valid audio, leave the section bounds
+  unchanged and let the existing artifact validation continue normally. The
+  requested micro-fade may still be applied without deleting samples.
 - Apply cleanup only to OmniVoice. Every other family keeps its current bytes.
 
 This is deliberately fail-open for audio: an ambiguous artifact may remain, but
@@ -83,4 +84,3 @@ cover:
 Focused tests run first, followed by the complete Voice Studio suite, dependency
 integrity checks, Python and launcher syntax checks, and repository release
 validation. The live Pinokio-managed service is not restarted during development.
-
