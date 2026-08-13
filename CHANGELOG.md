@@ -10,6 +10,26 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.0.5] — 2026-08-13
+
+### Fixed — OmniVoice section edges reject conditioning noise without clipping uncertain speech
+
+- Added conservative join-time cleanup for the occasional 17–270 ms
+  conditioning blobs observed at independently rendered OmniVoice section
+  edges. It searches only the first and last 300 ms for a clear transition to
+  sustained speech and keeps a 20 ms speech-protection pad.
+- Ambiguous speech-like activity and sections too short to establish a safe
+  boundary keep their original frame bounds. Cleanup is streamed and atomic,
+  preserving the WAV sample rate, channel count, and subtype without loading a
+  long section into memory beside the active model.
+- Added speed-compensated 10 ms fades to each section edge without mixing or
+  crossfading speech. The owner-approved 300 ms sentence, 600 ms paragraph,
+  and 180 ms soft-split gaps remain unchanged.
+- Advanced the OmniVoice adapter contract to 1.3 with hash-bound cleanup
+  limits and regression coverage for the measured artifact range, immediate
+  mono/stereo speech, ambiguous openings, short sections, non-finite audio,
+  atomic joins, and unchanged pacing.
+
 ## [2.0.4] — 2026-08-13
 
 ### Fixed — OmniVoice sections leave natural breathing room

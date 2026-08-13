@@ -20,6 +20,155 @@ def _tone(seconds: float, sample_rate: int = 1_000) -> np.ndarray:
     return 0.3 * np.sin(2 * np.pi * 110 * np.arange(samples) / sample_rate)
 
 
+def test_omnivoice_section_edge_cleanup_removes_clear_low_energy_artifacts(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "omnivoice-edge-artifacts.wav"
+    sample_rate = 10_000
+    original = np.concatenate((
+        np.full(round(0.270 * sample_rate), 0.004, dtype=np.float32),
+        np.full(round(0.600 * sample_rate), 0.25, dtype=np.float32),
+        np.full(round(0.260 * sample_rate), 0.004, dtype=np.float32),
+    ))
+    sf.write(output, original, sample_rate, subtype="PCM_16")
+
+    removed_start, removed_end = generation._clean_omnivoice_section_edges(
+        output, speed=1.0
+    )
+    corrected, corrected_rate = sf.read(output, dtype="float32")
+
+    assert corrected_rate == sample_rate
+    assert removed_start == pytest.approx(0.250, abs=0.011)
+    assert removed_end == pytest.approx(0.240, abs=0.011)
+    assert len(corrected) == len(original) - round(
+        (removed_start + removed_end) * sample_rate
+    )
+    assert np.max(np.abs(corrected[300:-300])) > 0.2
+
+
+@pytest.mark.parametrize("artifact_seconds", [0.017, 0.080, 0.260])
+def test_omnivoice_section_edge_cleanup_handles_measured_orphan_lengths(
+    tmp_path: Path, artifact_seconds: float
+) -> None:
+    output = tmp_path / f"omnivoice-orphan-{artifact_seconds}.wav"
+    sample_rate = 10_000
+    original = np.concatenate((
+        np.full(round(0.600 * sample_rate), 0.25, dtype=np.float32),
+        np.zeros(round(0.040 * sample_rate), dtype=np.float32),
+        np.full(round(artifact_seconds * sample_rate), 0.004, dtype=np.float32),
+    ))
+    sf.write(output, original, sample_rate, subtype="PCM_16")
+
+    removed_start, removed_end = generation._clean_omnivoice_section_edges(
+        output, speed=1.0
+    )
+
+    assert removed_start == 0.0
+    assert removed_end == pytest.approx(artifact_seconds + 0.020, abs=0.011)
+
+
+def test_omnivoice_section_edge_cleanup_preserves_immediate_stereo_speech(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "omnivoice-immediate-stereo.wav"
+    sample_rate = 10_000
+    original = np.column_stack((
+        np.full(round(0.200 * sample_rate), 0.25, dtype=np.float32),
+        np.full(round(0.200 * sample_rate), -0.25, dtype=np.float32),
+    ))
+    sf.write(output, original, sample_rate, format="WAVEX", subtype="PCM_16")
+
+    removed_start, removed_end = generation._clean_omnivoice_section_edges(
+        output, speed=1.0
+    )
+    corrected, corrected_rate = sf.read(output, dtype="float32", always_2d=True)
+
+    assert corrected_rate == sample_rate
+    assert corrected.shape == original.shape
+    assert sf.info(output).format == "WAVEX"
+    assert sf.info(output).subtype == "PCM_16"
+    assert removed_start == 0.0
+    assert removed_end == 0.0
+    assert np.max(np.abs(corrected[0])) < 0.001
+    assert np.allclose(corrected[150:-150], original[150:-150], atol=1e-3)
+    assert np.max(np.abs(corrected[-1])) < 0.001
+
+
+@pytest.mark.parametrize("edge", ["leading", "trailing"])
+def test_omnivoice_section_edge_cleanup_leaves_boundaries_beyond_window_intact(
+    tmp_path: Path, edge: str
+) -> None:
+    output = tmp_path / f"omnivoice-{edge}-outside-window.wav"
+    sample_rate = 10_000
+    speech = np.full(round(0.300 * sample_rate), 0.25, dtype=np.float32)
+    quiet = np.zeros(round(0.500 * sample_rate), dtype=np.float32)
+    original = np.concatenate((quiet, speech) if edge == "leading" else (speech, quiet))
+    sf.write(output, original, sample_rate, subtype="PCM_16")
+
+    removed_start, removed_end = generation._clean_omnivoice_section_edges(
+        output, speed=1.0
+    )
+    corrected, _ = sf.read(output, dtype="float32")
+
+    assert removed_start == 0.0
+    assert removed_end == 0.0
+    assert len(corrected) == len(original)
+
+
+def test_omnivoice_section_edge_cleanup_keeps_ambiguous_possible_speech(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "omnivoice-ambiguous-edge.wav"
+    sample_rate = 10_000
+    possible_word = np.full(round(0.030 * sample_rate), 0.08, dtype=np.float32)
+    original = np.concatenate((
+        possible_word,
+        np.zeros(round(0.030 * sample_rate), dtype=np.float32),
+        np.full(round(0.300 * sample_rate), 0.25, dtype=np.float32),
+    ))
+    sf.write(output, original, sample_rate, subtype="PCM_16")
+
+    removed_start, removed_end = generation._clean_omnivoice_section_edges(
+        output, speed=1.0
+    )
+    corrected, _ = sf.read(output, dtype="float32")
+
+    assert removed_start == 0.0
+    assert removed_end == 0.0
+    assert len(corrected) == len(original)
+    assert np.max(np.abs(corrected[: len(possible_word)])) > 0.07
+
+
+def test_omnivoice_section_edge_cleanup_keeps_short_uncertain_section_bounds(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "omnivoice-short-section.wav"
+    sample_rate = 10_000
+    original = np.full(round(0.050 * sample_rate), 0.25, dtype=np.float32)
+    sf.write(output, original, sample_rate, subtype="PCM_16")
+
+    removed_start, removed_end = generation._clean_omnivoice_section_edges(
+        output, speed=1.0
+    )
+    corrected, _ = sf.read(output, dtype="float32")
+
+    assert removed_start == 0.0
+    assert removed_end == 0.0
+    assert len(corrected) == len(original)
+
+
+def test_omnivoice_section_edge_cleanup_rejects_non_finite_audio(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "omnivoice-non-finite.wav"
+    samples = np.full(2_000, 0.25, dtype=np.float32)
+    samples[500] = np.nan
+    sf.write(output, samples, 10_000, subtype="FLOAT")
+
+    with pytest.raises(RuntimeError, match="non-finite audio samples"):
+        generation._clean_omnivoice_section_edges(output, speed=1.0)
+
+
 def test_qwen_custom_terminal_silence_trim_preserves_normal_interior_pauses(
     tmp_path: Path,
 ) -> None:

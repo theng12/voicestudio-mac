@@ -693,7 +693,7 @@ def test_omnivoice_long_form_join_uses_boundary_aware_speed_compensated_gaps(
         calls += 1
         sf.write(
             Path(output_path) / "audio.wav",
-            np.full(10, calls / 10, dtype=np.float32),
+            np.full(200, calls / 10, dtype=np.float32),
             1000,
             subtype="PCM_16",
         )
@@ -722,10 +722,16 @@ def test_omnivoice_long_form_join_uses_boundary_aware_speed_compensated_gaps(
     # Target output gaps are 300 ms for a sentence, 600 ms for a paragraph,
     # and 180 ms for a soft punctuation split. Pre-scaling by 1.25 keeps those
     # durations stable after the finished WAV receives its 1.25x tempo pass.
-    assert len(audio) == 10 + 375 + 10 + 750 + 10 + 225 + 10
-    assert np.allclose(audio[10:385], 0.0, atol=1e-6)
-    assert np.allclose(audio[395:1145], 0.0, atol=1e-6)
-    assert np.allclose(audio[1155:1380], 0.0, atol=1e-6)
+    assert len(audio) == 200 + 375 + 200 + 750 + 200 + 225 + 200
+    assert np.allclose(audio[200:575], 0.0, atol=1e-6)
+    assert np.allclose(audio[775:1525], 0.0, atol=1e-6)
+    assert np.allclose(audio[1725:1950], 0.0, atol=1e-6)
+    # Each independently rendered section receives its own micro-fade. There
+    # is no audio overlap or speech crossfade at any join.
+    for start, end in ((0, 200), (575, 775), (1525, 1725), (1950, 2150)):
+        assert abs(audio[start]) < 1e-3
+        assert abs(audio[end - 1]) < 1e-3
+        assert np.max(np.abs(audio[start + 20:end - 20])) > 0.09
 
 
 def test_qwen_clone_and_omnivoice_use_their_owned_join_pauses() -> None:

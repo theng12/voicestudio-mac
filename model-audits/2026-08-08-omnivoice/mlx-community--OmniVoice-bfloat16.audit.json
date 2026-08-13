@@ -1,8 +1,8 @@
 {
   "schema": "studio.model-audit-record",
   "schema_version": 1,
-  "audit_id": "voicestudio-20260813-omnivoice-6119f707-pacing-v2",
-  "audited_at": "2026-08-13T01:32:00Z",
+  "audit_id": "voicestudio-20260813-omnivoice-6119f707-edge-cleanup-v3",
+  "audited_at": "2026-08-13T12:01:24Z",
   "subject": {
     "model_id": "mlx-community/OmniVoice-bfloat16",
     "upstream_model_id": "k2-fsa/OmniVoice",
@@ -22,7 +22,7 @@
     ],
     "adapter": {
       "id": "voicestudio.mlx-audio.omnivoice",
-      "version": "1.2",
+      "version": "1.3",
       "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
       "engine_mode": "omnivoice",
       "synthesis": "flow_matching"
@@ -108,6 +108,9 @@
       "private_join_pause_milliseconds": 300,
       "private_paragraph_join_pause_milliseconds": 600,
       "private_soft_join_pause_milliseconds": 180,
+      "private_edge_trim_window_milliseconds": 300,
+      "private_edge_speech_pad_milliseconds": 20,
+      "private_edge_fade_milliseconds": 10,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
       "supports_cancellation_between_chunks": true,
@@ -173,19 +176,19 @@
   "genstudio_candidate": {
     "schema": "studio.model-audit",
     "schema_version": 1,
-    "audit_id": "voicestudio-20260813-omnivoice-6119f707-pacing-v2",
+    "audit_id": "voicestudio-20260813-omnivoice-6119f707-edge-cleanup-v3",
     "audit_status": "passed",
     "candidate_for_genstudio": true,
-    "contract_hash": "sha256:3f23d49e9796d87b1f5f7253c1d8cb80be2047d2cbc0f758c8cf22a17c112db5",
+    "contract_hash": "sha256:0f3e926f2fa8f13870569d71ddca35f2f5191778fb53f4627c4f9d46807064b8",
     "model_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
-    "audited_at": "2026-08-13T01:32:00Z",
+    "audited_at": "2026-08-13T12:01:24Z",
     "runtime_revision": "6119f7072580cc30c3cbdf496269216b03ad9742",
     "approved_operations": [
       "voice.tts"
     ],
     "adapter": {
       "id": "voicestudio.mlx-audio.omnivoice",
-      "version": "1.2",
+      "version": "1.3",
       "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
       "engine_mode": "omnivoice",
       "synthesis": "flow_matching"
@@ -271,6 +274,9 @@
       "private_join_pause_milliseconds": 300,
       "private_paragraph_join_pause_milliseconds": 600,
       "private_soft_join_pause_milliseconds": 180,
+      "private_edge_trim_window_milliseconds": 300,
+      "private_edge_speech_pad_milliseconds": 20,
+      "private_edge_fade_milliseconds": 10,
       "long_form_strategy": "adapter_managed_long_form",
       "supports_chunk_progress": true,
       "supports_cancellation_between_chunks": true,
@@ -330,8 +336,8 @@
     }
   },
   "evidence": {
-    "supersedes_audit_id": "voicestudio-20260808-omnivoice-6119f707-contract-corrected",
-    "reason": "The owner found the former 120 ms fixed join audibly abrupt in production narration and approved boundary-aware pacing while preserving the qualified model, section budget, and local routing contract.",
+    "supersedes_audit_id": "voicestudio-20260813-omnivoice-6119f707-pacing-v2",
+    "reason": "Production listening found occasional 17-270 ms non-speech artifacts at independently rendered OmniVoice section edges. The owner approved conservative energy cleanup and micro-fades while preserving the qualified model, section budget, local routing contract, and 300/600/180 pacing.",
     "corrections": [
       {
         "field": "controls.language",
@@ -369,8 +375,23 @@
       "controls.non_verbal_tags — pinned to the engine's own _NONVERBAL_PATTERN via catalog.OMNIVOICE_NONVERBAL_TAGS, which a regression test already holds to the installed model.",
       "hardware.measured_peak_memory_gb and measured_safe_latent_frames_by_tier — the fleet memory ceiling, absent from the superseded record.",
       "adapter.runtime pinned to the exact mlx-audio release and commit from requirements-generation.txt:85.",
-      "output_limits.max_single_pass_duration_seconds and latent_frames_per_second — the 120 s clamp and the 25 frames/s constant that together set the 3000-frame ceiling."
+      "output_limits.max_single_pass_duration_seconds and latent_frames_per_second — the 120 s clamp and the 25 frames/s constant that together set the 3000-frame ceiling.",
+      "adapter 1.3 join-time edge cleanup — at most 300 ms per edge, a 20 ms speech-protection pad, and a speed-compensated 10 ms micro-fade without speech crossfading."
     ],
+    "edge_cleanup_review": {
+      "reviewed_at": "2026-08-13T12:01:24Z",
+      "reviewer": "owner",
+      "source": "GenStudio-generated 2:40 OmniVoice production sample",
+      "observed_artifact_range_milliseconds": {
+        "minimum": 17,
+        "maximum": 270
+      },
+      "observed_locations_seconds": [0.0, 4.98, 47.3, 117.8, 149.9],
+      "policy": "trim only a clear quiet-to-sustained-speech boundary within 300 ms, retain 20 ms around speech, then apply a speed-compensated 10 ms fade at each section edge",
+      "speech_preservation": "ambiguous or too-short section edges keep their original frame bounds",
+      "crossfade": false,
+      "pacing_unchanged": "300 ms sentence, 600 ms paragraph, 180 ms soft split"
+    },
     "qualification_run": "2026-08-08-owner-fleet",
     "pacing_policy_review": {
       "reviewed_at": "2026-08-13T01:32:00Z",
