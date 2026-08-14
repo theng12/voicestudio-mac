@@ -12,6 +12,7 @@ app/backend/storage_policy.json
 app/backend/memory_policy.json
 *.pyc
 .DS_Store
+.worktrees/
 
 # AI assistant rules (local-only, contain absolute paths)
 .clinerules
