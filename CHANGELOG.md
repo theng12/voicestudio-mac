@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.2.1] — 2026-08-15
+
+### Changed
+
+- Corrected the Qwen 1.7B Base **Section size** UI and documentation: **Auto**
+  now states its audited 280-character private-section policy, while
+  **Custom** continues to accept whole numbers from 230 through the unchanged
+  400-character safety maximum. Auto requests still omit
+  `section_max_characters`; the existing local retry remains 230 characters
+  and the automatic 300/600/180 ms pacing remains unchanged.
+
 ## [2.2.0] — 2026-08-14
 
 ### Added

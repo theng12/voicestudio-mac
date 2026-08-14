@@ -463,8 +463,10 @@ def test_readme_documents_the_audited_section_size_control_contract() -> None:
 
     assert "### Qwen 1.7B Base section size" in readme
     assert "`mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit`" in readme
-    assert "Auto keeps the audited 400-character section size" in readme
+    assert "Auto keeps the audited 280-character section size" in readme
     assert "Custom accepts whole numbers from 230 through 400" in readme
+    assert "safety maximum remains 400" in readme
+    assert "retry uses 230" in readme
     assert "300/600/180 ms" in readme
     assert "omit `section_max_characters` for Auto" in readme
     assert "send an integer `section_max_characters` for Custom" in readme

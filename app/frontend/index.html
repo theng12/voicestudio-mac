@@ -977,10 +977,10 @@
                 </div>
               </div>
               <p id="section-size-help" class="muted hint">
-                Auto uses the audited 400-character policy. The 300/600/180 ms pauses remain automatic.
+                Auto uses the audited 280-character policy. Custom accepts 230–400 characters per private section. The 300/600/180 ms pauses remain automatic.
               </p>
               <p id="section-size-validation" role="status" aria-live="polite" class="section-size-error"
-                 x-text="sectionSizeIsValid ? '' : `Enter a whole number from ${sectionSizeControl?.minimum} to ${Math.min(sectionSizeControl?.maximum || 0, sectionSizeControl?.runtime_default || 0)}.`"></p>
+                 x-text="sectionSizeIsValid ? '' : `Enter a whole number from ${sectionSizeControl?.minimum} to ${sectionSizeControl?.maximum}.`"></p>
               <button type="button" class="btn ghost small" @click="resetSectionSizeToAuto()">Reset to Auto</button>
             </fieldset>
           </div>

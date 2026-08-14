@@ -983,7 +983,6 @@ function studio() {
         Number.isInteger(this.sectionSizeValue)
         && this.sectionSizeValue >= c.minimum
         && this.sectionSizeValue <= c.maximum
-        && this.sectionSizeValue <= c.runtime_default
       );
     },
 
@@ -1099,7 +1098,7 @@ function studio() {
       if (this.sectionSizeControlSupported
           && this.gen.section_size_mode === "custom" && !this.sectionSizeIsValid) {
         const c = this.sectionSizeControl;
-        return `Enter a whole number from ${c.minimum} to ${Math.min(c.maximum, c.runtime_default)}.`;
+        return `Enter a whole number from ${c.minimum} to ${c.maximum}.`;
       }
       const mode = this.qwen3Mode(this.gen.repo);
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return "Describe the voice you want.";

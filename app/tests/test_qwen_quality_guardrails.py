@@ -521,6 +521,16 @@ def test_rejected_local_qwen_output_retries_once_with_safer_settings(
     assert job.quality_retry_history[0]["rejection_code"] == "QWEN_OUTPUT_TEXT_MISMATCH"
 
 
+def test_qwen_section_control_copy_and_bounds_are_v2_truthful() -> None:
+    frontend = Path(__file__).resolve().parents[1] / "frontend"
+    markup = (frontend / "index.html").read_text(encoding="utf-8")
+    script = (frontend / "app.js").read_text(encoding="utf-8")
+
+    assert "Auto uses the audited 280-character policy" in markup
+    assert "this.sectionSizeValue <= c.maximum" in script
+    assert "this.sectionSizeValue <= c.runtime_default" not in script
+
+
 def test_qwen_output_mismatch_on_retry_is_terminal_and_preserves_attempt_evidence(
     monkeypatch, tmp_path: Path
 ) -> None:

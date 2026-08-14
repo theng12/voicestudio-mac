@@ -372,10 +372,11 @@ evidence fields there with a regression test.
 The Generate tab exposes an optional **Long-form delivery → Section size**
 control only for the audited
 `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` checkpoint. Auto keeps the
-audited 400-character section size. Custom accepts whole numbers from 230
+audited 280-character section size. Custom accepts whole numbers from 230
 through 400 and remembers the choice with that model's existing Generate
-settings. Other models do not show this control and cannot receive a custom
-section-size override.
+settings. The safety maximum remains 400, while a rejected local Qwen output
+retry uses 230. Other models do not show this control and cannot receive a
+custom section-size override.
 
 Voice Studio continues to choose and apply the 300/600/180 ms sentence,
 paragraph, and soft-split pauses automatically; those pacing safeguards are
