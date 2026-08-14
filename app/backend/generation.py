@@ -1921,6 +1921,21 @@ class GenerationManager:
         return {"deleted": deleted, "freed_bytes": freed}
 
     def start_txt2speech(self, params: dict) -> GenerationJob:
+        params = dict(params)
+        repo = str(params.get("repo") or "")
+        model = catalog.get_model(repo)
+        if model is None:
+            raise ValueError(f"Unknown repo: {repo}")
+        requested_budget = params.get("section_max_characters")
+        if requested_budget is None:
+            requested_budget = params.get("_resolved_section_max_characters")
+        resolved_budget = catalog.resolve_section_budget(
+            model.family, repo, requested_budget
+        )
+        params.pop("section_max_characters", None)
+        params["_resolved_section_max_characters"] = int(
+            resolved_budget["section_max_characters"]
+        )
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         request_id = str(params.get("client_request_id") or "").strip()
         with self._lock:
@@ -2092,12 +2107,12 @@ class GenerationManager:
     def _qwen_job_duration_limit(job: GenerationJob) -> float:
         text = str(job.params.get("text") or "")
         speed = float(job.params.get("speed") or 1.0)
-        override = job.params.get("_qwen_section_max_characters")
+        budget = int(job.params["_resolved_section_max_characters"])
         chunks = _internal_mlx_text_chunks(
             "qwen3-tts",
             str(job.params.get("repo") or ""),
             text,
-            max_chars_override=int(override) if override else None,
+            max_chars_override=budget,
         ) or [text]
         pauses = max(0, len(chunks) - 1) * _long_form_join_pause_s(
             "qwen3-tts", str(job.params.get("repo") or "")
@@ -2329,8 +2344,9 @@ class GenerationManager:
                         job.params["_qwen_attempt_seed"] = (
                             int(original_seed) + 1
                         ) % (2**32)
-                        job.params["_qwen_section_max_characters"] = (
-                            qwen_quality.RETRY_SECTION_MAX_CHARACTERS
+                        job.params["_resolved_section_max_characters"] = min(
+                            int(job.params["_resolved_section_max_characters"]),
+                            qwen_quality.RETRY_SECTION_MAX_CHARACTERS,
                         )
                         self._evict_loaded_models("qwen-quality-retry")
                         print(
@@ -2773,13 +2789,7 @@ class GenerationManager:
                 family,
                 model_entry.repo,
                 text,
-                # The internal Qwen retry override tightens the budget for a
-                # known-bad generation and must still win over a caller's
-                # qualification override.
-                max_chars_override=(
-                    params.get("_qwen_section_max_characters")
-                    or params.get("section_max_characters")
-                ),
+                max_chars_override=params.get("_resolved_section_max_characters"),
             )
             if len(internal_chunks) > 1:
                 self._generate_mlx_long_form_sections(

@@ -184,6 +184,19 @@ def _reject_cloud_repo(repo: str) -> None:
         )
 
 
+def _resolve_section_budget(body: "Txt2SpeechBody", model) -> int:
+    try:
+        result = catalog.resolve_section_budget(
+            model.family, body.repo, body.section_max_characters
+        )
+    except catalog.SectionSizeControlError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "detail": str(exc)},
+        ) from exc
+    return int(result["section_max_characters"])
+
+
 class Txt2SpeechBody(BaseModel):
     repo: str
     text: str = Field(max_length=40_000)
@@ -203,13 +216,7 @@ class Txt2SpeechBody(BaseModel):
     # Qualification-only override for the private section budget. Omitted in
     # normal use, where the family policy owns chunking. Exposed so a long-section
     # quality gate can be measured without shipping a speculative constant first.
-    section_max_characters: Optional[int] = Field(
-        default=None,
-        ge=40,
-        le=20_000,
-        description="Qualification override for the private section budget; "
-                    "the model's own long-form policy applies when omitted.",
-    )
+    section_max_characters: object | None = None
     max_output_duration_s: Optional[float] = Field(
         default=None,
         gt=0,
@@ -1094,11 +1101,6 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
         raise HTTPException(status_code=400, detail="text is required")
     _reject_cloud_repo(body.repo)
 
-    if not gen_manager.is_available():
-        raise HTTPException(
-            status_code=503,
-            detail="TTS generation engine not installed. Run 'Install Generation' from the Pinokio sidebar.",
-        )
     model = catalog.get_model(body.repo)
     if model is None:
         raise HTTPException(status_code=400, detail=f"Unknown repo: {body.repo}")
@@ -1107,13 +1109,20 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
             status_code=400,
             detail=f"Model {body.repo} doesn't support text-to-speech.",
         )
+    section_budget = _resolve_section_budget(body, model)
+    if not gen_manager.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="TTS generation engine not installed. Run 'Install Generation' from the Pinokio sidebar.",
+        )
     if cache.cache_state(body.repo) != "cached":
         raise HTTPException(
             status_code=409,
             detail=f"Model {body.repo} is not fully cached. Download it from the Models tab first.",
         )
 
-    params = body.model_dump()
+    params = body.model_dump(exclude={"section_max_characters"})
+    params["_resolved_section_max_characters"] = section_budget
     try:
         job = gen_manager.start_txt2speech(params)
     except ValueError as exc:
@@ -1156,6 +1165,7 @@ async def start_txt2speech_with_reference(
                 "detail": f"Model {body.repo} does not support reference-audio cloning.",
             },
         )
+    section_budget = _resolve_section_budget(body, model)
     if not gen_manager.is_available():
         raise HTTPException(status_code=503, detail="TTS generation engine is not installed.")
     if cache.cache_state(body.repo) != "cached":
@@ -1205,8 +1215,9 @@ async def start_txt2speech_with_reference(
             status_code=422,
             detail={"code": exc.code, "detail": exc.detail},
         ) from exc
-    params = body.model_dump()
+    params = body.model_dump(exclude={"section_max_characters"})
     params.update({
+        "_resolved_section_max_characters": section_budget,
         "voice_library_id": None,
         "ref_transcript": prepared.get("transcript") or None,
         "_reference_audio_path": prepared["path"],

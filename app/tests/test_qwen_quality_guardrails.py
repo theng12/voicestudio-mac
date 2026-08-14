@@ -7,6 +7,13 @@ import soundfile as sf
 from backend import catalog, generation, qwen_quality, transcription
 
 
+QWEN_17B_BASE = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+LONG_TEXT = " ".join(
+    f"Section {index} holds controlled narration for an independent duration budget."
+    for index in range(1, 40)
+)
+
+
 def _stt(text: str, *, duration: float = 12.0, words: bool = True) -> dict:
     return {
         "text": text,
@@ -426,8 +433,33 @@ class _Sampler:
         return {"outcome": kwargs}
 
 
+@pytest.mark.parametrize("budget", [400, 280, 230])
+def test_qwen_duration_validation_uses_resolved_section_budget(budget: int) -> None:
+    job = generation.GenerationJob(
+        job_id=f"duration-{budget}",
+        mode="txt2speech",
+        params={
+            "repo": QWEN_17B_BASE,
+            "text": LONG_TEXT,
+            "speed": 1.0,
+            "_resolved_section_max_characters": budget,
+        },
+    )
+    chunks = generation._internal_mlx_text_chunks(
+        "qwen3-tts", QWEN_17B_BASE, LONG_TEXT, max_chars_override=budget,
+    )
+    expected = round(
+        sum(qwen_quality.automatic_duration_limit(chunk, 1.0) for chunk in chunks)
+        + (len(chunks) - 1) * 0.3,
+        3,
+    )
+
+    assert generation.GenerationManager._qwen_job_duration_limit(job) == expected
+
+
+@pytest.mark.parametrize("initial_budget", [400, 280, 230])
 def test_rejected_local_qwen_output_retries_once_with_safer_settings(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, initial_budget: int
 ) -> None:
     manager = object.__new__(generation.GenerationManager)
     manager._mlx_audio_model = None
@@ -443,7 +475,7 @@ def test_rejected_local_qwen_output_retries_once_with_safer_settings(
     def dispatch(job, path):
         attempts.append((
             job.params.get("_qwen_attempt_seed", job.params.get("seed")),
-            job.params.get("_qwen_section_max_characters"),
+            job.params.get("_resolved_section_max_characters"),
         ))
         sf.write(path, np.zeros(2400, dtype=np.float32), 24000)
 
@@ -475,6 +507,7 @@ def test_rejected_local_qwen_output_retries_once_with_safer_settings(
             "voice_library_id": "aiden",
             "text": "A controlled local result.",
             "seed": 41,
+            "_resolved_section_max_characters": initial_budget,
             "_qwen_reference_validation": {"accepted": True},
         },
     )
@@ -483,7 +516,7 @@ def test_rejected_local_qwen_output_retries_once_with_safer_settings(
     assert job.state == "done"
     assert job.quality_retry_count == 1
     assert job.quality_validation == {"accepted": True}
-    assert attempts == [(41, None), (42, qwen_quality.RETRY_SECTION_MAX_CHARACTERS)]
+    assert attempts == [(41, initial_budget), (42, 230)]
     assert [entry["accepted"] for entry in job.quality_retry_history] == [False, True]
     assert job.quality_retry_history[0]["rejection_code"] == "QWEN_OUTPUT_TEXT_MISMATCH"
 
@@ -509,7 +542,7 @@ def test_qwen_output_mismatch_on_retry_is_terminal_and_preserves_attempt_evidenc
     def dispatch(job, path):
         attempts.append({
             "seed": job.params.get("_qwen_attempt_seed", job.params.get("seed")),
-            "section_max": job.params.get("_qwen_section_max_characters"),
+            "section_max": job.params.get("_resolved_section_max_characters"),
             "repo": job.params["repo"],
             "text": job.params["text"],
             "voice_library_id": job.params.get("voice_library_id"),
@@ -547,6 +580,7 @@ def test_qwen_output_mismatch_on_retry_is_terminal_and_preserves_attempt_evidenc
             "voice_library_id": "aiden",
             "text": text,
             "seed": 41,
+            "_resolved_section_max_characters": 400,
             "_qwen_reference_validation": {"accepted": True},
         },
     )
@@ -559,8 +593,8 @@ def test_qwen_output_mismatch_on_retry_is_terminal_and_preserves_attempt_evidenc
     assert list(tmp_path.iterdir()) == []
     assert [attempt["seed"] for attempt in attempts] == [41, 42]
     assert [attempt["section_max"] for attempt in attempts] == [
-        None,
-        qwen_quality.RETRY_SECTION_MAX_CHARACTERS,
+        400,
+        230,
     ]
     assert all(attempt["repo"] == job.params["repo"] for attempt in attempts)
     assert all(attempt["text"] == text for attempt in attempts)
