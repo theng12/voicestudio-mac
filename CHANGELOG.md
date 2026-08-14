@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.2.0] — 2026-08-14
+
+### Added
+
+- The Generate tab now offers a catalog-gated **Section size** control only
+  for `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit`. **Auto** preserves that
+  checkpoint's audited 400-character private section size; **Custom** accepts
+  only whole-number values from 230 through 400.
+- Unsupported models and malformed or out-of-range raw values are rejected
+  before queueing. The automatic 300/600/180 ms sentence, paragraph, and
+  soft-split pauses remain fixed; no pause timing control was added.
+- A supported model's Auto/Custom choice and Custom value are remembered with
+  its existing per-model Generate settings. GenStudio's request contract is
+  unchanged: Auto callers omit `section_max_characters`, while Custom callers
+  send one allowed integer.
+
 ## [2.1.3] — 2026-08-14
 
 ### Added — final Qwen 1.7B production-candidate contract (post-release canary pending)

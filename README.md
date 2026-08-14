@@ -367,6 +367,23 @@ The worker-owned part of this boundary lives in
 `app/backend/voicestudio_genstudio_integration.py`; add future VoiceStudio
 evidence fields there with a regression test.
 
+### Qwen 1.7B Base section size
+
+The Generate tab exposes an optional **Long-form delivery → Section size**
+control only for the audited
+`mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` checkpoint. Auto keeps the
+audited 400-character section size. Custom accepts whole numbers from 230
+through 400 and remembers the choice with that model's existing Generate
+settings. Other models do not show this control and cannot receive a custom
+section-size override.
+
+Voice Studio continues to choose and apply the 300/600/180 ms sentence,
+paragraph, and soft-split pauses automatically; those pacing safeguards are
+not user-adjustable. API callers omit `section_max_characters` for Auto, or
+send an integer `section_max_characters` for Custom. Invalid, out-of-range, or
+unsupported values are rejected before generation is queued. This is a Voice
+Studio-local optional control and does not change the GenStudio contract.
+
 ## Folder layout
 
 ```
