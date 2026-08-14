@@ -88,6 +88,18 @@ _MEASURED_SECTION_PROVENANCE = {
         "canary_job_id": "0df456ec1ed0",
         "section_max_characters": 400,
     },
+    "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2": {
+        "model_id": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+        "contract_hash": "sha256:feb681902d12102dd111932a3c0839df7a804c1f9058f00795cd664c9d419d42",
+        "runtime_revision": "e7dd0585652209fa0d7783659aad4e8a324de11c",
+        "supersedes_audit_id": "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1",
+        "canary_commit": "433fccebf08583aa8a61e88fc8804541ec61818b",
+        "canary_target": "terranash-0201",
+        "canary_batch_id": "dc6fc58779",
+        "canary_job_id": "0df456ec1ed0",
+        "section_max_characters": 400,
+        "auto_default_section_max_characters": 280,
+    },
 }
 
 
@@ -749,7 +761,7 @@ def check_voice_clone_required(
 
 
 def check_section_budget(
-    contract: dict[str, Any], policy: Optional[dict[str, Any]]
+    contract: dict[str, Any], model_id: str, policy: Optional[dict[str, Any]]
 ) -> dict[str, Any]:
     """The highest-value check: this number is fed straight into the runtime.
 
@@ -760,7 +772,8 @@ def check_section_budget(
     changes how every machine running this release splits a script.
     """
     severity = "critical"
-    claimed = contract.get("input_limits", {}).get("private_section_max_characters")
+    limits = contract.get("input_limits", {})
+    claimed = limits.get("private_section_max_characters")
     if policy is None:
         return _check(
             "section_budget",
@@ -800,8 +813,41 @@ def check_section_budget(
                 "measured change to the runtime default — not a copied number."
             ),
         )
+    v2_default = _MEASURED_SECTION_PROVENANCE.get(
+        str(policy.get("audit_id") or ""), {}
+    ).get("auto_default_section_max_characters")
+    if v2_default is None:
+        return _check(
+            "section_budget", OK, severity=severity, claimed=claimed, expected=expected,
+            derived_from=derived,
+        )
+    default = limits.get("default_private_section_max_characters")
+    section_claim = {"maximum": claimed, "auto_default": default}
+    section_expected = {"maximum": expected, "auto_default": v2_default}
+    if (
+        model_id != "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+        or type(default) is not int
+        or not 230 <= default <= claimed
+        or default != v2_default
+    ):
+        return _check(
+            "section_budget",
+            MISMATCH,
+            severity=severity,
+            claimed=section_claim,
+            expected=section_expected,
+            derived_from=derived,
+            detail=(
+                "The Qwen production-v2 Auto default must be the independently "
+                "anchored whole-number 280, separately from its 400 maximum."
+            ),
+        )
     return _check(
-        "section_budget", OK, severity=severity, claimed=claimed, expected=expected,
+        "section_budget",
+        OK,
+        severity=severity,
+        claimed=section_claim,
+        expected=section_expected,
         derived_from=derived,
     )
 
@@ -906,6 +952,9 @@ def _measured_section_override(record: dict[str, Any]) -> object:
     subject = record.get("subject") or {}
     evidence = record.get("evidence") or {}
     claimed = (contract.get("input_limits") or {}).get("private_section_max_characters")
+    default = (contract.get("input_limits") or {}).get(
+        "default_private_section_max_characters"
+    )
     canary = evidence.get("five_thousand_character_canary")
     qualified_runtime = evidence.get("qualified_runtime")
     if (
@@ -927,6 +976,10 @@ def _measured_section_override(record: dict[str, Any]) -> object:
         and canary.get("worker_job_id") == anchor["canary_job_id"]
         and claimed == anchor["section_max_characters"]
         and canary.get("section_max_characters") == anchor["section_max_characters"]
+        and (
+            "auto_default_section_max_characters" not in anchor
+            or default == anchor["auto_default_section_max_characters"]
+        )
     ):
         return anchor["section_max_characters"]
     return None
@@ -962,9 +1015,11 @@ def validate_record(
             model_id,
             audited_section_max_characters=_measured_section_override(record),
         )
+        if policy is not None:
+            policy = {**policy, "audit_id": record.get("audit_id")}
 
     checks = [
-        check_section_budget(contract, policy),
+        check_section_budget(contract, model_id, policy),
         check_reference_window(contract, fn),
         check_join_pause(contract, policy),
         check_language_control(contract, fn, catalog_entry),

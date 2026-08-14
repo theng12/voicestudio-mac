@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+
+import pytest
 
 from backend import catalog, generation, main, model_audits, transcription
 
@@ -17,6 +20,18 @@ QWEN_17B_BOOTSTRAP = (
     Path(__file__).resolve().parents[2]
     / "model-audits"
     / "2026-08-14-qwen3-17b"
+    / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
+)
+QWEN_17B_V1 = (
+    Path(__file__).resolve().parents[2]
+    / "model-audits"
+    / "2026-08-14-qwen3-17b-production"
+    / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
+)
+QWEN_17B_V2 = (
+    Path(__file__).resolve().parents[2]
+    / "model-audits"
+    / "2026-08-15-qwen3-17b-production-v2"
     / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
 )
 REJECTED_GROUP_B = {
@@ -222,12 +237,42 @@ def test_qwen_17b_bootstrap_record_is_preserved_as_conditional_evidence() -> Non
     assert "approved_for_genstudio" not in json.dumps(record)
 
 
+def test_qwen_v1_is_byte_stable_and_v2_is_the_runtime_source() -> None:
+    assert hashlib.sha256(QWEN_17B_V1.read_bytes()).hexdigest() == (
+        "b45e061379df0d8ee9e2d8dc0754108b280db5293f9c2fe7d5b4cab2a5b74e76"
+    )
+    record = model_audits.audit_record(QWEN_17B_BASE)
+    assert record is not None
+    assert record["audit_id"] == (
+        "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2"
+    )
+    assert model_audits.qwen_17b_production_v2_limits(QWEN_17B_BASE) == {
+        "private_section_max_characters": 400,
+        "default_private_section_max_characters": 280,
+    }
+
+
+@pytest.mark.parametrize("default", [None, True, 229, 401, 400.0])
+def test_invalid_v2_default_fails_closed(default, monkeypatch, tmp_path) -> None:
+    record = json.loads(QWEN_17B_V2.read_text(encoding="utf-8"))
+    record["contract"]["input_limits"]["default_private_section_max_characters"] = default
+    record["genstudio_candidate"]["input_limits"] = record["contract"]["input_limits"]
+    record["genstudio_candidate"]["contract_hash"] = model_audits.contract_hash(
+        record["contract"]
+    )
+    root = tmp_path / "2026-08-15-qwen3-17b-production-v2"
+    root.mkdir(parents=True)
+    (root / QWEN_17B_V2.name).write_text(json.dumps(record), encoding="utf-8")
+    monkeypatch.setattr(model_audits, "AUDIT_ROOT", tmp_path)
+    assert model_audits.qwen_17b_production_v2_limits(QWEN_17B_BASE) == {}
+
+
 def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() -> None:
     """Regression: a passed promotion must surface only the measured 5k/400 contract."""
     record = model_audits.audit_record(QWEN_17B_BASE)
     assert record is not None
     assert record["audit_id"] == (
-        "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1"
+        "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2"
     )
     candidate = record["genstudio_candidate"]
     assert candidate["audit_status"] == "passed"
@@ -252,6 +297,7 @@ def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() 
     limits = candidate["input_limits"]
     assert limits["text_max_characters"] == 5_000
     assert limits["private_section_max_characters"] == 400
+    assert limits["default_private_section_max_characters"] == 280
     assert limits["private_edge_destructive_trim"] is False
     assert limits["private_speech_crossfade"] is False
     assert limits["reference_audio"]["transcript"] == "required"
@@ -273,7 +319,7 @@ def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() 
         "commercial_use": True,
     }
     assert record["evidence"]["supersedes_audit_id"] == (
-        "voicestudio-20260814-qwen3-tts-1.7b-base-bootstrap-v1"
+        "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1"
     )
     evidence = record["evidence"]
     assert evidence["qualified_runtime"] == {

@@ -1,0 +1,373 @@
+{
+  "schema": "studio.model-audit-record",
+  "schema_version": 1,
+  "audit_id": "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2",
+  "audited_at": "2026-08-14T00:00:00Z",
+  "subject": {
+    "model_id": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+    "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "display_name": "Qwen3-TTS 1.7B Base",
+    "modality": "voice",
+    "checkpoint_revision": "e7dd0585652209fa0d7783659aad4e8a324de11c"
+  },
+  "contract": {
+    "model_id": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+    "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "display_name": "Qwen3-TTS 1.7B Base",
+    "modality": "voice",
+    "runtime_revision": "e7dd0585652209fa0d7783659aad4e8a324de11c",
+    "approved_operations": [
+      "voice.tts"
+    ],
+    "adapter": {
+      "id": "voicestudio.mlx-audio.qwen3-tts-base",
+      "version": "1.4",
+      "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": true,
+        "default": "en",
+        "values": [
+          "en",
+          "zh",
+          "ja",
+          "ko",
+          "de",
+          "fr",
+          "ru",
+          "pt",
+          "es",
+          "it"
+        ]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      },
+      "voice_clone": {
+        "type": "reference_audio_with_exact_transcript",
+        "required": true,
+        "x_vector_only_fallback": false
+      },
+      "quality_guardrails": {
+        "validator_revision": "voicestudio.qwen-clone-quality.v1",
+        "reference_word_alignment": true,
+        "automatic_section_token_ceiling": true,
+        "output_transcript_validation": true,
+        "max_local_quality_retries": 1,
+        "retry_section_max_characters": 230,
+        "required_local_models": [
+          "mlx-community/whisper-large-v3-turbo"
+        ],
+        "terminal_gate": {
+          "revision": "voicestudio.qwen-clone-quality.v2",
+          "scope": "long_form_2gram_multiset",
+          "ordered_word_timestamp_window": 24,
+          "maximum_hard_mismatches": 1,
+          "fails_closed_without_aligned_suffix": true
+        }
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 5000,
+      "private_section_max_characters": 400,
+      "private_join_pause_milliseconds": 300,
+      "private_paragraph_join_pause_milliseconds": 600,
+      "private_soft_join_pause_milliseconds": 180,
+      "private_edge_destructive_trim": false,
+      "private_speech_crossfade": false,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "reference_audio": {
+        "accepted_extensions": [
+          "wav",
+          "mp3",
+          "flac",
+          "m4a",
+          "aac",
+          "ogg",
+          "opus",
+          "webm"
+        ],
+        "minimum_duration_seconds": 3,
+        "target_duration_seconds": 8,
+        "recommended_duration_seconds": {
+          "minimum": 8,
+          "maximum": 12
+        },
+        "maximum_duration_seconds": 15,
+        "max_audio_bytes": 25000000,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "transcript": "required",
+        "timestamped_transcript_segments": "required_when_model_specific_selection_is_needed",
+        "selection": "speech-aware and word-boundary-aligned"
+      },
+      "voice_design_supported": false,
+      "preset_voice_supported": false,
+      "streaming_request_supported": false,
+      "default_private_section_max_characters": 280
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 16,
+      "recommended_unified_memory_gb": 24,
+      "ineligible_unified_memory_gb": [
+        8
+      ]
+    },
+    "capacity": {
+      "max_concurrency": 1
+    },
+    "license": {
+      "spdx": "Apache-2.0",
+      "commercial_use": true
+    }
+  },
+  "genstudio_candidate": {
+    "schema": "studio.model-audit",
+    "schema_version": 1,
+    "audit_id": "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2",
+    "audit_status": "passed",
+    "candidate_for_genstudio": true,
+    "contract_hash": "sha256:feb681902d12102dd111932a3c0839df7a804c1f9058f00795cd664c9d419d42",
+    "runtime_revision": "e7dd0585652209fa0d7783659aad4e8a324de11c",
+    "approved_operations": [
+      "voice.tts"
+    ],
+    "audited_at": "2026-08-14T00:00:00Z",
+    "adapter": {
+      "id": "voicestudio.mlx-audio.qwen3-tts-base",
+      "version": "1.4",
+      "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384"
+    },
+    "controls": {
+      "language": {
+        "type": "enum",
+        "required": true,
+        "default": "en",
+        "values": [
+          "en",
+          "zh",
+          "ja",
+          "ko",
+          "de",
+          "fr",
+          "ru",
+          "pt",
+          "es",
+          "it"
+        ]
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.0,
+        "default": 1.0,
+        "processing": "pitch-preserving after final stitch"
+      },
+      "voice_clone": {
+        "type": "reference_audio_with_exact_transcript",
+        "required": true,
+        "x_vector_only_fallback": false
+      },
+      "quality_guardrails": {
+        "validator_revision": "voicestudio.qwen-clone-quality.v1",
+        "reference_word_alignment": true,
+        "automatic_section_token_ceiling": true,
+        "output_transcript_validation": true,
+        "max_local_quality_retries": 1,
+        "retry_section_max_characters": 230,
+        "required_local_models": [
+          "mlx-community/whisper-large-v3-turbo"
+        ],
+        "terminal_gate": {
+          "revision": "voicestudio.qwen-clone-quality.v2",
+          "scope": "long_form_2gram_multiset",
+          "ordered_word_timestamp_window": 24,
+          "maximum_hard_mismatches": 1,
+          "fails_closed_without_aligned_suffix": true
+        }
+      }
+    },
+    "input_limits": {
+      "text_min_characters": 1,
+      "text_max_characters": 5000,
+      "private_section_max_characters": 400,
+      "private_join_pause_milliseconds": 300,
+      "private_paragraph_join_pause_milliseconds": 600,
+      "private_soft_join_pause_milliseconds": 180,
+      "private_edge_destructive_trim": false,
+      "private_speech_crossfade": false,
+      "long_form_strategy": "adapter_managed_long_form",
+      "supports_chunk_progress": true,
+      "supports_cancellation_between_chunks": true,
+      "reference_audio": {
+        "accepted_extensions": [
+          "wav",
+          "mp3",
+          "flac",
+          "m4a",
+          "aac",
+          "ogg",
+          "opus",
+          "webm"
+        ],
+        "minimum_duration_seconds": 3,
+        "target_duration_seconds": 8,
+        "recommended_duration_seconds": {
+          "minimum": 8,
+          "maximum": 12
+        },
+        "maximum_duration_seconds": 15,
+        "max_audio_bytes": 25000000,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "transcript": "required",
+        "timestamped_transcript_segments": "required_when_model_specific_selection_is_needed",
+        "selection": "speech-aware and word-boundary-aligned"
+      },
+      "voice_design_supported": false,
+      "preset_voice_supported": false,
+      "streaming_request_supported": false,
+      "default_private_section_max_characters": 280
+    },
+    "output_limits": {
+      "media_type": "audio/wav",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_format": "PCM_16",
+      "max_duration_seconds": null,
+      "atomic_final_artifact": true
+    },
+    "hardware": {
+      "platform": "Apple Silicon",
+      "minimum_unified_memory_gb": 16,
+      "recommended_unified_memory_gb": 24,
+      "ineligible_unified_memory_gb": [
+        8
+      ]
+    },
+    "capacity": {
+      "max_concurrency": 1
+    }
+  },
+  "evidence": {
+    "supersedes_audit_id": "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1",
+    "release_scope": {
+      "release": "2.1.3",
+      "purpose": "measured Qwen production candidate",
+      "release_prepared": true,
+      "post_release_canary": "pending",
+      "genstudio_approval": "pending",
+      "full_rollout": "pending"
+    },
+    "qualified_runtime": {
+      "voice_studio_version": "2.1.2",
+      "commit": "433fccebf08583aa8a61e88fc8804541ec61818b",
+      "target": "terranash-0201",
+      "hardware": "Apple M2, 17.18 GB unified memory",
+      "checkpoint_revision": "e7dd0585652209fa0d7783659aad4e8a324de11c",
+      "cache": {
+        "complete_bytes": 3104164936,
+        "incomplete_bytes": 0
+      }
+    },
+    "five_thousand_character_canary": {
+      "hub_batch_id": "dc6fc58779",
+      "worker_job_id": "0df456ec1ed0",
+      "seed": 23,
+      "section_max_characters": 400,
+      "quality_attempts": 1,
+      "quality_retry_count": 0,
+      "validator": {
+        "revision": "voicestudio.qwen-clone-quality.v1",
+        "branch": "edit_distance",
+        "expected_tokens": 869,
+        "observed_tokens": 869,
+        "ter": 0.0127,
+        "cer": 0.0114,
+        "aligned_words": 867,
+        "v2_terminal_gate": "not_applicable_below_2048_tokens"
+      },
+      "independent_remote_asr": {
+        "coverage_percent": 100.0,
+        "deletions": 0,
+        "compound_tokenization_caveat": "snowcaps to snow caps accounts for apparent extra snow"
+      },
+      "terminal_sentinel": "exact final sentinel; no repeated tail",
+      "runtime_seconds": 339.104,
+      "audio_seconds": 305.92,
+      "memory": {
+        "peak_mlx_gb": 9.026,
+        "minimum_free_gb": 1.905,
+        "pressure": "normal",
+        "swap_delta_gb": 0.0,
+        "memory_failure_or_restart": false
+      }
+    },
+    "rejected_boundaries": {
+      "ten_thousand_characters": {
+        "hub_batch_id": "ec806a61a9",
+        "worker_job_id": "d2456790cecb",
+        "recommendation": "fail; never publish",
+        "reason": "unexplained extra life plus missing at; snow may be compound-tokenization"
+      },
+      "twenty_five_thousand_characters": "rejected/informative only; not promotion evidence",
+      "malformed_fixtures": "rejected/informative only; not promotion evidence"
+    },
+    "language_gates": {
+      "official_languages": [
+        "en",
+        "zh",
+        "ja",
+        "ko",
+        "de",
+        "fr",
+        "ru",
+        "pt",
+        "es",
+        "it"
+      ],
+      "khmer": "rejected and unsupported",
+      "thai": "experimental and unsupported",
+      "genstudio_1_10_0_routing": "language-aware routing keeps Khmer and unsupported traffic off Qwen; OmniVoice remains installed and backup"
+    },
+    "human_quality_review": {
+      "qwen_1_7b_quality_percent": 95,
+      "commercial_decision": "production-acceptable"
+    },
+    "paid_cloud_provider_calls": 0,
+    "promotion_boundary": {
+      "post_release_canary_required": true,
+      "genstudio_approval_required": true,
+      "full_rollout_pending": true,
+      "ffmpeg_claim": "not live until the post-release canary verifies managed ffmpeg and ffprobe"
+    },
+    "v1_retained": "passed historical evidence; not revoked",
+    "section_policy": {
+      "auto_default_private_section_max_characters": 280,
+      "custom_private_section_max_characters": {
+        "minimum": 230,
+        "maximum": 400
+      },
+      "retry_section_max_characters": 230,
+      "owner_approved_configuration": true
+    }
+  }
+}

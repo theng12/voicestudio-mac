@@ -37,7 +37,7 @@ QWEN_17B_BASE = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
 QWEN_17B_PRODUCTION_RECORD = (
     ROOT
     / "model-audits"
-    / "2026-08-14-qwen3-17b-production"
+    / "2026-08-15-qwen3-17b-production-v2"
     / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
 )
 
@@ -238,11 +238,24 @@ def test_qwen_17b_measured_promotion_verifies_its_evidenced_audit_override(
     check = next(c for c in result["checks"] if c["id"] == "section_budget")
     assert result["resolved"]["long_form_policy_source"] == "model_audit"
     assert check["status"] == acr.OK
-    assert check["claimed"] == 400
-    assert check["expected"] == 400
+    assert check["claimed"] == {"maximum": 400, "auto_default": 280}
+    assert check["expected"] == {"maximum": 400, "auto_default": 280}
     assert "model_audit" in check["derived_from"]
     join = next(c for c in result["checks"] if c["id"] == "join_pause")
     assert "model_audit" in join["derived_from"]
+
+
+@pytest.mark.parametrize("default", [None, True, 229, 401, 400.0])
+def test_qwen_17b_v2_rejects_an_invalid_auto_default(default, sources) -> None:
+    """The v2 Auto setting is a bounded integer, distinct from the 400 maximum."""
+    record = json.loads(QWEN_17B_PRODUCTION_RECORD.read_text(encoding="utf-8"))
+    record["contract"]["input_limits"]["default_private_section_max_characters"] = default
+
+    check = next(
+        c for c in _validate(record, sources)["checks"] if c["id"] == "section_budget"
+    )
+
+    assert check["status"] == acr.MISMATCH
 
 
 @pytest.mark.parametrize(

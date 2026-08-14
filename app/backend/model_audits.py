@@ -18,6 +18,14 @@ AUDIT_ROOT = Path(__file__).resolve().parents[2] / "model-audits"
 _IMMUTABLE_REVISION = re.compile(r"^[0-9a-fA-F]{40,64}$")
 _CONTRACT_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 _AUDIT_STATUSES = {"passed", "conditional", "failed", "revoked"}
+_QWEN_17B_BASE = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+_QWEN_17B_PRODUCTION_V2_AUDIT_ID = (
+    "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2"
+)
+_QWEN_17B_PRODUCTION_V2_PATH = (
+    "2026-08-15-qwen3-17b-production-v2/"
+    "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
+)
 
 
 def contract_hash(contract: dict[str, Any]) -> str:
@@ -115,3 +123,45 @@ def input_limits(model_id: str) -> dict[str, Any]:
         return {}
     value = record.get("contract", {}).get("input_limits")
     return json.loads(json.dumps(value)) if isinstance(value, dict) else {}
+
+
+def qwen_17b_production_v2_limits(model_id: str) -> dict[str, Any]:
+    """Return the exact Qwen production-v2 section policy, or nothing.
+
+    This intentionally does not use ``audit_record()``: the latest valid audit
+    may be historical v1 evidence or an unrelated future record, neither of
+    which is authority for the Auto 280 policy.
+    """
+    if model_id != _QWEN_17B_BASE:
+        return {}
+    try:
+        record = json.loads(
+            (AUDIT_ROOT / _QWEN_17B_PRODUCTION_V2_PATH).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    if (
+        not _valid_record(record)
+        or record.get("audit_id") != _QWEN_17B_PRODUCTION_V2_AUDIT_ID
+        or record.get("subject", {}).get("model_id") != _QWEN_17B_BASE
+        or record.get("genstudio_candidate", {}).get("audit_id")
+        != _QWEN_17B_PRODUCTION_V2_AUDIT_ID
+    ):
+        return {}
+    limits = record["contract"].get("input_limits")
+    if not isinstance(limits, dict):
+        return {}
+    maximum = limits.get("private_section_max_characters")
+    default = limits.get("default_private_section_max_characters")
+    if (
+        type(maximum) is not int
+        or maximum != 400
+        or type(default) is not int
+        or default != 280
+        or not 230 <= default <= maximum
+    ):
+        return {}
+    return {
+        "private_section_max_characters": maximum,
+        "default_private_section_max_characters": default,
+    }
