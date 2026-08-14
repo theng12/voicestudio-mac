@@ -34,6 +34,12 @@ OMNIVOICE_RECORD = (
     / "mlx-community--OmniVoice-bfloat16.audit.json"
 )
 QWEN_17B_BASE = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+QWEN_17B_PRODUCTION_RECORD = (
+    ROOT
+    / "model-audits"
+    / "2026-08-14-qwen3-17b-production"
+    / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
+)
 
 
 @pytest.fixture(scope="module")
@@ -220,6 +226,55 @@ def test_the_expectation_is_the_family_default_not_the_audited_value(
 
     result = _validate(_mutate(omnivoice_record, "section_budget"), sources)
     check = next(c for c in result["checks"] if c["id"] == "section_budget")
+    assert check["status"] == acr.MISMATCH
+
+
+def test_qwen_17b_measured_promotion_verifies_its_evidenced_audit_override(
+    sources,
+) -> None:
+    """The release bar permits 400 only when its canary evidence matches it."""
+    record = json.loads(QWEN_17B_PRODUCTION_RECORD.read_text(encoding="utf-8"))
+    result = _validate(record, sources)
+    check = next(c for c in result["checks"] if c["id"] == "section_budget")
+    assert result["resolved"]["long_form_policy_source"] == "model_audit"
+    assert check["status"] == acr.OK
+    assert check["claimed"] == 400
+    assert check["expected"] == 400
+    assert "model_audit" in check["derived_from"]
+    join = next(c for c in result["checks"] if c["id"] == "join_pause")
+    assert "model_audit" in join["derived_from"]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda record: record.update(
+            {"audit_id": "example-unregistered-passed-audit"}
+        ),
+        lambda record: record["subject"].update(
+            {"model_id": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"}
+        ),
+        lambda record: record["contract"]["input_limits"].update(
+            {"private_section_max_characters": 401}
+        ),
+        lambda record: record["evidence"]["five_thousand_character_canary"].update(
+            {"hub_batch_id": "tampered-batch"}
+        ),
+        lambda record: record["genstudio_candidate"].update(
+            {"contract_hash": "sha256:" + "0" * 64}
+        ),
+    ],
+    ids=["unregistered-audit", "wrong-model", "wrong-limit", "wrong-canary", "wrong-hash"],
+)
+def test_only_the_exact_qwen_provenance_anchor_can_authorize_400(
+    mutate, sources
+) -> None:
+    """Regression: copied passed evidence may never authorize an override."""
+    record = json.loads(QWEN_17B_PRODUCTION_RECORD.read_text(encoding="utf-8"))
+    mutate(record)
+    result = _validate(record, sources)
+    check = next(c for c in result["checks"] if c["id"] == "section_budget")
+    assert result["resolved"]["long_form_policy_source"] == "runtime_default"
     assert check["status"] == acr.MISMATCH
 
 

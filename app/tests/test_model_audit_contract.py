@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from backend import generation, main, model_audits, transcription
+from backend import catalog, generation, main, model_audits, transcription
 
 
 GROUP_A = {
@@ -13,6 +13,12 @@ GROUP_A = {
 
 QWEN_BASE = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
 QWEN_17B_BASE = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+QWEN_17B_BOOTSTRAP = (
+    Path(__file__).resolve().parents[2]
+    / "model-audits"
+    / "2026-08-14-qwen3-17b"
+    / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
+)
 REJECTED_GROUP_B = {
     "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit": (
         "049ef77fe8816b536193c0c25f9a214d17921282"
@@ -107,10 +113,9 @@ def test_qwen_base_guardrail_contract_requires_requalification() -> None:
     assert "approved_for_genstudio" not in json.dumps(record)
 
 
-def test_qwen_17b_base_bootstrap_is_hash_bound_and_unroutable() -> None:
-    """The canary bootstrap supplies runtime limits without claiming promotion."""
-    record = model_audits.audit_record(QWEN_17B_BASE)
-    assert record is not None
+def test_qwen_17b_bootstrap_record_is_preserved_as_conditional_evidence() -> None:
+    """Regression: promotion must not rewrite the installed 2.1.2 evidence."""
+    record = json.loads(QWEN_17B_BOOTSTRAP.read_text(encoding="utf-8"))
     assert record["audit_id"] == (
         "voicestudio-20260814-qwen3-tts-1.7b-base-bootstrap-v1"
     )
@@ -215,6 +220,127 @@ def test_qwen_17b_base_bootstrap_is_hash_bound_and_unroutable() -> None:
     assert evidence["promotion_gate"]["candidate_for_genstudio"] is False
     assert evidence["promotion_gate"]["status"] == "pending_canary_qualification"
     assert "approved_for_genstudio" not in json.dumps(record)
+
+
+def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() -> None:
+    """Regression: a passed promotion must surface only the measured 5k/400 contract."""
+    record = model_audits.audit_record(QWEN_17B_BASE)
+    assert record is not None
+    assert record["audit_id"] == (
+        "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1"
+    )
+    candidate = record["genstudio_candidate"]
+    assert candidate["audit_status"] == "passed"
+    assert candidate["candidate_for_genstudio"] is True
+    assert candidate["contract_hash"] == model_audits.contract_hash(record["contract"])
+    assert candidate["runtime_revision"] == "e7dd0585652209fa0d7783659aad4e8a324de11c"
+    assert candidate["adapter"] == {
+        "id": "voicestudio.mlx-audio.qwen3-tts-base",
+        "version": "1.4",
+        "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
+    }
+    assert candidate["controls"]["language"]["values"] == [
+        "en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it",
+    ]
+    assert "km" not in candidate["controls"]["language"]["values"]
+    assert "th" not in candidate["controls"]["language"]["values"]
+    guardrails = candidate["controls"]["quality_guardrails"]
+    assert guardrails["validator_revision"] == "voicestudio.qwen-clone-quality.v1"
+    assert guardrails["max_local_quality_retries"] == 1
+    assert guardrails["retry_section_max_characters"] == 230
+    assert guardrails["terminal_gate"]["revision"] == "voicestudio.qwen-clone-quality.v2"
+    limits = candidate["input_limits"]
+    assert limits["text_max_characters"] == 5_000
+    assert limits["private_section_max_characters"] == 400
+    assert limits["private_edge_destructive_trim"] is False
+    assert limits["private_speech_crossfade"] is False
+    assert limits["reference_audio"]["transcript"] == "required"
+    assert limits["reference_audio"]["minimum_duration_seconds"] == 3
+    assert limits["reference_audio"]["target_duration_seconds"] == 8
+    assert limits["reference_audio"]["recommended_duration_seconds"] == {
+        "minimum": 8,
+        "maximum": 12,
+    }
+    assert candidate["hardware"] == {
+        "platform": "Apple Silicon",
+        "minimum_unified_memory_gb": 16,
+        "recommended_unified_memory_gb": 24,
+        "ineligible_unified_memory_gb": [8],
+    }
+    assert candidate["capacity"] == {"max_concurrency": 1}
+    assert record["contract"]["license"] == {
+        "spdx": "Apache-2.0",
+        "commercial_use": True,
+    }
+    assert record["evidence"]["supersedes_audit_id"] == (
+        "voicestudio-20260814-qwen3-tts-1.7b-base-bootstrap-v1"
+    )
+    evidence = record["evidence"]
+    assert evidence["qualified_runtime"] == {
+        "voice_studio_version": "2.1.2",
+        "commit": "433fccebf08583aa8a61e88fc8804541ec61818b",
+        "target": "terranash-0201",
+        "hardware": "Apple M2, 17.18 GB unified memory",
+        "checkpoint_revision": "e7dd0585652209fa0d7783659aad4e8a324de11c",
+        "cache": {"complete_bytes": 3104164936, "incomplete_bytes": 0},
+    }
+    canary = evidence["five_thousand_character_canary"]
+    assert canary["hub_batch_id"] == "dc6fc58779"
+    assert canary["worker_job_id"] == "0df456ec1ed0"
+    assert canary["seed"] == 23
+    assert canary["section_max_characters"] == 400
+    assert canary["quality_attempts"] == 1
+    assert canary["quality_retry_count"] == 0
+    assert canary["validator"] == {
+        "revision": "voicestudio.qwen-clone-quality.v1",
+        "branch": "edit_distance",
+        "expected_tokens": 869,
+        "observed_tokens": 869,
+        "ter": 0.0127,
+        "cer": 0.0114,
+        "aligned_words": 867,
+        "v2_terminal_gate": "not_applicable_below_2048_tokens",
+    }
+    assert canary["independent_remote_asr"] == {
+        "coverage_percent": 100.0,
+        "deletions": 0,
+        "compound_tokenization_caveat": "snowcaps to snow caps accounts for apparent extra snow",
+    }
+    assert canary["terminal_sentinel"] == "exact final sentinel; no repeated tail"
+    assert canary["runtime_seconds"] == 339.104
+    assert canary["audio_seconds"] == 305.92
+    assert canary["memory"] == {
+        "peak_mlx_gb": 9.026,
+        "minimum_free_gb": 1.905,
+        "pressure": "normal",
+        "swap_delta_gb": 0.0,
+        "memory_failure_or_restart": False,
+    }
+    assert evidence["rejected_boundaries"]["ten_thousand_characters"] == {
+        "hub_batch_id": "ec806a61a9",
+        "worker_job_id": "d2456790cecb",
+        "recommendation": "fail; never publish",
+        "reason": "unexplained extra life plus missing at; snow may be compound-tokenization",
+    }
+    assert evidence["rejected_boundaries"]["twenty_five_thousand_characters"] == (
+        "rejected/informative only; not promotion evidence"
+    )
+    assert evidence["rejected_boundaries"]["malformed_fixtures"] == (
+        "rejected/informative only; not promotion evidence"
+    )
+    assert evidence["language_gates"]["khmer"] == "rejected and unsupported"
+    assert evidence["language_gates"]["thai"] == "experimental and unsupported"
+    assert evidence["human_quality_review"] == {
+        "qwen_1_7b_quality_percent": 95,
+        "commercial_decision": "production-acceptable",
+    }
+    assert evidence["paid_cloud_provider_calls"] == 0
+    model = catalog.get_model(QWEN_17B_BASE)
+    assert model is not None
+    published = catalog.serialize_model(model)
+    assert published["execution_contract"]["qualification_source"] == "audit"
+    assert published["execution_contract"]["text_max_characters"] == 5_000
+    assert published["execution_contract"]["private_section_max_characters"] == 400
 
 
 def test_rejected_group_b_qualifications_are_closed_and_never_candidates() -> None:

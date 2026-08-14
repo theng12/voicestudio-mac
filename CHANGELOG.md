@@ -10,6 +10,32 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.1.3] — 2026-08-14
+
+### Added — final Qwen 1.7B production-candidate contract (post-release canary pending)
+
+- Added a distinct, hash-bound **passed** audit for the pinned
+  `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` runtime. The final candidate
+  exposes only the measured 5,000-character request ceiling and 400-character
+  private section limit, with the exact-transcript reference, one local retry,
+  lossless 300/600/180 ms assembly, and 16 GB minimum / 24 GB preferred Apple
+  Silicon contract unchanged from the qualified 2.1.2 runtime.
+- The immutable 2.1.2 conditional bootstrap record remains installed as
+  superseded evidence. Khmer remains rejected/unsupported, Thai remains
+  experimental/unsupported, and OmniVoice remains installed as the backup;
+  no traffic is approved or routed by this release alone.
+
+### Fixed — FFmpeg repair hop for already-updated 2.1.2 workers
+
+- A worker already on 2.1.2 loads its current `update.js` while updating to
+  2.1.3, so that existing plan installs and verifies managed FFmpeg and
+  FFprobe. The 2.1.3 audit and media-tool repair are not live claims until the
+  post-release canary verifies the running version, audit, and both tools.
+- Older 2.0.7 workers require the explicit pinned two-hop migration
+  `2.0.7 -> 2.1.2 -> 2.1.3`; a direct 2.0.7-to-2.1.3 update does not provision
+  FFmpeg from its already-loaded legacy plan. GenStudio approval, its separate
+  auto-canary, and full rollout remain pending.
+
 ## [2.1.2] — 2026-08-14
 
 ### Added — conditional Qwen 1.7B canary bootstrap (not routable)

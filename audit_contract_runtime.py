@@ -70,6 +70,26 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+from app.backend.model_audits import contract_hash
+
+
+# The only audit-backed section override admitted by this source-side validator.
+# Keep this independent from the audit record: a copied passed/evidence block
+# must continue to compare against the runtime default.
+_MEASURED_SECTION_PROVENANCE = {
+    "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1": {
+        "model_id": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+        "contract_hash": "sha256:c9be3368abdb8817369cc09a01231c8f1f5a7d68b936a0494920a918b3b8a38a",
+        "runtime_revision": "e7dd0585652209fa0d7783659aad4e8a324de11c",
+        "supersedes_audit_id": "voicestudio-20260814-qwen3-tts-1.7b-base-bootstrap-v1",
+        "canary_commit": "433fccebf08583aa8a61e88fc8804541ec61818b",
+        "canary_target": "terranash-0201",
+        "canary_batch_id": "dc6fc58779",
+        "canary_job_id": "0df456ec1ed0",
+        "section_max_characters": 400,
+    },
+}
+
 
 # ─── what this validator deliberately does not check ───────────────────────
 
@@ -524,7 +544,8 @@ def check_join_pause(
         )
     expected = policy["join_pause_milliseconds"]
     derived = (
-        "long_form_policy.policy_for(family, repo) with no audit override "
+        "long_form_policy.policy_for(family, repo) with "
+        f"{policy.get('source', 'runtime_default')} section policy "
         f"-> join_pause_milliseconds = {expected}"
     )
     if claimed is None:
@@ -750,7 +771,8 @@ def check_section_budget(
         )
     expected = policy["section_max_characters"]
     derived = (
-        "long_form_policy.policy_for(family, repo) with no audit override "
+        "long_form_policy.policy_for(family, repo) with "
+        f"{policy.get('source', 'runtime_default')} section policy "
         f"-> section_max_characters = {expected}"
     )
     if claimed is None:
@@ -874,6 +896,42 @@ def check_engine_mode(
     )
 
 
+def _measured_section_override(record: dict[str, Any]) -> object:
+    """Return an independently anchored measured section budget, if exact."""
+    anchor = _MEASURED_SECTION_PROVENANCE.get(str(record.get("audit_id") or ""))
+    if anchor is None:
+        return None
+    candidate = record.get("genstudio_candidate") or {}
+    contract = record.get("contract") or {}
+    subject = record.get("subject") or {}
+    evidence = record.get("evidence") or {}
+    claimed = (contract.get("input_limits") or {}).get("private_section_max_characters")
+    canary = evidence.get("five_thousand_character_canary")
+    qualified_runtime = evidence.get("qualified_runtime")
+    if (
+        candidate.get("audit_status") == "passed"
+        and candidate.get("candidate_for_genstudio") is True
+        and candidate.get("audit_id") == record.get("audit_id")
+        and subject.get("model_id") == anchor["model_id"]
+        and contract_hash(contract) == anchor["contract_hash"]
+        and candidate.get("contract_hash") == anchor["contract_hash"]
+        and subject.get("checkpoint_revision") == anchor["runtime_revision"]
+        and contract.get("runtime_revision") == anchor["runtime_revision"]
+        and candidate.get("runtime_revision") == anchor["runtime_revision"]
+        and evidence.get("supersedes_audit_id") == anchor["supersedes_audit_id"]
+        and isinstance(canary, dict)
+        and isinstance(qualified_runtime, dict)
+        and qualified_runtime.get("commit") == anchor["canary_commit"]
+        and qualified_runtime.get("target") == anchor["canary_target"]
+        and canary.get("hub_batch_id") == anchor["canary_batch_id"]
+        and canary.get("worker_job_id") == anchor["canary_job_id"]
+        and claimed == anchor["section_max_characters"]
+        and canary.get("section_max_characters") == anchor["section_max_characters"]
+    ):
+        return anchor["section_max_characters"]
+    return None
+
+
 # ─── record-level driver ───────────────────────────────────────────────────
 
 def validate_record(
@@ -899,9 +957,11 @@ def validate_record(
 
     policy: Optional[dict[str, Any]] = None
     if family:
-        # No audited override: the expectation must be the family default,
-        # otherwise this degenerates into another self-consistency check.
-        policy = long_form_policy.policy_for(family, model_id)
+        policy = long_form_policy.policy_for(
+            family,
+            model_id,
+            audited_section_max_characters=_measured_section_override(record),
+        )
 
     checks = [
         check_section_budget(contract, policy),

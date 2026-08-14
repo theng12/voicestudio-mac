@@ -118,12 +118,14 @@ Studio.
 
 ### Task 4: Publish the distinct measured/passed 2.1.3 promotion
 
-- [ ] Run exactly one eligible 16 GB-or-larger canary on the pinned 2.1.2
-  runtime only as described in Task 3; do not reuse pre-release observations as
-  qualification.
-- [ ] Publish a **new** hash-bound **passed** audit with
-  `candidate_for_genstudio: true` only after Task 3 evidence is accepted; keep
-  the 2.1.2 conditional audit as superseded bootstrap evidence.
-- [ ] Release Voice Studio 2.1.3, update the canary first, obtain the separate
-  GenStudio approval, then use its independent auto-canary before any broader
-  rollout or handoff.
+- [x] Preserve the accepted pinned 2.1.2 runtime evidence and prepare a **new**
+  hash-bound **passed** 2.1.3 audit with `candidate_for_genstudio: true`, while
+  retaining the 2.1.2 conditional audit as superseded bootstrap evidence.
+- [x] Prepare the truthful 2.1.3 release metadata for the measured 5,000 / 400
+  limits and the 2.1.2-to-2.1.3 FFmpeg repair hop; 2.0.7 workers require the
+  pinned two-hop `2.0.7 -> 2.1.2 -> 2.1.3` path.
+- [ ] Update the eligible 2.1.2 canary to the exact 2.1.3 release and verify
+  version/commit, audit/hash/revision, FFmpeg/FFprobe availability, and the
+  5,000-character ceiling. Do not claim the audit or FFmpeg live before this.
+- [ ] Obtain separate GenStudio approval and its independent auto-canary before
+  any broader rollout or handoff.

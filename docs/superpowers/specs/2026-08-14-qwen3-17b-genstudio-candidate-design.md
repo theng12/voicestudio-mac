@@ -2,12 +2,14 @@
 
 ## Decision
 
-`mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` is a Voice Studio candidate for
-GenStudio Multilingual V3, not a passed or routable candidate yet. Its audit
-must stay red until remote qualification provides measured limits, reference
-evidence, and owner approval. OmniVoice remains installed, catalogued, and
-available as an operator-selected backup; Voice Studio does not delete it or
-automatically retry an accepted Qwen request through it.
+`mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` has a prepared Voice Studio
+2.1.3 **passed production-candidate audit**, grounded in the exact installed
+2.1.2 canary evidence and owner review. It is not live or GenStudio-routable
+until the 2.1.3 post-release canary verifies the running audit and managed media
+tools, followed by separate GenStudio approval and its independent auto-canary.
+OmniVoice remains installed, catalogued, and available as an operator-selected
+backup; Voice Studio does not delete it or automatically retry an accepted Qwen
+request through it.
 
 The execution boundary remains GenStudio -> Studio Hub -> Voice Studio. Studio
 Hub owns eligible-worker selection and must require authoritative unified-memory
@@ -32,17 +34,14 @@ sectioning, reuses the same reference audio and transcript for every section,
 reports progress, honors cancellation between sections, joins the sections, and
 applies final pitch-preserving speed once.
 
-Voice Studio 2.1.2 publishes a hash-bound **conditional** bootstrap audit so
-the 1.7B runtime can prepare the bounded reference input needed for exactly one
-eligible canary. The record exposes only code-grounded execution facts: the
-immutable checkpoint and runtime, 3/8/8–12/15-second 24 kHz mono reference
-profile with the exact transcript, the existing 288-character runtime-default
-section budget, and the private 300/600/180 lossless assembly policy. Its
-40,000-character API acceptance field is not a qualified model ceiling; no
-final whole-request ceiling, listening score, commercial approval, or passed
-canary result is claimed. A qualification-only `section_max_characters`
-override permits a transcribe-back sweep without changing the bootstrap
-contract before evidence is accepted.
+The immutable Voice Studio 2.1.2 conditional bootstrap audit remains
+superseded evidence: it records the 288-character runtime default and its
+40,000-character API acceptance field, not a qualified request ceiling. The
+separate 2.1.3 passed audit records the evidence-supported 5,000-character
+request maximum and 400-character private section maximum. Both records bind
+the same immutable checkpoint/runtime, 3/8/8–12/15-second 24 kHz mono reference
+profile with the exact transcript, and the existing private 300/600/180
+lossless assembly policy; no runtime inference behavior changes in 2.1.3.
 
 The owner-approved boundary pacing is shared with the replaced production
 route:
@@ -56,15 +55,24 @@ energy-based trimming, speech crossfade, or other destructive edge cleanup.
 
 ## Qualification and Promotion
 
-A future passed hash-bound audit must record the exact checkpoint revision,
-adapter version, contract hash, measured 16 GB memory/runtime evidence,
-section sweep, whole-request evidence, owner listening approval, reference
-window, pacing, and word-safe assembly rule. Until then, Voice Studio exposes
-only the conditional, `candidate_for_genstudio: false` bootstrap summary;
-Studio Hub keeps it blocked and remains the approval and supply authority.
+The prepared passed audit records the exact checkpoint revision, adapter
+version, contract hash, 16 GB memory/runtime evidence, section sweep,
+5,000-character whole-request evidence, owner listening approval, reference
+window, pacing, and word-safe assembly rule. The 10,000-character negative
+boundary, 25,000-character fixtures, and malformed fixtures remain rejected or
+informative evidence, never promotion evidence. Its published status does not
+itself approve a route: Studio Hub remains the approval and supply authority
+until the 2.1.3 canary passes. GenStudio's own approval then triggers its
+independent fixed-text auto-canary; Voice Studio does not bypass or duplicate it.
 
-GenStudio's own approval triggers its independent fixed-text auto-canary. Voice
-Studio does not bypass or duplicate that canary.
+### Release state — 2.1.3 prepared, rollout pending
+
+The 2.1.3 release is prepared but not deployed. Its FFmpeg repair hop relies
+on a worker already at 2.1.2 loading that current `update.js`, which installs
+and verifies FFmpeg/FFprobe while the worker moves to 2.1.3. A 2.0.7 worker
+must take the explicit pinned sequence `2.0.7 -> 2.1.2 -> 2.1.3`; direct legacy
+updates do not execute the newer provision step. Do not claim either FFmpeg or
+the final audit live until the post-release canary verifies them.
 
 ## Compatibility
 
