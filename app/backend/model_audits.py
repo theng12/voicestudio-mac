@@ -50,7 +50,10 @@ def _valid_record(raw: Any) -> bool:
         return False
     if candidate.get("schema") != "studio.model-audit":
         return False
-    if candidate.get("schema_version") != 1:
+    if (
+        type(candidate.get("schema_version")) is not int
+        or candidate["schema_version"] != 1
+    ):
         return False
     if candidate.get("audit_status") not in _AUDIT_STATUSES:
         return False
@@ -143,7 +146,8 @@ def qwen_17b_production_v2_limits(model_id: str) -> dict[str, Any]:
     if (
         not _valid_record(record)
         or record.get("schema") != "studio.model-audit-record"
-        or record.get("schema_version") != 1
+        or type(record.get("schema_version")) is not int
+        or record["schema_version"] != 1
         or record.get("audit_id") != _QWEN_17B_PRODUCTION_V2_AUDIT_ID
         or record.get("subject", {}).get("model_id") != _QWEN_17B_BASE
         or record.get("genstudio_candidate", {}).get("audit_id")

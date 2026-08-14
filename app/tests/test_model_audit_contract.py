@@ -274,12 +274,20 @@ def test_invalid_v2_default_fails_closed(default, monkeypatch, tmp_path) -> None
         lambda record: record.pop("schema"),
         lambda record: record.update({"schema_version": 2}),
         lambda record: record.pop("schema_version"),
+        lambda record: record.update({"schema_version": True}),
+        lambda record: record.update({"schema_version": 1.0}),
+        lambda record: record["genstudio_candidate"].update({"schema_version": True}),
+        lambda record: record["genstudio_candidate"].update({"schema_version": 1.0}),
     ],
     ids=[
         "invalid-schema",
         "missing-schema",
         "invalid-schema-version",
         "missing-schema-version",
+        "boolean-schema-version",
+        "float-schema-version",
+        "boolean-candidate-schema-version",
+        "float-candidate-schema-version",
     ],
 )
 def test_invalid_v2_record_schema_fails_closed(mutate, monkeypatch, tmp_path) -> None:
