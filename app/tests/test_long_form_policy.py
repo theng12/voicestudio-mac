@@ -11,7 +11,7 @@ from backend import catalog, generation, long_form_policy, model_audits
     ("family", "repo", "section_chars", "join_ms"),
     [
         ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit", 288, 180),
-        ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit", 400, 300),
+        ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit", 280, 300),
         ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit", 360, 120),
         ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit", 360, 120),
         ("chatterbox-mlx", "mlx-community/chatterbox-8bit", 500, 120),
@@ -42,8 +42,8 @@ def test_catalog_and_runtime_share_exact_long_form_policy(
             "maximum": 400,
             "step": 1,
             "default_custom": 280,
-            "runtime_default": 400,
-            "source": "qwen3-17b-production-audit",
+            "runtime_default": 280,
+            "source": "qwen3-17b-production-v2-audit",
         }
         if repo == "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
         else None

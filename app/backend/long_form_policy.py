@@ -17,6 +17,7 @@ OMNIVOICE_JOIN_PAUSE_SECONDS = 0.30
 OMNIVOICE_PARAGRAPH_JOIN_PAUSE_SECONDS = 0.60
 OMNIVOICE_SOFT_JOIN_PAUSE_SECONDS = 0.18
 QWEN_CLONE_SECTION_MAX_CHARACTERS = 288
+QWEN_17B_BASE_REPO = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
 QWEN_PRESET_SECTION_MAX_CHARACTERS = 360
 CHATTERBOX_STANDARD_SECTION_MAX_CHARACTERS = 500
 CHATTERBOX_TURBO_SECTION_MAX_CHARACTERS = 400
@@ -286,11 +287,29 @@ def policy_for(
     repo: str,
     *,
     audited_section_max_characters: object = None,
+    audited_default_section_max_characters: object = None,
 ) -> Optional[dict]:
     """Return the effective runtime policy, including a valid audit override."""
     policy = _runtime_default(family, repo)
     if policy is None:
         return None
+
+    if repo == QWEN_17B_BASE_REPO:
+        if (
+            type(audited_section_max_characters) is int
+            and audited_section_max_characters == 400
+            and type(audited_default_section_max_characters) is int
+            and audited_default_section_max_characters == 280
+            and 230 <= audited_default_section_max_characters
+            <= audited_section_max_characters
+        ):
+            policy = LongFormPolicy(
+                section_max_characters=audited_default_section_max_characters,
+                join_pause_seconds=policy.join_pause_seconds,
+                note="The exact production-v2 audit sets the Auto section size. " + policy.note,
+            )
+            return policy.serialize(source="model_audit")
+        return policy.serialize(source="runtime_default")
 
     source = "runtime_default"
     try:

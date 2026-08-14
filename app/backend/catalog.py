@@ -768,7 +768,7 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("avoid", "8 GB cloning workers must route to an eligible 16 GB or 24 GB machine; 0.6B Base is also 16 GB minimum"),
         ),
         section_size_control=SectionSizeControl(
-            230, 400, 1, 280, 400, "qwen3-17b-production-audit"
+            230, 400, 1, 280, 280, "qwen3-17b-production-v2-audit"
         ),
     ),
     ModelEntry(
@@ -1543,17 +1543,31 @@ class SectionSizeControlError(ValueError):
         self.code = code
 
 
+def _audited_long_form_policy(family: str, repo: str) -> dict | None:
+    if repo == long_form_policy.QWEN_17B_BASE_REPO:
+        limits = model_audits.qwen_17b_production_v2_limits(repo)
+        return long_form_policy.policy_for(
+            family,
+            repo,
+            audited_section_max_characters=limits.get("private_section_max_characters"),
+            audited_default_section_max_characters=limits.get(
+                "default_private_section_max_characters"
+            ),
+        )
+    return long_form_policy.policy_for(
+        family,
+        repo,
+        audited_section_max_characters=model_audits.input_limits(repo).get(
+            "private_section_max_characters"
+        ),
+    )
+
+
 def section_size_control_for(repo: str) -> dict[str, int | str] | None:
     entry = get_model(repo)
     if entry is None or entry.section_size_control is None:
         return None
-    policy = long_form_policy.policy_for(
-        entry.family,
-        entry.repo,
-        audited_section_max_characters=model_audits.input_limits(entry.repo).get(
-            "private_section_max_characters"
-        ),
-    )
+    policy = _audited_long_form_policy(entry.family, entry.repo)
     if policy is None:
         return None
     control = entry.section_size_control.serialize()
@@ -1575,22 +1589,24 @@ def resolve_section_budget(
             f"Model {repo} has no section-size control.",
         )
     control = derived_control
-    policy = long_form_policy.policy_for(
-        family,
-        repo,
-        audited_section_max_characters=model_audits.input_limits(repo).get(
-            "private_section_max_characters"
-        ),
-    )
+    policy = _audited_long_form_policy(family, repo)
     if policy is None:
         raise SectionSizeControlError(
             "SECTION_MAX_CHARACTERS_UNSUPPORTED",
             f"Model {repo} has no section-size control.",
         )
-    resolved = int(policy["section_max_characters"])
     if requested is None:
+        if repo == long_form_policy.QWEN_17B_BASE_REPO and control is None:
+            raise SectionSizeControlError(
+                "SECTION_MAX_CHARACTERS_UNSUPPORTED",
+                f"Model {repo} has no section-size control.",
+            )
         return {
-            "section_max_characters": resolved,
+            "section_max_characters": (
+                control["runtime_default"]
+                if control is not None
+                else int(policy["section_max_characters"])
+            ),
             "source": "audit",
             "capability": control,
         }
@@ -1606,7 +1622,6 @@ def resolve_section_budget(
     if (
         requested < control["minimum"]
         or requested > control["maximum"]
-        or requested > resolved
     ):
         raise SectionSizeControlError(
             "SECTION_MAX_CHARACTERS_OUT_OF_RANGE",
@@ -1780,13 +1795,7 @@ def serialize_model(m: ModelEntry) -> dict:
     except (TypeError, ValueError):
         audited_text_max = None
     language_support = m.language_support or LanguageSupport(codes=m.languages)
-    effective_long_form_policy = long_form_policy.policy_for(
-        m.family,
-        m.repo,
-        audited_section_max_characters=audited_input_limits.get(
-            "private_section_max_characters"
-        ),
-    )
+    effective_long_form_policy = _audited_long_form_policy(m.family, m.repo)
     if effective_long_form_policy is not None:
         effective_long_form_policy = {
             **effective_long_form_policy,

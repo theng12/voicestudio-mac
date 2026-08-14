@@ -1008,14 +1008,24 @@ def _internal_mlx_text_chunks(
     one exact checkpoint. Until that evidence exists, the established family
     fallback remains active. Callers still submit one complete script.
     """
-    audited = model_audits.input_limits(repo).get(
-        "private_section_max_characters"
-    )
-    policy = long_form_policy.policy_for(
-        family,
-        repo,
-        audited_section_max_characters=audited,
-    )
+    if repo == long_form_policy.QWEN_17B_BASE_REPO:
+        audited = model_audits.qwen_17b_production_v2_limits(repo)
+        policy = long_form_policy.policy_for(
+            family,
+            repo,
+            audited_section_max_characters=audited.get("private_section_max_characters"),
+            audited_default_section_max_characters=audited.get(
+                "default_private_section_max_characters"
+            ),
+        )
+    else:
+        policy = long_form_policy.policy_for(
+            family,
+            repo,
+            audited_section_max_characters=model_audits.input_limits(repo).get(
+                "private_section_max_characters"
+            ),
+        )
     if policy is None:
         return []
     max_chars = int(max_chars_override or policy["section_max_characters"])

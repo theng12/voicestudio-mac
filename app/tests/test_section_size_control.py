@@ -53,7 +53,7 @@ def test_txt2speech_endpoint_canonicalizes_section_budget_before_queueing(
     assert response.status_code == 200
     assert len(queued_txt2speech_params) == 1
     assert queued_txt2speech_params[0]["_resolved_section_max_characters"] == (
-        requested or 400
+        280 if requested is None else requested
     )
     assert "section_max_characters" not in queued_txt2speech_params[0]
 
@@ -304,7 +304,7 @@ def test_internal_queueing_without_a_non_qwen_override_stays_accepted(
     assert "_resolved_section_max_characters" not in job.params
 
 
-def test_auto_budget_survives_audit_capability_mismatch_across_endpoint_and_manager(
+def test_auto_budget_fails_closed_when_audit_capability_mismatches(
     monkeypatch: pytest.MonkeyPatch,
     queued_txt2speech_params: list[dict],
 ) -> None:
@@ -315,11 +315,13 @@ def test_auto_budget_survives_audit_capability_mismatch_across_endpoint_and_mana
         repo: str,
         *,
         audited_section_max_characters: object = None,
+        audited_default_section_max_characters: object = None,
     ) -> dict | None:
         policy = original_policy_for(
             family,
             repo,
             audited_section_max_characters=audited_section_max_characters,
+            audited_default_section_max_characters=audited_default_section_max_characters,
         )
         if repo == QWEN_17B_BASE and policy is not None:
             return {**policy, "section_max_characters": 399}
@@ -333,17 +335,25 @@ def test_auto_budget_survives_audit_capability_mismatch_across_endpoint_and_mana
     manager = _inert_generation_manager()
     monkeypatch.setattr(generation.threading, "Thread", _InertThread)
 
-    assert response.status_code == 200
-    assert queued_txt2speech_params[0]["_resolved_section_max_characters"] == 399
-    job = manager.start_txt2speech(queued_txt2speech_params[0])
-    assert job.params["_resolved_section_max_characters"] == 399
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+    assert queued_txt2speech_params == []
+    with pytest.raises(catalog.SectionSizeControlError) as error:
+        manager.start_txt2speech({
+            "repo": QWEN_17B_BASE,
+            "text": "A mismatch-safe internal request.",
+            "_resolved_section_max_characters": 399,
+        })
+    assert error.value.code == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
 
 
-def test_auto_budget_survives_missing_audit_across_endpoint_and_manager(
+def test_missing_v2_rejects_auto_across_endpoint_and_manager(
     monkeypatch: pytest.MonkeyPatch,
     queued_txt2speech_params: list[dict],
 ) -> None:
-    monkeypatch.setattr(catalog.model_audits, "input_limits", lambda _repo: {})
+    monkeypatch.setattr(
+        catalog.model_audits, "qwen_17b_production_v2_limits", lambda _repo: {}
+    )
     response = _client().post("/api/generate/txt2speech", json={
         "repo": QWEN_17B_BASE,
         "text": "A missing-audit Auto request.",
@@ -351,10 +361,16 @@ def test_auto_budget_survives_missing_audit_across_endpoint_and_manager(
     manager = _inert_generation_manager()
     monkeypatch.setattr(generation.threading, "Thread", _InertThread)
 
-    assert response.status_code == 200
-    assert queued_txt2speech_params[0]["_resolved_section_max_characters"] == 288
-    job = manager.start_txt2speech(queued_txt2speech_params[0])
-    assert job.params["_resolved_section_max_characters"] == 288
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+    assert queued_txt2speech_params == []
+    with pytest.raises(catalog.SectionSizeControlError) as error:
+        manager.start_txt2speech({
+            "repo": QWEN_17B_BASE,
+            "text": "A missing-audit internal request.",
+            "_resolved_section_max_characters": 280,
+        })
+    assert error.value.code == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
 
 
 def test_manager_rejects_a_forged_private_auto_budget_when_capability_disagrees(
@@ -367,11 +383,13 @@ def test_manager_rejects_a_forged_private_auto_budget_when_capability_disagrees(
         repo: str,
         *,
         audited_section_max_characters: object = None,
+        audited_default_section_max_characters: object = None,
     ) -> dict | None:
         policy = original_policy_for(
             family,
             repo,
             audited_section_max_characters=audited_section_max_characters,
+            audited_default_section_max_characters=audited_default_section_max_characters,
         )
         if repo == QWEN_17B_BASE and policy is not None:
             return {**policy, "section_max_characters": 399}
@@ -402,11 +420,13 @@ def test_custom_budget_stays_capability_gated_when_audit_and_capability_disagree
         repo: str,
         *,
         audited_section_max_characters: object = None,
+        audited_default_section_max_characters: object = None,
     ) -> dict | None:
         policy = original_policy_for(
             family,
             repo,
             audited_section_max_characters=audited_section_max_characters,
+            audited_default_section_max_characters=audited_default_section_max_characters,
         )
         if repo == QWEN_17B_BASE and policy is not None:
             return {**policy, "section_max_characters": 399}
@@ -431,8 +451,8 @@ def test_catalog_publishes_only_the_audited_qwen_17b_control() -> None:
         "maximum": 400,
         "step": 1,
         "default_custom": 280,
-        "runtime_default": 400,
-        "source": "qwen3-17b-production-audit",
+        "runtime_default": 280,
+        "source": "qwen3-17b-production-v2-audit",
     }
     other = catalog.serialize_model(catalog.get_model(QWEN_06B_BASE))
     assert other["long_form_delivery"]["section_size_control"] is None
@@ -450,13 +470,32 @@ def test_readme_documents_the_audited_section_size_control_contract() -> None:
     assert "send an integer `section_max_characters` for Custom" in readme
 
 
-@pytest.mark.parametrize("requested", [None, 230, 280, 400])
-def test_resolve_section_budget_accepts_only_auto_and_audited_values(
-    requested: int | None,
+@pytest.mark.parametrize(
+    ("requested", "expected", "source"),
+    [
+        (None, 280, "audit"),
+        (230, 230, "caller_override"),
+        (280, 280, "caller_override"),
+        (400, 400, "caller_override"),
+    ],
+)
+def test_qwen_v2_resolves_auto_and_custom(
+    requested: int | None, expected: int, source: str,
 ) -> None:
     result = catalog.resolve_section_budget("qwen3-tts", QWEN_17B_BASE, requested)
-    assert result["section_max_characters"] == (400 if requested is None else requested)
-    assert result["source"] == ("audit" if requested is None else "caller_override")
+    assert result["section_max_characters"] == expected
+    assert result["source"] == source
+
+
+def test_missing_v2_never_falls_back_to_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        catalog.model_audits, "qwen_17b_production_v2_limits", lambda _repo: {}
+    )
+
+    assert catalog.section_size_control_for(QWEN_17B_BASE) is None
+    with pytest.raises(catalog.SectionSizeControlError) as error:
+        catalog.resolve_section_budget("qwen3-tts", QWEN_17B_BASE, 280)
+    assert error.value.code == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
 
 
 @pytest.mark.parametrize(
@@ -505,11 +544,13 @@ def test_catalog_fails_closed_when_the_audit_and_capability_disagree(
         repo: str,
         *,
         audited_section_max_characters: object = None,
+        audited_default_section_max_characters: object = None,
     ) -> dict | None:
         policy = original_policy_for(
             family,
             repo,
             audited_section_max_characters=audited_section_max_characters,
+            audited_default_section_max_characters=audited_default_section_max_characters,
         )
         if repo == QWEN_17B_BASE and policy is not None:
             return {**policy, "section_max_characters": 399}
@@ -534,11 +575,13 @@ def test_resolve_section_budget_rejects_a_stale_capability(
         repo: str,
         *,
         audited_section_max_characters: object = None,
+        audited_default_section_max_characters: object = None,
     ) -> dict | None:
         policy = original_policy_for(
             family,
             repo,
             audited_section_max_characters=audited_section_max_characters,
+            audited_default_section_max_characters=audited_default_section_max_characters,
         )
         if repo == QWEN_17B_BASE and policy is not None:
             return {**policy, "section_max_characters": 399}
