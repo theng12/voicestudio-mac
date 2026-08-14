@@ -152,6 +152,8 @@ def qwen_17b_production_v2_limits(model_id: str) -> dict[str, Any]:
         or record.get("subject", {}).get("model_id") != _QWEN_17B_BASE
         or record.get("genstudio_candidate", {}).get("audit_id")
         != _QWEN_17B_PRODUCTION_V2_AUDIT_ID
+        or record["genstudio_candidate"].get("audit_status") != "passed"
+        or record["genstudio_candidate"].get("candidate_for_genstudio") is not True
     ):
         return {}
     limits = record["contract"].get("input_limits")

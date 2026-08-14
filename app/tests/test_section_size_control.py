@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from backend import catalog, generation, long_form_policy, main, qwen_quality
+from backend import catalog, generation, long_form_policy, main, model_audits, qwen_quality
 from backend.main import FLEET_TOKEN
 
 
@@ -18,6 +18,12 @@ QWEN_06B_BASE = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
 F5_TTS = "SWivid/F5-TTS"
 BARK = "mlx-community/bark"
 ROOT = Path(__file__).resolve().parents[2]
+QWEN_17B_V2 = (
+    ROOT
+    / "model-audits"
+    / "2026-08-15-qwen3-17b-production-v2"
+    / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
+)
 
 
 @pytest.fixture
@@ -372,6 +378,51 @@ def test_missing_v2_rejects_auto_across_endpoint_and_manager(
             "_resolved_section_max_characters": 280,
         })
     assert error.value.code == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+
+
+@pytest.mark.parametrize(
+    ("audit_status", "candidate_for_genstudio"),
+    [
+        ("passed", False),
+        ("conditional", True),
+        ("failed", True),
+        ("revoked", True),
+    ],
+)
+def test_non_production_v2_evidence_cannot_publish_or_queue_section_budgets(
+    audit_status: str,
+    candidate_for_genstudio: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    queued_txt2speech_params: list[dict],
+    tmp_path: Path,
+) -> None:
+    """Only passed, GenStudio-candidate v2 evidence authorizes this control."""
+    record = json.loads(QWEN_17B_V2.read_text(encoding="utf-8"))
+    record["genstudio_candidate"]["audit_status"] = audit_status
+    record["genstudio_candidate"]["candidate_for_genstudio"] = candidate_for_genstudio
+    root = tmp_path / "2026-08-15-qwen3-17b-production-v2"
+    root.mkdir()
+    (root / QWEN_17B_V2.name).write_text(json.dumps(record), encoding="utf-8")
+    monkeypatch.setattr(model_audits, "AUDIT_ROOT", tmp_path)
+
+    assert model_audits.qwen_17b_production_v2_limits(QWEN_17B_BASE) == {}
+    assert catalog.section_size_control_for(QWEN_17B_BASE) is None
+
+    auto = _client().post("/api/generate/txt2speech", json={
+        "repo": QWEN_17B_BASE,
+        "text": "An unauthorized Auto request.",
+    })
+    custom = _client().post("/api/generate/txt2speech", json={
+        "repo": QWEN_17B_BASE,
+        "text": "An unauthorized Custom request.",
+        "section_max_characters": 280,
+    })
+
+    assert auto.status_code == 422
+    assert auto.json()["detail"]["code"] == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+    assert custom.status_code == 422
+    assert custom.json()["detail"]["code"] == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+    assert queued_txt2speech_params == []
 
 
 def test_manager_rejects_a_forged_private_auto_budget_when_capability_disagrees(
