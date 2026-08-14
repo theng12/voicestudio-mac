@@ -2991,6 +2991,7 @@ function studio() {
     // arms `gen.overCapConfirmed`; a second click then calls submitGenerate.
     // Engines with auto-split / unlimited chunking skip this entirely.
     safeSubmit() {
+      if (!this.canSubmit) return;
       if (this.textHardCapExceeded && !this.gen.overCapConfirmed) {
         this.gen.overCapConfirmed = true;
         return;
@@ -2999,6 +3000,7 @@ function studio() {
     },
 
     async submitGenerate() {
+      if (!this.canSubmit) return;
       if (!this.gen.available) {
         this.pushToast({ kind: "warn", icon: "⚠", title: "Engine not installed",
           body: "Click Install Generation in the Pinokio sidebar." });

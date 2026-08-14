@@ -77,6 +77,7 @@ def test_section_size_control_is_accessible_and_responsive() -> None:
 
     assert "<fieldset" in markup
     assert "<legend>Section size</legend>" in markup
+    assert markup.count('name="section-size-mode"') == 2
     assert 'for="section-max-characters"' in markup
     assert 'id="section-max-characters"' in markup
     assert 'type="number"' in markup
@@ -94,4 +95,7 @@ def test_section_size_control_is_accessible_and_responsive() -> None:
         r"@media\s*\(max-width:\s*900px\)\s*\{[^}]*?\.section-size-grid\s*\{[^}]*?grid-template-columns:\s*1fr",
         css,
         flags=re.DOTALL,
+    )
+    assert css.index("grid-template-columns: minmax(0, 1fr) minmax(150px, 0.9fr)") < css.rindex(
+        ".section-size-grid { grid-template-columns: 1fr; }"
     )

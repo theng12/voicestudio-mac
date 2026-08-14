@@ -534,7 +534,6 @@ input.num-input-wide { width: 130px; }
   align-items: start;
 }
 @media (max-width: 900px) {
-  .section-size-grid { grid-template-columns: 1fr; }
   .gen-grid { grid-template-columns: 1fr; }
 }
 
@@ -1295,6 +1294,9 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
   min-height: 18px;
 }
 .section-size-control .small { margin-top: 4px; }
+@media (max-width: 900px) {
+  .section-size-grid { grid-template-columns: 1fr; }
+}
 .advanced-checkbox {
   display: flex;
   align-items: center;

@@ -112,3 +112,5 @@ def test_generate_ui_uses_catalog_driven_section_size_control() -> None:
         in script
     )
     assert "body.section_max_characters = this.sectionSizeValue" in script
+    assert "safeSubmit() {\n      if (!this.canSubmit) return;" in script
+    assert "async submitGenerate() {\n      if (!this.canSubmit) return;" in script
