@@ -516,6 +516,26 @@ AUDIO8_LANGUAGE_CODES = (
 
 
 @dataclass(frozen=True)
+class SectionSizeControl:
+    minimum: int
+    maximum: int
+    step: int
+    default_custom: int
+    runtime_default: int
+    source: str
+
+    def serialize(self) -> dict[str, int | str]:
+        return {
+            "minimum": self.minimum,
+            "maximum": self.maximum,
+            "step": self.step,
+            "default_custom": self.default_custom,
+            "runtime_default": self.runtime_default,
+            "source": self.source,
+        }
+
+
+@dataclass(frozen=True)
 class ModelEntry:
     repo: str
     label: str
@@ -540,6 +560,7 @@ class ModelEntry:
     # one of "good" / "weak" / "avoid". The UI renders these as ✅ / ⚠️ / ❌
     # bullets so users can set realistic expectations BEFORE submitting.
     use_cases: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    section_size_control: SectionSizeControl | None = None
 
 
 CATALOG: tuple[ModelEntry, ...] = (
@@ -745,6 +766,9 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "MLX 8-bit keeps the larger model practical on Apple Silicon"),
             ("weak",  "Slower and roughly 1 GB larger than the 0.6B Base tier"),
             ("avoid", "8 GB cloning workers must route to an eligible 16 GB or 24 GB machine; 0.6B Base is also 16 GB minimum"),
+        ),
+        section_size_control=SectionSizeControl(
+            230, 400, 1, 280, 400, "qwen3-17b-production-audit"
         ),
     ),
     ModelEntry(
@@ -1513,6 +1537,82 @@ def get_model(repo: str) -> Optional[ModelEntry]:
     return None
 
 
+class SectionSizeControlError(ValueError):
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(detail)
+        self.code = code
+
+
+def section_size_control_for(repo: str) -> dict[str, int | str] | None:
+    entry = get_model(repo)
+    if entry is None or entry.section_size_control is None:
+        return None
+    policy = long_form_policy.policy_for(
+        entry.family,
+        entry.repo,
+        audited_section_max_characters=model_audits.input_limits(entry.repo).get(
+            "private_section_max_characters"
+        ),
+    )
+    if policy is None:
+        return None
+    control = entry.section_size_control.serialize()
+    if policy["section_max_characters"] != control["runtime_default"]:
+        return None
+    return control
+
+
+def resolve_section_budget(
+    family: str,
+    repo: str,
+    requested: object,
+    capability: dict[str, int | str] | None = None,
+) -> dict[str, object]:
+    control = capability if capability is not None else section_size_control_for(repo)
+    policy = long_form_policy.policy_for(
+        family,
+        repo,
+        audited_section_max_characters=model_audits.input_limits(repo).get(
+            "private_section_max_characters"
+        ),
+    )
+    if policy is None:
+        raise SectionSizeControlError(
+            "SECTION_MAX_CHARACTERS_UNSUPPORTED",
+            f"Model {repo} has no section-size control.",
+        )
+    resolved = int(policy["section_max_characters"])
+    if requested is None:
+        return {
+            "section_max_characters": resolved,
+            "source": "audit",
+            "capability": control,
+        }
+    if type(requested) is not int:
+        raise SectionSizeControlError(
+            "SECTION_MAX_CHARACTERS_INVALID", "Section size must be a whole number."
+        )
+    if control is None:
+        raise SectionSizeControlError(
+            "SECTION_MAX_CHARACTERS_UNSUPPORTED",
+            f"Model {repo} has no section-size control.",
+        )
+    if (
+        requested < control["minimum"]
+        or requested > control["maximum"]
+        or requested > resolved
+    ):
+        raise SectionSizeControlError(
+            "SECTION_MAX_CHARACTERS_OUT_OF_RANGE",
+            "Section size must be within the audited range.",
+        )
+    return {
+        "section_max_characters": requested,
+        "source": "caller_override",
+        "capability": control,
+    }
+
+
 def ignore_patterns_for(repo: str) -> tuple[str, ...]:
     """Return the per-repo download skip-list, or () if the repo is unknown
     or has no filtering. Used by downloads.py to thin out huge HF repos that
@@ -1681,6 +1781,11 @@ def serialize_model(m: ModelEntry) -> dict:
             "private_section_max_characters"
         ),
     )
+    if effective_long_form_policy is not None:
+        effective_long_form_policy = {
+            **effective_long_form_policy,
+            "section_size_control": section_size_control_for(m.repo),
+        }
     qwen_clone_guardrails = (
         {
             "validator_revision": qwen_quality.VALIDATOR_REVISION,

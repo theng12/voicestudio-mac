@@ -36,6 +36,18 @@ def test_catalog_and_runtime_share_exact_long_form_policy(
     assert published["split_method"] == "sentence_safe"
     assert published["customer_submits_complete_script"] is True
     assert published["note"]
+    assert published["section_size_control"] == (
+        {
+            "minimum": 230,
+            "maximum": 400,
+            "step": 1,
+            "default_custom": 280,
+            "runtime_default": 400,
+            "source": "qwen3-17b-production-audit",
+        }
+        if repo == "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+        else None
+    )
     assert generation._long_form_join_pause_s(family, repo) == pytest.approx(
         join_ms / 1000
     )
