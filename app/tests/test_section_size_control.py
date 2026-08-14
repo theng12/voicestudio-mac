@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -456,6 +457,68 @@ def test_catalog_publishes_only_the_audited_qwen_17b_control() -> None:
     }
     other = catalog.serialize_model(catalog.get_model(QWEN_06B_BASE))
     assert other["long_form_delivery"]["section_size_control"] is None
+
+
+def test_frontend_custom_400_is_valid_and_auto_omits_the_override() -> None:
+    script = ROOT / "app" / "frontend" / "app.js"
+    probe = r"""
+const fs = require('fs');
+const vm = require('vm');
+const submitted = [];
+global.fetch = async (_url, options) => {
+  submitted.push(JSON.parse(options.body));
+  return { ok: true, json: async () => ({ job: {} }) };
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+
+(async () => {
+  const app = studio();
+  const repo = 'mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit';
+  app.models = [{
+    repo,
+    family: 'qwen3-tts',
+    cache: { state: 'cached' },
+    long_form_delivery: {
+      section_size_control: {
+        minimum: 230,
+        maximum: 400,
+        step: 1,
+        default_custom: 280,
+        runtime_default: 280,
+      },
+    },
+  }];
+  app.gen.available = true;
+  app.gen.repo = repo;
+  app.gen.text = 'A bounded Qwen request.';
+  app.gen.voice_library_id = 'saved-voice';
+  app._requestNotificationPermission = () => {};
+  app.pushToast = () => {};
+
+  app.gen.section_size_mode = 'auto';
+  app.gen.section_max_characters = 400;
+  await app.submitGenerate();
+  await new Promise(resolve => setTimeout(resolve, 310));
+
+  app.gen.section_size_mode = 'custom';
+  app.gen.section_max_characters = 400;
+  const custom400IsValid = app.sectionSizeIsValid;
+  await app.submitGenerate();
+
+  process.stdout.write(JSON.stringify({ submitted, custom400IsValid }));
+})();
+"""
+    result = subprocess.run(
+        ["node", "-e", probe, str(script)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    observed = json.loads(result.stdout)
+
+    assert observed["custom400IsValid"] is True
+    assert "section_max_characters" not in observed["submitted"][0]
+    assert observed["submitted"][1]["section_max_characters"] == 400
 
 
 def test_readme_documents_the_audited_section_size_control_contract() -> None:
