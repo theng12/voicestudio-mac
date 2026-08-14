@@ -142,6 +142,8 @@ def qwen_17b_production_v2_limits(model_id: str) -> dict[str, Any]:
         return {}
     if (
         not _valid_record(record)
+        or record.get("schema") != "studio.model-audit-record"
+        or record.get("schema_version") != 1
         or record.get("audit_id") != _QWEN_17B_PRODUCTION_V2_AUDIT_ID
         or record.get("subject", {}).get("model_id") != _QWEN_17B_BASE
         or record.get("genstudio_candidate", {}).get("audit_id")

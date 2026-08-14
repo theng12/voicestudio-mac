@@ -267,6 +267,33 @@ def test_invalid_v2_default_fails_closed(default, monkeypatch, tmp_path) -> None
     assert model_audits.qwen_17b_production_v2_limits(QWEN_17B_BASE) == {}
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda record: record.update({"schema": "not-a-model-audit-record"}),
+        lambda record: record.pop("schema"),
+        lambda record: record.update({"schema_version": 2}),
+        lambda record: record.pop("schema_version"),
+    ],
+    ids=[
+        "invalid-schema",
+        "missing-schema",
+        "invalid-schema-version",
+        "missing-schema-version",
+    ],
+)
+def test_invalid_v2_record_schema_fails_closed(mutate, monkeypatch, tmp_path) -> None:
+    """Only a complete top-level audit-record envelope may authorize Qwen Auto."""
+    record = json.loads(QWEN_17B_V2.read_text(encoding="utf-8"))
+    mutate(record)
+    root = tmp_path / "2026-08-15-qwen3-17b-production-v2"
+    root.mkdir(parents=True)
+    (root / QWEN_17B_V2.name).write_text(json.dumps(record), encoding="utf-8")
+    monkeypatch.setattr(model_audits, "AUDIT_ROOT", tmp_path)
+
+    assert model_audits.qwen_17b_production_v2_limits(QWEN_17B_BASE) == {}
+
+
 def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() -> None:
     """Regression: a passed promotion must surface only the measured 5k/400 contract."""
     record = model_audits.audit_record(QWEN_17B_BASE)
