@@ -954,6 +954,38 @@
           </p>
         </section>
 
+        <details class="control-block" x-show="sectionSizeControlSupported" x-cloak>
+          <summary>Long-form delivery</summary>
+          <div class="advanced-inner">
+            <fieldset class="section-size-control">
+              <legend>Section size</legend>
+              <div class="section-size-grid">
+                <div class="radio-row" role="radiogroup" aria-label="Section size mode">
+                  <label><input type="radio" value="auto" x-model="gen.section_size_mode"> Auto</label>
+                  <label><input type="radio" value="custom" x-model="gen.section_size_mode"> Custom</label>
+                </div>
+                <div>
+                  <label for="section-max-characters">Characters per section</label>
+                  <input id="section-max-characters" type="number"
+                         x-model.number="gen.section_max_characters"
+                         :min="sectionSizeControl?.minimum"
+                         :max="sectionSizeControl?.maximum"
+                         :step="sectionSizeControl?.step"
+                         :disabled="gen.section_size_mode !== 'custom'"
+                         :aria-invalid="!sectionSizeIsValid"
+                         aria-describedby="section-size-help section-size-validation">
+                </div>
+              </div>
+              <p id="section-size-help" class="muted hint">
+                Auto uses the audited 400-character policy. The 300/600/180 ms pauses remain automatic.
+              </p>
+              <p id="section-size-validation" role="status" aria-live="polite" class="section-size-error"
+                 x-text="sectionSizeIsValid ? '' : `Enter a whole number from ${sectionSizeControl?.minimum} to ${Math.min(sectionSizeControl?.maximum || 0, sectionSizeControl?.runtime_default || 0)}.`"></p>
+              <button type="button" class="btn ghost small" @click="resetSectionSizeToAuto()">Reset to Auto</button>
+            </fieldset>
+          </div>
+        </details>
+
         <!-- Seed — applies to all wired engines -->
         <section class="control-block" x-show="isMlxAudio(gen.repo) || isBark(gen.repo)" x-cloak>
           <label>Seed</label>

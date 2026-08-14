@@ -83,6 +83,10 @@ function studio() {
       speed: 1.0,
       temperature: 0.8,
       seed: -1,
+      // Long-form delivery is catalog-gated. Auto leaves the audited model
+      // policy in charge; Custom sends a verified section-size override.
+      section_size_mode: "auto",
+      section_max_characters: 280,
       // Qwen3-TTS — CustomVoice
       preset_speaker: "Ryan",
       instruct: "",
@@ -770,6 +774,7 @@ function studio() {
     _GEN_PRESET_FIELDS: [
       "voice", "kokoro_blend_voice", "kokoro_language", "preset_speaker", "bark_voice_preset", "voice_library_id",
       "language", "speed", "temperature", "seed", "batchCount",
+      "section_size_mode", "section_max_characters",
       "cfg_value", "inference_timesteps", "normalize_text",
       "voxcpm_warmup_patches", "voxcpm_max_tokens",
       "instruct", "voice_design_prompt",
@@ -809,7 +814,15 @@ function studio() {
     _restoreGenPresetForRepo(repo) {
       if (!repo) return;
       const preset = this._loadAllGenPresets()[repo];
-      if (!preset) return;
+      if (!preset) {
+        const control = this.generationModels.find(model => model.repo === repo)
+          ?.long_form_delivery?.section_size_control;
+        if (control) {
+          this.gen.section_size_mode = "auto";
+          this.gen.section_max_characters = control.default_custom ?? 280;
+        }
+        return;
+      }
       for (const f of this._GEN_PRESET_FIELDS) {
         if (preset[f] !== undefined) this.gen[f] = preset[f];
       }
@@ -952,6 +965,32 @@ function studio() {
       return this.generationModels.find(m => m.repo === this.gen.repo) || null;
     },
 
+    get sectionSizeControl() {
+      return this.selectedModel?.long_form_delivery?.section_size_control || null;
+    },
+
+    get sectionSizeControlSupported() {
+      return !!this.sectionSizeControl;
+    },
+
+    get sectionSizeValue() {
+      return Number(this.gen.section_max_characters);
+    },
+
+    get sectionSizeIsValid() {
+      const c = this.sectionSizeControl;
+      return !c || this.gen.section_size_mode === "auto" || (
+        Number.isInteger(this.sectionSizeValue)
+        && this.sectionSizeValue >= c.minimum
+        && this.sectionSizeValue <= c.maximum
+        && this.sectionSizeValue <= c.runtime_default
+      );
+    },
+
+    resetSectionSizeToAuto() {
+      this.gen.section_size_mode = "auto";
+    },
+
     get selectedVoiceSummary() {
       if (!this.selectedModel) return "—";
       const qwenMode = this.qwen3Mode(this.gen.repo);
@@ -1034,6 +1073,8 @@ function studio() {
       if (!this.gen.repo) return false;
       if (!this.gen.text.trim()) return false;
       if (!this.isModelReady(this.gen.repo)) return false;
+      if (this.sectionSizeControlSupported
+          && this.gen.section_size_mode === "custom" && !this.sectionSizeIsValid) return false;
       // Per-mode validation
       const mode = this.qwen3Mode(this.gen.repo);
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return false;
@@ -1055,6 +1096,11 @@ function studio() {
       if (!this.gen.repo) return "Choose a downloaded model to continue.";
       if (!this.gen.text.trim()) return "Type some text to enable Generate.";
       if (!this.isModelReady(this.gen.repo)) return "This model is not ready yet.";
+      if (this.sectionSizeControlSupported
+          && this.gen.section_size_mode === "custom" && !this.sectionSizeIsValid) {
+        const c = this.sectionSizeControl;
+        return `Enter a whole number from ${c.minimum} to ${Math.min(c.maximum, c.runtime_default)}.`;
+      }
       const mode = this.qwen3Mode(this.gen.repo);
       if (mode === "design" && !this.gen.voice_design_prompt.trim()) return "Describe the voice you want.";
       if (mode === "clone" && !this.gen.voice_library_id) return "Pick a reference voice from your library.";
@@ -3002,7 +3048,7 @@ function studio() {
                                 || this.isMlxCloner(repo)
                                 || this.isF5TTS(repo);
 
-        return {
+        const body = {
           repo,
           text: this.gen.text.trim(),
           voice: passesVoice
@@ -3062,6 +3108,11 @@ function studio() {
           bark_sliding_window_len: Number(this.gen.bark_sliding_window_len),
           bark_allow_early_stop: !!this.gen.bark_allow_early_stop,
         };
+
+        if (this.sectionSizeControlSupported && this.gen.section_size_mode === "custom") {
+          if (this.sectionSizeIsValid) body.section_max_characters = this.sectionSizeValue;
+        }
+        return body;
       };
 
       let lastJob = null;

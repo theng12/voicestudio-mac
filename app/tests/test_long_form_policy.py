@@ -94,5 +94,21 @@ def test_models_page_renders_policy_from_catalog_without_frontend_limits() -> No
     assert "m.long_form_delivery.join_pause_milliseconds" in markup
     assert "m.long_form_delivery.note" in markup
     assert "customer submits one complete script" in markup
-    assert "section_max_characters:" not in script
+    assert "section_max_characters: 400" not in script
     assert "join_pause_milliseconds:" not in script
+
+
+def test_generate_ui_uses_catalog_driven_section_size_control() -> None:
+    frontend = Path(__file__).resolve().parents[1] / "frontend"
+    markup = (frontend / "index.html").read_text(encoding="utf-8")
+    script = (frontend / "app.js").read_text(encoding="utf-8")
+
+    assert "sectionSizeControl" in script
+    assert "selectedModel?.long_form_delivery?.section_size_control" in script
+    assert '"section_size_mode", "section_max_characters"' in script
+    assert "section_max_characters" in markup
+    assert (
+        'if (this.sectionSizeControlSupported && this.gen.section_size_mode === "custom")'
+        in script
+    )
+    assert "body.section_max_characters = this.sectionSizeValue" in script

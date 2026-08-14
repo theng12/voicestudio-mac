@@ -69,3 +69,29 @@ def test_frontend_has_no_inherited_image_or_lora_surface() -> None:
         ".lora-row",
     )
     assert not [marker for marker in inherited_markers if marker in source]
+
+
+def test_section_size_control_is_accessible_and_responsive() -> None:
+    markup = (ROOT / "app" / "frontend" / "index.html").read_text(encoding="utf-8")
+    css = STYLE_PATH.read_text(encoding="utf-8")
+
+    assert "<fieldset" in markup
+    assert "<legend>Section size</legend>" in markup
+    assert 'for="section-max-characters"' in markup
+    assert 'id="section-max-characters"' in markup
+    assert 'type="number"' in markup
+    assert ':min="sectionSizeControl?.minimum"' in markup
+    assert ':max="sectionSizeControl?.maximum"' in markup
+    assert ':step="sectionSizeControl?.step"' in markup
+    assert "aria-invalid" in markup
+    assert "aria-describedby" in markup
+    assert (
+        'id="section-size-validation" role="status" aria-live="polite"'
+        in markup
+    )
+    assert ".section-size-grid" in css
+    assert re.search(
+        r"@media\s*\(max-width:\s*900px\)\s*\{[^}]*?\.section-size-grid\s*\{[^}]*?grid-template-columns:\s*1fr",
+        css,
+        flags=re.DOTALL,
+    )

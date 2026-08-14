@@ -534,6 +534,7 @@ input.num-input-wide { width: 130px; }
   align-items: start;
 }
 @media (max-width: 900px) {
+  .section-size-grid { grid-template-columns: 1fr; }
   .gen-grid { grid-template-columns: 1fr; }
 }
 
@@ -1258,6 +1259,42 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
   padding-top: 8px;
 }
 .advanced-inner .advanced-label { margin-top: 12px; display: block; }
+.section-size-control {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+.section-size-control legend {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  padding: 0;
+  text-transform: uppercase;
+}
+.section-size-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.9fr);
+  gap: 10px;
+  margin-top: 8px;
+}
+.section-size-grid > div:last-child label {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.section-size-grid input[type="number"] { width: 100%; }
+.section-size-grid input[aria-invalid="true"] {
+  border-color: var(--danger, #e06c75);
+}
+.section-size-error {
+  color: var(--danger, #e06c75);
+  font-size: 12px;
+  margin: 6px 0 0;
+  min-height: 18px;
+}
+.section-size-control .small { margin-top: 4px; }
 .advanced-checkbox {
   display: flex;
   align-items: center;
