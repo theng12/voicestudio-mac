@@ -19,10 +19,13 @@ import unicodedata
 import uuid
 from collections import Counter
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 
 
 VALIDATOR_REVISION = "voicestudio.qwen-clone-quality.v1"
+TERMINAL_GATE_REVISION = "voicestudio.qwen-clone-quality.v2"
+TERMINAL_GATE_WINDOW = 24
 WHISPER_REPO = "mlx-community/whisper-large-v3-turbo"
 RETRY_SECTION_MAX_CHARACTERS = 230
 RETRYABLE_OUTPUT_CODES = frozenset({
@@ -166,6 +169,70 @@ def _word_timestamp_count(result: dict) -> int:
     )
 
 
+def _terminal_gate(expected_tokens: list[str], result: dict) -> dict:
+    """Return bounded, redacted ordered evidence for a long-form suffix."""
+    evidence = {
+        "revision": TERMINAL_GATE_REVISION,
+        "window_size": TERMINAL_GATE_WINDOW,
+        "aligned_word_count": 0,
+        "spelling_variant_count": 0,
+        "hard_mismatch_count": 0,
+        "accepted": False,
+    }
+    try:
+        duration = float(result["duration"])
+    except (KeyError, TypeError, ValueError):
+        evidence["hard_mismatch_count"] = TERMINAL_GATE_WINDOW
+        return evidence
+    if not math.isfinite(duration) or duration <= 0:
+        evidence["hard_mismatch_count"] = TERMINAL_GATE_WINDOW
+        return evidence
+
+    aligned_observed_tokens: list[str] = []
+    previous_start: float | None = None
+    for segment in result.get("segments") or []:
+        for word in segment.get("words") or []:
+            try:
+                start = float(word["start"])
+                end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                evidence["hard_mismatch_count"] = TERMINAL_GATE_WINDOW
+                return evidence
+            if (
+                not math.isfinite(start)
+                or not math.isfinite(end)
+                or start < 0
+                or start >= duration
+                or end < start
+                or end > duration
+                or (previous_start is not None and start < previous_start)
+            ):
+                evidence["hard_mismatch_count"] = TERMINAL_GATE_WINDOW
+                return evidence
+            previous_start = start
+            for normalized_word in _tokens(str(word.get("word") or "")):
+                evidence["aligned_word_count"] += 1
+                if len(aligned_observed_tokens) == TERMINAL_GATE_WINDOW:
+                    aligned_observed_tokens.pop(0)
+                aligned_observed_tokens.append(normalized_word)
+
+    if len(aligned_observed_tokens) < TERMINAL_GATE_WINDOW:
+        evidence["hard_mismatch_count"] = TERMINAL_GATE_WINDOW
+        return evidence
+
+    for expected_word, observed_word in zip(
+        expected_tokens[-TERMINAL_GATE_WINDOW:], aligned_observed_tokens
+    ):
+        if expected_word == observed_word:
+            continue
+        if SequenceMatcher(None, expected_word, observed_word, autojunk=False).ratio() >= 0.80:
+            evidence["spelling_variant_count"] += 1
+        else:
+            evidence["hard_mismatch_count"] += 1
+    evidence["accepted"] = evidence["hard_mismatch_count"] <= 1
+    return evidence
+
+
 def _evidence(kind: str, expected: str, observed: str, result: dict) -> dict:
     metrics = _similarity(expected, observed)
     return {
@@ -246,6 +313,14 @@ def validate_output(expected: str, result: dict, *, max_duration_s: float) -> di
             "Qwen3-TTS produced an implausibly long result and it was rejected.",
             evidence,
         )
+    if evidence["comparison_method"]["tokens"] == "2-gram-multiset":
+        evidence["terminal_gate"] = _terminal_gate(_tokens(expected), result)
+        if not evidence["terminal_gate"]["accepted"]:
+            raise QwenQualityError(
+                "QWEN_OUTPUT_TEXT_MISMATCH",
+                "Whisper validation could not establish an ordered long-form ending.",
+                evidence,
+            )
     if not observed or (
         evidence["token_error_rate"] > 0.40
         and evidence["character_error_rate"] > 0.25

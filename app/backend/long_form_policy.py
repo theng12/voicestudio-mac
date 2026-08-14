@@ -108,6 +108,35 @@ class LongFormPolicy:
         return payload
 
 
+def production_boundary_pause_seconds(boundary: str) -> float:
+    """Return the shared production narration pause before final tempo pass."""
+    pauses = {
+        "sentence": OMNIVOICE_JOIN_PAUSE_SECONDS,
+        "paragraph": OMNIVOICE_PARAGRAPH_JOIN_PAUSE_SECONDS,
+        "soft": OMNIVOICE_SOFT_JOIN_PAUSE_SECONDS,
+    }
+    return pauses[boundary]
+
+
+def qwen_17b_assembly_invariants(repo: str) -> Optional[dict[str, object]]:
+    """The Qwen 1.7B assembly behavior consumed by runtime and audit checks."""
+    if "1.7b-base" not in repo.rsplit("/", 1)[-1].lower():
+        return None
+    return {
+        "private_join_pause_milliseconds": round(
+            production_boundary_pause_seconds("sentence") * 1000
+        ),
+        "private_paragraph_join_pause_milliseconds": round(
+            production_boundary_pause_seconds("paragraph") * 1000
+        ),
+        "private_soft_join_pause_milliseconds": round(
+            production_boundary_pause_seconds("soft") * 1000
+        ),
+        "private_edge_destructive_trim": False,
+        "private_speech_crossfade": False,
+    }
+
+
 def _qwen_mode(repo: str) -> str:
     name = repo.rsplit("/", 1)[-1].lower()
     if "base" in name:
@@ -121,12 +150,23 @@ def _runtime_default(family: str, repo: str) -> Optional[LongFormPolicy]:
     name = repo.rsplit("/", 1)[-1].lower()
     if family == "qwen3-tts":
         if _qwen_mode(repo) == "clone":
+            production_candidate = "1.7b-base" in name
             return LongFormPolicy(
                 section_max_characters=QWEN_CLONE_SECTION_MAX_CHARACTERS,
-                join_pause_seconds=QWEN_CLONE_JOIN_PAUSE_SECONDS,
+                join_pause_seconds=(
+                    OMNIVOICE_JOIN_PAUSE_SECONDS
+                    if production_candidate
+                    else QWEN_CLONE_JOIN_PAUSE_SECONDS
+                ),
                 note=(
-                    "Owner-verified clone continuity setting. Every section "
-                    "reuses the same reference voice and transcript evidence."
+                    "Clone continuity setting. Every section reuses the same "
+                    "reference voice and transcript evidence. "
+                    + (
+                        "The unqualified 1.7B candidate runtime uses 300 ms "
+                        "sentence, 600 ms paragraph, and 180 ms soft joins."
+                        if production_candidate
+                        else "The fallback clone path uses a fixed 180 ms join."
+                    )
                 ),
             )
         return LongFormPolicy(

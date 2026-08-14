@@ -121,3 +121,24 @@ def test_retired_whisper_tiny_is_rejected_without_fallback(tmp_path: Path) -> No
         )
 
     assert manager._model_repo is None
+
+
+def test_normalization_discards_words_at_or_after_eof_from_an_overlapping_segment() -> None:
+    text, segments = transcription._normalize_segments(
+        [{
+            "start": 2.8,
+            "end": 4.0,
+            "text": "Last real word padded hallucination.",
+            "words": [
+                {"word": "Last", "start": 2.8, "end": 2.9},
+                {"word": "real", "start": 2.9, "end": 3.0},
+                {"word": "word", "start": 3.0, "end": 3.1},
+                {"word": "padded", "start": 3.1, "end": 3.2},
+            ],
+        }],
+        word_timestamps=True,
+        audio_duration=3.0,
+    )
+
+    assert text == "Last real word padded hallucination."
+    assert [word["word"] for word in segments[0]["words"]] == ["Last", "real"]

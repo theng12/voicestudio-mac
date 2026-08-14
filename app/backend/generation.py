@@ -107,8 +107,10 @@ from . import (
     catalog,
     cache,
     long_form_policy,
+    media_tools,
     model_audits,
     qwen_quality,
+    reference_audio,
     resource_telemetry,
     text_normalization,
 )
@@ -471,6 +473,7 @@ def availability() -> dict:
         "lang_names": {**LANG_NAMES, **_BARK_LANGUAGES},
         "phase": 2,
         "wired_families": wired,
+        "media": media_tools.availability(),
     }
 
 
@@ -1027,8 +1030,8 @@ def _long_form_join_pause_s(family: str, repo: str) -> float:
     return float(policy["join_pause_seconds"])
 
 
-def _omnivoice_join_pauses_s(text: str, chunks: list[str], speed: float) -> list[float]:
-    """Keep natural OmniVoice boundaries stable after final tempo adjustment."""
+def _production_join_pauses_s(text: str, chunks: list[str], speed: float) -> list[float]:
+    """Keep production narration boundaries stable after final tempo adjustment."""
     pauses: list[float] = []
     cursor = 0
     speed = max(0.5, min(float(speed), 2.0))
@@ -1041,11 +1044,11 @@ def _omnivoice_join_pauses_s(text: str, chunks: list[str], speed: float) -> list
         while visible_end and visible_end[-1] in _QWEN_TRAILING_CLOSERS:
             visible_end = visible_end[:-1].rstrip()
         if separator.count("\n") >= 2:
-            pause = long_form_policy.OMNIVOICE_PARAGRAPH_JOIN_PAUSE_SECONDS
+            pause = long_form_policy.production_boundary_pause_seconds("paragraph")
         elif visible_end and visible_end[-1] in _QWEN_SENTENCE_ENDINGS:
-            pause = long_form_policy.OMNIVOICE_JOIN_PAUSE_SECONDS
+            pause = long_form_policy.production_boundary_pause_seconds("sentence")
         else:
-            pause = long_form_policy.OMNIVOICE_SOFT_JOIN_PAUSE_SECONDS
+            pause = long_form_policy.production_boundary_pause_seconds("soft")
         pauses.append(pause * speed)
         cursor = max(end, next_start if next_start >= 0 else end)
     return pauses
@@ -1120,24 +1123,8 @@ def _join_qwen_clone_wavs(segment_paths: list[Path], output_path: Path,
 
 
 def _find_ffmpeg_executable() -> Optional[Path]:
-    """Find FFmpeg in normal, Pinokio-bundled, and common Apple Silicon paths."""
-    override = (os.environ.get("VOICESTUDIO_FFMPEG") or "").strip()
-    candidates = [Path(override)] if override else []
-    resolved = shutil.which("ffmpeg")
-    if resolved:
-        candidates.append(Path(resolved))
-    # launchd services start with a minimal PATH. Walk upward until the
-    # Pinokio root is found so service mode can still use its bundled FFmpeg.
-    for parent in Path(__file__).resolve().parents:
-        candidates.extend([
-            parent / "bin" / "miniforge" / "bin" / "ffmpeg",
-            parent / "bin" / "ffmpeg-env" / "bin" / "ffmpeg",
-        ])
-    candidates.extend([Path("/opt/homebrew/bin/ffmpeg"), Path("/usr/local/bin/ffmpeg")])
-    for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate
-    return None
+    """Resolve FFmpeg from the Voice Studio-managed Conda environment."""
+    return media_tools.find_executable("ffmpeg")
 
 
 _POSTPROCESSED_SPEED_FAMILIES = {
@@ -2909,7 +2896,15 @@ class GenerationManager:
             segment_path = self._mlx_audio_output_file(
                 segment_dir, family=family, gen_kwargs={**gen_kwargs, "text": chunk}
             )
-            trimmed_seconds = _trim_model_terminal_silence(segment_path, model_repo, family)
+            preserves_qwen_17b_frames = bool(
+                family == "qwen3-tts"
+                and long_form_policy.qwen_17b_assembly_invariants(model_repo)
+            )
+            trimmed_seconds = (
+                0.0
+                if preserves_qwen_17b_frames
+                else _trim_model_terminal_silence(segment_path, model_repo, family)
+            )
             if trimmed_seconds:
                 print(
                     f"[gen] {_terminal_silence_correction_label(model_repo, family)} section {index}/{len(chunks)} removed "
@@ -2936,12 +2931,18 @@ class GenerationManager:
             family,
             pause_s=_long_form_join_pause_s(family, model_repo),
             pause_sequence_s=(
-                _omnivoice_join_pauses_s(
+                _production_join_pauses_s(
                     str(gen_kwargs.get("text") or ""),
                     chunks,
                     float(job.params.get("speed") or 1.0),
                 )
-                if family == "omnivoice"
+                if (
+                    family == "omnivoice"
+                    or (
+                        family == "qwen3-tts"
+                        and "1.7b-base" in model_repo.lower()
+                    )
+                )
                 else None
             ),
         )
@@ -3075,6 +3076,10 @@ class GenerationManager:
                 raise ValueError(
                     "Voice cloning needs a reference voice or private reference upload."
                 )
+            if voice_id and "1.7b-base" in repo.lower():
+                self._prepare_qwen_17b_library_reference(
+                    repo, voice_id, params, voices_module
+                )
             self._inject_voice_clone(voice_id, params, gen_kwargs, voices_module,
                                      fallback_transcript="")
             if not str(gen_kwargs.get("ref_text") or "").strip():
@@ -3084,6 +3089,54 @@ class GenerationManager:
             return f"clone (voice={voice_id or 'private-reference'})"
 
         raise RuntimeError(f"Unknown qwen3-tts mode {mode!r}")
+
+    @staticmethod
+    def _prepare_qwen_17b_library_reference(
+        repo: str, voice_id: str, params: dict, voices_module
+    ) -> None:
+        """Prepare a saved Qwen 1.7B reference exactly like a private upload.
+
+        Voice-library files are durable source assets, not model inputs.  The
+        adapter receives only the bounded, normalized execution copy and its
+        immutable preparation evidence.  A failed preparation never falls back
+        to the source file.
+        """
+        voice = voices_module.library.get(voice_id)
+        if voice is None:
+            raise ValueError(f"Voice {voice_id} not found in library")
+        source_path = voices_module.library.reference_path(voice_id)
+        if source_path is None or not source_path.is_file():
+            raise ValueError(f"Reference audio for voice {voice_id} is missing on disk")
+        try:
+            source_bytes = source_path.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"Reference audio for voice {voice_id} cannot be read") from exc
+        source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        declared_sha256 = str(getattr(voice, "audio_sha256", "") or "").lower()
+        if declared_sha256 and declared_sha256 != source_sha256:
+            raise ValueError(
+                f"Reference audio for voice {voice_id} no longer matches its saved checksum"
+            )
+        transcript = str(params.get("ref_transcript") or "").strip()
+        if not transcript:
+            transcript = str(voices_module.library.transcript(voice_id) or "").strip()
+        try:
+            prepared = reference_audio.prepare(
+                audio_bytes=source_bytes,
+                filename=source_path.name,
+                model_id=repo,
+                transcript=transcript,
+            )
+        except reference_audio.ReferenceAudioError as exc:
+            raise ValueError(exc.detail) from exc
+        params.update({
+            "_reference_audio_path": prepared["path"],
+            "_reference_audio_sha256": prepared["derived_sha256"],
+            "_reference_source_sha256": prepared["source_sha256"],
+            "_reference_preparation_revision": prepared["preparation_revision"],
+            "_reference_duration_s": prepared["duration_seconds"],
+            "ref_transcript": prepared.get("transcript") or transcript,
+        })
 
     def _mlx_kwargs_voxcpm_flex(self, params, gen_kwargs, voices_module) -> str:
         """VoxCPM2 MLX: zero-shot, voice design, reference cloning, or

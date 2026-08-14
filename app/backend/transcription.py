@@ -28,7 +28,7 @@ STANDARDS THIS FOLLOWS (see generation.py's module docstring):
 from __future__ import annotations
 
 import json
-import shutil
+import math
 import subprocess
 import time
 from contextlib import nullcontext
@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from . import cache, resource_telemetry
+from . import cache, media_tools, resource_telemetry
 # Reuse the TTS side's device detection, MLX cache release, and the GLOBAL
 # generation lock. Sharing the lock is the key safety property: a transcription
 # can't start while a TTS job holds the GPU, and vice versa. No circular import
@@ -198,6 +198,7 @@ def availability() -> dict:
         "device": _detect_device() if stt_ok else None,
         "default_model": recommended_model(),
         "models": models,
+        "media": media_tools.availability(),
     }
 
 
@@ -249,12 +250,12 @@ def segments_to_vtt(segments: list[dict]) -> str:
 
 def _audio_duration_seconds(path: Path) -> Optional[float]:
     """Probe true media duration without decoding the whole upload twice."""
-    ffprobe = shutil.which("ffprobe")
+    ffprobe = media_tools.find_executable("ffprobe")
     if ffprobe:
         try:
             result = subprocess.run(
                 [
-                    ffprobe,
+                    str(ffprobe),
                     "-v", "error",
                     "-show_entries", "format=duration",
                     "-of", "json",
@@ -312,8 +313,19 @@ def _normalize_segments(
         if word_timestamps and seg.get("words"):
             words = []
             for word in seg["words"]:
-                word_start = max(start, float(word.get("start", start)))
-                word_end = max(word_start, float(word.get("end", word_start)))
+                try:
+                    raw_word_start = float(word["start"])
+                    raw_word_end = float(word["end"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if (
+                    not math.isfinite(raw_word_start)
+                    or not math.isfinite(raw_word_end)
+                    or raw_word_end < raw_word_start
+                ):
+                    continue
+                word_start = max(start, raw_word_start)
+                word_end = max(word_start, raw_word_end)
                 if audio_duration is not None:
                     if word_start >= audio_duration:
                         continue

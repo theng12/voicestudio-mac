@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.1.2] — 2026-08-14
+
+### Added — conditional Qwen 1.7B canary bootstrap (not routable)
+
+- Added a hash-bound conditional audit for the pinned
+  `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` runtime. It enables one
+  eligible canary to use the new bounded, private or saved-reference
+  preparation path and retain redacted preparation evidence, but remains
+  `candidate_for_genstudio: false` pending canary qualification.
+- The clone path now records the Qwen v1 validator plus its ordered long-form
+  terminal gate, reuses the exact reference transcript, and assembles sections
+  with 300 ms sentence, 600 ms paragraph, and 180 ms soft-split pauses without
+  destructive trimming or speech crossfade.
+- The bootstrap documents the ten official Qwen languages, 16 GB minimum / 24
+  GB preferred Apple Silicon hardware policy, and 8 GB ineligibility. It makes
+  no passed-canary, commercial-approval, GenStudio-routability, or final text
+  ceiling claim; a separately evidenced 2.1.3 audit is required for promotion.
+- Install and Update now provision managed FFmpeg and FFprobe through the app
+  Conda environment, so foreground and startup-service audio preparation use
+  the same supported media tools.
+
 ## [2.1.1] — 2026-08-14
 
 ### Fixed — tokenizer-only companions report complete truthfully

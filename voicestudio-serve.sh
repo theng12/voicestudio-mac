@@ -17,7 +17,7 @@ PINOKIO_HOME="$(cd "$HERE/../.." && pwd)"
 # models you already downloaded. The backend selects the safe Hugging Face
 # transport before importing the Hub client.
 export HF_HOME="$HERE/cache/HF_HOME"
-export PATH="$PINOKIO_HOME/bin/miniforge/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
+export PATH="$HERE/conda_env/bin:$PINOKIO_HOME/bin/miniforge/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 export PYTHONUNBUFFERED=1
 
 cd "$HERE/app"

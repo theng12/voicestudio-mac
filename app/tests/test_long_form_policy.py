@@ -11,6 +11,7 @@ from backend import catalog, generation, long_form_policy, model_audits
     ("family", "repo", "section_chars", "join_ms"),
     [
         ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit", 288, 180),
+        ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit", 288, 300),
         ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit", 360, 120),
         ("qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit", 360, 120),
         ("chatterbox-mlx", "mlx-community/chatterbox-8bit", 500, 120),

@@ -12,6 +12,7 @@ GROUP_A = {
 }
 
 QWEN_BASE = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+QWEN_17B_BASE = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
 REJECTED_GROUP_B = {
     "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit": (
         "049ef77fe8816b536193c0c25f9a214d17921282"
@@ -103,6 +104,116 @@ def test_qwen_base_guardrail_contract_requires_requalification() -> None:
         "voicestudio-20260803-qwen3-tts-0.6b-base-50f45ef0-pacing288"
     )
     assert record["evidence"]["promotion_gate"]["candidate_for_genstudio"] is False
+    assert "approved_for_genstudio" not in json.dumps(record)
+
+
+def test_qwen_17b_base_bootstrap_is_hash_bound_and_unroutable() -> None:
+    """The canary bootstrap supplies runtime limits without claiming promotion."""
+    record = model_audits.audit_record(QWEN_17B_BASE)
+    assert record is not None
+    assert record["audit_id"] == (
+        "voicestudio-20260814-qwen3-tts-1.7b-base-bootstrap-v1"
+    )
+    assert record["subject"]["checkpoint_revision"] == (
+        "e7dd0585652209fa0d7783659aad4e8a324de11c"
+    )
+    candidate = record["genstudio_candidate"]
+    assert candidate["audit_status"] == "conditional"
+    assert candidate["candidate_for_genstudio"] is False
+    assert candidate["contract_hash"] == model_audits.contract_hash(
+        record["contract"]
+    )
+    assert candidate["runtime_revision"] == record["subject"]["checkpoint_revision"]
+    assert candidate["adapter"] == {
+        "id": "voicestudio.mlx-audio.qwen3-tts-base",
+        "version": "1.4",
+        "runtime": "mlx-audio 0.4.7+2c9461f5d8315fa8e7013ab2729495b2bb83d384",
+    }
+    assert candidate["controls"]["language"]["values"] == [
+        "en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it",
+    ]
+    assert candidate["controls"]["voice_clone"] == {
+        "type": "reference_audio_with_exact_transcript",
+        "required": True,
+        "x_vector_only_fallback": False,
+    }
+    guardrails = candidate["controls"]["quality_guardrails"]
+    assert guardrails["validator_revision"] == "voicestudio.qwen-clone-quality.v1"
+    assert guardrails["terminal_gate"] == {
+        "revision": "voicestudio.qwen-clone-quality.v2",
+        "scope": "long_form_2gram_multiset",
+        "ordered_word_timestamp_window": 24,
+        "maximum_hard_mismatches": 1,
+        "fails_closed_without_aligned_suffix": True,
+    }
+    limits = candidate["input_limits"]
+    assert limits["private_section_max_characters"] == 288
+    assert {
+        key: limits[key]
+        for key in (
+            "private_join_pause_milliseconds",
+            "private_paragraph_join_pause_milliseconds",
+            "private_soft_join_pause_milliseconds",
+            "private_edge_destructive_trim",
+            "private_speech_crossfade",
+        )
+    } == {
+        "private_join_pause_milliseconds": 300,
+        "private_paragraph_join_pause_milliseconds": 600,
+        "private_soft_join_pause_milliseconds": 180,
+        "private_edge_destructive_trim": False,
+        "private_speech_crossfade": False,
+    }
+    assert limits["reference_audio"] == {
+        "accepted_extensions": ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"],
+        "minimum_duration_seconds": 3,
+        "target_duration_seconds": 8,
+        "recommended_duration_seconds": {"minimum": 8, "maximum": 12},
+        "maximum_duration_seconds": 15,
+        "max_audio_bytes": 25000000,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "transcript": "required",
+        "timestamped_transcript_segments": "required_when_model_specific_selection_is_needed",
+        "selection": "speech-aware and word-boundary-aligned",
+    }
+    assert candidate["hardware"] == {
+        "platform": "Apple Silicon",
+        "minimum_unified_memory_gb": 16,
+        "recommended_unified_memory_gb": 24,
+        "ineligible_unified_memory_gb": [8],
+    }
+    assert record["contract"]["license"] == {
+        "spdx": "Apache-2.0",
+        "commercial_use": True,
+    }
+    evidence = record["evidence"]
+    assert evidence["pre_release_memory_observation"]["status"] == (
+        "preliminary_not_qualification"
+    )
+    assert evidence["pre_release_memory_observation"]["peak_mlx_memory_gb"] == 9.083
+    assert evidence["implementation_verification"]["source_static_verification"] == {
+        "status": "passed",
+        "focused_tests": {"passed": 83},
+        "full_tests": {"passed": 417, "skipped": 2},
+        "strict_audits": [
+            "audit_truth.py --strict",
+            "audit_contract_runtime.py --strict",
+        ],
+        "release_checks": [
+            "release_metadata_check.py",
+            "compileall",
+            "pip check",
+            "install/update JavaScript syntax",
+            "startup-service Bash syntax",
+            "git diff --check",
+        ],
+    }
+    assert evidence["implementation_verification"]["live_model_generation"] == (
+        "not run on a new 2.1.2 canary"
+    )
+    assert evidence["promotion_gate"]["candidate_for_genstudio"] is False
+    assert evidence["promotion_gate"]["status"] == "pending_canary_qualification"
     assert "approved_for_genstudio" not in json.dumps(record)
 
 

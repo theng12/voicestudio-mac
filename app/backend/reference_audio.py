@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import model_audits
+from . import media_tools, model_audits
 
 
 ROOT = Path(__file__).resolve().parents[1] / "reference_cache"
@@ -39,6 +39,11 @@ def _profile(model_id: str) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _requires_audited_profile(model_id: str) -> bool:
+    name = (model_id or "").lower()
+    return "qwen3-tts" in name and "1.7b-base" in name
+
+
 def _number(value: object, default: float | None = None) -> float | None:
     try:
         result = float(value)
@@ -54,7 +59,7 @@ def _decode(path: Path, target_rate: int):
     try:
         audio, sample_rate = sf.read(str(path), dtype="float32", always_2d=True)
     except Exception:
-        ffmpeg = shutil.which("ffmpeg")
+        ffmpeg = media_tools.find_executable("ffmpeg")
         if not ffmpeg:
             raise ReferenceAudioError(
                 "REFERENCE_AUDIO_DECODE_UNAVAILABLE",
@@ -63,7 +68,7 @@ def _decode(path: Path, target_rate: int):
         decoded = path.with_name(f".{path.stem}.{uuid.uuid4().hex}.decoded.wav")
         try:
             process = subprocess.run(
-                [ffmpeg, "-nostdin", "-loglevel", "error", "-y", "-i", str(path),
+                [str(ffmpeg), "-nostdin", "-loglevel", "error", "-y", "-i", str(path),
                  "-ac", "1", "-ar", str(target_rate), "-c:a", "pcm_s16le", str(decoded)],
                 capture_output=True,
                 text=True,
@@ -228,6 +233,11 @@ def prepare(
         raise ReferenceAudioError("REFERENCE_AUDIO_TYPE_UNSUPPORTED", "The reference audio type is unsupported.")
 
     profile = _profile(model_id)
+    if _requires_audited_profile(model_id) and not profile:
+        raise ReferenceAudioError(
+            "REFERENCE_AUDIO_CONTRACT_UNAVAILABLE",
+            "Qwen3-TTS 1.7B Base reference preparation is unavailable until its audited contract is installed.",
+        )
     target_rate = int(_number(profile.get("sample_rate_hz"), 24000) or 24000)
     target_rate = max(8000, min(target_rate, 96000))
     source_sha = hashlib.sha256(audio_bytes).hexdigest()

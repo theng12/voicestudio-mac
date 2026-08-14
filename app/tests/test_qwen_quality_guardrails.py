@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from backend import catalog, generation, qwen_quality
+from backend import catalog, generation, qwen_quality, transcription
 
 
 def _stt(text: str, *, duration: float = 12.0, words: bool = True) -> dict:
@@ -99,6 +99,275 @@ def test_long_form_comparison_uses_bounded_ngram_evidence() -> None:
     assert evidence["accepted"] is True
     assert evidence["comparison_method"]["tokens"] == "2-gram-multiset"
     assert evidence["comparison_method"]["characters"] == "4-gram-multiset"
+
+
+def _long_form_with_sentinel(*, repeated: bool = False) -> str:
+    body = (
+        "The harbor keeper records each lantern before the evening tide returns. "
+        * 320
+        if repeated
+        else " ".join(
+            f"Marker {index} records a distinct harbor observation before sunset."
+            for index in range(1, 420)
+        )
+    )
+    sentinel = (
+        "At dawn the final courier carries amber maps beyond quiet cliffs while "
+        "patient sailors count twenty four silver bells beside the northern beacon."
+    )
+    return f"{body} {sentinel}"
+
+
+def test_long_form_repeated_source_accepts_exact_ordered_terminal_words() -> None:
+    expected = _long_form_with_sentinel(repeated=True)
+
+    evidence = qwen_quality.validate_output(
+        expected,
+        _stt(expected, duration=2_400.0),
+        max_duration_s=3_000.0,
+    )
+
+    assert evidence["accepted"] is True
+    assert evidence["validator_revision"] == "voicestudio.qwen-clone-quality.v1"
+    assert evidence["terminal_gate"] == {
+        "revision": "voicestudio.qwen-clone-quality.v2",
+        "window_size": 24,
+        "aligned_word_count": len(expected.split()),
+        "spelling_variant_count": 0,
+        "hard_mismatch_count": 0,
+        "accepted": True,
+    }
+
+
+def test_long_form_terminal_spelling_variant_is_accepted_without_transcript_evidence() -> None:
+    expected = _long_form_with_sentinel(repeated=True)
+    observed = expected.replace("sailors", "sailours", 1)
+
+    evidence = qwen_quality.validate_output(
+        expected,
+        _stt(observed, duration=2_400.0),
+        max_duration_s=3_000.0,
+    )
+
+    assert evidence["accepted"] is True
+    assert evidence["terminal_gate"]["spelling_variant_count"] == 1
+    assert evidence["terminal_gate"]["hard_mismatch_count"] == 0
+    assert "sailors" not in str(evidence)
+    assert "sailours" not in str(evidence)
+
+
+@pytest.mark.parametrize(
+    ("observed_builder", "minimum_hard_mismatches"),
+    [
+        (lambda text: " ".join(text.split()[:-3]), 3),
+        (lambda text: f"{text} this was a pretty tight", 5),
+        (
+            lambda text: " ".join(
+                [*text.split()[:-2], text.split()[-1], text.split()[-2]]
+            ),
+            2,
+        ),
+    ],
+    ids=["missing-final-words", "extra-terminal-phrase", "terminal-order-corruption"],
+)
+def test_long_form_terminal_misalignment_is_rejected(
+    observed_builder, minimum_hard_mismatches: int
+) -> None:
+    expected = _long_form_with_sentinel(repeated=True)
+
+    with pytest.raises(qwen_quality.QwenQualityError) as caught:
+        qwen_quality.validate_output(
+            expected,
+            _stt(observed_builder(expected), duration=2_400.0),
+            max_duration_s=3_000.0,
+        )
+
+    assert caught.value.code == "QWEN_OUTPUT_TEXT_MISMATCH"
+    assert caught.value.evidence["terminal_gate"]["hard_mismatch_count"] >= minimum_hard_mismatches
+    assert caught.value.evidence["terminal_gate"]["accepted"] is False
+
+
+def test_long_form_gate_uses_retained_word_timestamps_not_padded_segment_text() -> None:
+    expected = _long_form_with_sentinel(repeated=True)
+    result = _stt(expected, duration=2_400.0)
+    result["segments"][0]["text"] = f"{expected} this was a pretty tight"
+
+    evidence = qwen_quality.validate_output(expected, result, max_duration_s=3_000.0)
+
+    assert evidence["accepted"] is True
+    result["segments"][0]["words"].extend(
+        {"word": word, "start": 2_399.0, "end": 2_399.1}
+        for word in "this was a pretty tight".split()
+    )
+    with pytest.raises(qwen_quality.QwenQualityError) as caught:
+        qwen_quality.validate_output(expected, result, max_duration_s=3_000.0)
+
+    assert caught.value.code == "QWEN_OUTPUT_TEXT_MISMATCH"
+
+
+def test_long_form_without_retained_word_timestamps_fails_closed() -> None:
+    expected = _long_form_with_sentinel(repeated=True)
+
+    with pytest.raises(qwen_quality.QwenQualityError) as caught:
+        qwen_quality.validate_output(
+            expected,
+            _stt(expected, duration=2_400.0, words=False),
+            max_duration_s=3_000.0,
+        )
+
+    assert caught.value.code == "QWEN_OUTPUT_TEXT_MISMATCH"
+    assert caught.value.evidence["terminal_gate"] == {
+        "revision": "voicestudio.qwen-clone-quality.v2",
+        "window_size": 24,
+        "aligned_word_count": 0,
+        "spelling_variant_count": 0,
+        "hard_mismatch_count": 24,
+        "accepted": False,
+    }
+
+
+def test_approximately_25k_long_form_uses_bounded_terminal_comparison(monkeypatch) -> None:
+    expected = _long_form_with_sentinel()
+    assert 20_000 < len(expected) < 30_000
+    original_distance = qwen_quality._distance
+
+    def reject_request_sized_distance(left, right):
+        if max(len(left), len(right)) > 24:
+            raise AssertionError("long-form terminal validation must stay bounded")
+        return original_distance(left, right)
+
+    monkeypatch.setattr(qwen_quality, "_distance", reject_request_sized_distance)
+    evidence = qwen_quality.validate_output(
+        expected,
+        _stt(expected, duration=12_000.0),
+        max_duration_s=13_000.0,
+    )
+
+    assert evidence["accepted"] is True
+    assert evidence["comparison_method"] == {
+        "tokens": "2-gram-multiset",
+        "characters": "4-gram-multiset",
+    }
+    assert evidence["terminal_gate"]["window_size"] == 24
+    with pytest.raises(qwen_quality.QwenQualityError) as caught:
+        qwen_quality.validate_output(
+            expected,
+            _stt(f"{expected} this was a pretty tight", duration=12_000.0),
+            max_duration_s=13_000.0,
+        )
+
+    assert caught.value.code == "QWEN_OUTPUT_TEXT_MISMATCH"
+
+
+def test_existing_short_form_qwen_audit_contract_remains_v1() -> None:
+    expected = "The existing audited Qwen clone path retains its short response contract."
+
+    evidence = qwen_quality.validate_output(
+        expected,
+        _stt(expected, duration=12.0),
+        max_duration_s=30.0,
+    )
+
+    assert evidence["accepted"] is True
+    assert evidence["validator_revision"] == "voicestudio.qwen-clone-quality.v1"
+    assert "terminal_gate" not in evidence
+
+
+@pytest.mark.parametrize(
+    "mutate_word",
+    [
+        lambda word, _duration: word.pop("start"),
+        lambda word, _duration: word.pop("end"),
+        lambda word, _duration: word.update(start=float("nan")),
+        lambda word, _duration: word.update(end=float("inf")),
+        lambda word, duration: word.update(start=duration),
+        lambda word, duration: word.update(end=duration + 0.1),
+        lambda word, _duration: word.update(start=1.0, end=0.9),
+    ],
+    ids=[
+        "missing-start",
+        "missing-end",
+        "nonfinite-start",
+        "nonfinite-end",
+        "start-at-eof",
+        "end-after-eof",
+        "reversed-range",
+    ],
+)
+def test_long_form_gate_fails_closed_for_invalid_word_timestamps(mutate_word) -> None:
+    expected = _long_form_with_sentinel(repeated=True)
+    result = _stt(expected, duration=2_400.0)
+    mutate_word(result["segments"][0]["words"][-1], result["duration"])
+
+    with pytest.raises(qwen_quality.QwenQualityError) as caught:
+        qwen_quality.validate_output(expected, result, max_duration_s=3_000.0)
+
+    assert caught.value.code == "QWEN_OUTPUT_TEXT_MISMATCH"
+    assert caught.value.evidence["terminal_gate"]["accepted"] is False
+
+
+def test_long_form_gate_fails_closed_for_descending_word_timestamps() -> None:
+    expected = _long_form_with_sentinel(repeated=True)
+    result = _stt(expected, duration=2_400.0)
+    words = result["segments"][0]["words"]
+    words[-2].update(start=1.0, end=1.1)
+    words[-1].update(start=0.9, end=1.0)
+
+    with pytest.raises(qwen_quality.QwenQualityError) as caught:
+        qwen_quality.validate_output(expected, result, max_duration_s=3_000.0)
+
+    assert caught.value.code == "QWEN_OUTPUT_TEXT_MISMATCH"
+    assert caught.value.evidence["terminal_gate"]["accepted"] is False
+
+
+@pytest.mark.parametrize(
+    "mutate_word",
+    [
+        lambda word: word.pop("start"),
+        lambda word: word.pop("end"),
+        lambda word: word.update(start=float("nan")),
+        lambda word: word.update(end=float("inf")),
+        lambda word: word.update(start=1.0, end=0.9),
+    ],
+    ids=[
+        "missing-start",
+        "missing-end",
+        "nonfinite-start",
+        "nonfinite-end",
+        "reversed-range",
+    ],
+)
+def test_normalization_drops_invalid_word_timestamp_before_long_form_gate(mutate_word) -> None:
+    expected = _long_form_with_sentinel(repeated=True)
+    raw_words = [
+        {"word": word, "start": 0.0, "end": 0.2}
+        for word in expected.split()
+    ]
+    mutate_word(raw_words[-1])
+    normalized_text, segments = transcription._normalize_segments(
+        [{
+            "start": 0.0,
+            "end": 2_400.0,
+            "text": expected,
+            "words": raw_words,
+        }],
+        word_timestamps=True,
+        audio_duration=2_400.0,
+    )
+
+    with pytest.raises(qwen_quality.QwenQualityError) as caught:
+        qwen_quality.validate_output(
+            expected,
+            {
+                "text": normalized_text,
+                "duration": 2_400.0,
+                "segments": segments,
+            },
+            max_duration_s=3_000.0,
+        )
+
+    assert caught.value.code == "QWEN_OUTPUT_TEXT_MISMATCH"
+    assert caught.value.evidence["terminal_gate"]["accepted"] is False
 
 
 def test_job_owned_reference_validation_attaches_redacted_evidence(

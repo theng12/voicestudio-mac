@@ -33,6 +33,8 @@ module.exports = {
         path: "app",
         conda: { "path": "{{path.resolve(cwd, 'conda_env')}}" },
         message: [
+          "conda install -y -c conda-forge ffmpeg",
+          "ffmpeg -version && ffprobe -version",
           "python -m pip install --upgrade pip",
           "uv pip install -r requirements.txt"
         ]

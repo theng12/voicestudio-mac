@@ -553,6 +553,49 @@ def check_join_pause(
     )
 
 
+def check_long_form_assembly(contract: dict[str, Any], model_id: str, policy) -> dict[str, Any]:
+    """Verify the Qwen 1.7B candidate's complete section-assembly contract."""
+    claimed_limits = contract.get("input_limits", {})
+    keys = (
+        "private_join_pause_milliseconds",
+        "private_paragraph_join_pause_milliseconds",
+        "private_soft_join_pause_milliseconds",
+        "private_edge_destructive_trim",
+        "private_speech_crossfade",
+    )
+    claimed = {key: claimed_limits.get(key) for key in keys}
+    expected = policy.qwen_17b_assembly_invariants(model_id)
+    if expected is None:
+        return _check(
+            "long_form_assembly",
+            NOT_CHECKABLE,
+            severity="critical",
+            claimed=claimed,
+            detail="No Qwen 1.7B production assembly contract applies to this model.",
+        )
+    if claimed != expected:
+        return _check(
+            "long_form_assembly",
+            MISMATCH,
+            severity="critical",
+            claimed=claimed,
+            expected=expected,
+            derived_from="long_form_policy.qwen_17b_assembly_invariants()",
+            detail=(
+                "The candidate's sentence, paragraph, soft-split, trim, or "
+                "crossfade claim differs from the runtime assembly contract."
+            ),
+        )
+    return _check(
+        "long_form_assembly",
+        OK,
+        severity="critical",
+        claimed=claimed,
+        expected=expected,
+        derived_from="long_form_policy.qwen_17b_assembly_invariants()",
+    )
+
+
 def check_language_control(
     contract: dict[str, Any],
     fn: Optional[ast.FunctionDef],
@@ -869,6 +912,8 @@ def validate_record(
         check_text_max_within_api_cap(contract, api_text_cap),
         check_engine_mode(contract, mode),
     ]
+    if long_form_policy.qwen_17b_assembly_invariants(model_id) is not None:
+        checks.insert(3, check_long_form_assembly(contract, model_id, long_form_policy))
 
     resolution_notes: list[str] = []
     if catalog_entry is None:

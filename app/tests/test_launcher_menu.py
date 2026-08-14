@@ -101,7 +101,7 @@ def test_launchers_do_not_override_the_backend_download_transport_policy() -> No
     assert "HF_XET_HIGH_PERFORMANCE" not in service
 
 
-def test_startup_service_can_find_pinokio_bundled_media_tools(tmp_path: Path) -> None:
+def test_startup_service_prefers_app_managed_media_tools(tmp_path: Path) -> None:
     pinokio_home = tmp_path / "pinokio"
     app_root = pinokio_home / "api" / "voicestudio-mac.git"
     app_root.mkdir(parents=True)
@@ -121,6 +121,10 @@ def test_startup_service_can_find_pinokio_bundled_media_tools(tmp_path: Path) ->
     )
     fake_python.chmod(0o755)
 
+    managed_ffprobe = app_root / "conda_env" / "bin" / "ffprobe"
+    managed_ffprobe.write_text("#!/bin/sh\n", encoding="utf-8")
+    managed_ffprobe.chmod(0o755)
+
     ffprobe = pinokio_home / "bin" / "miniforge" / "bin" / "ffprobe"
     ffprobe.parent.mkdir(parents=True)
     ffprobe.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -134,7 +138,7 @@ def test_startup_service_can_find_pinokio_bundled_media_tools(tmp_path: Path) ->
         text=True,
     )
 
-    assert result.stdout.strip() == str(ffprobe)
+    assert result.stdout.strip() == str(managed_ffprobe)
 
 
 def test_common_actions_use_consistent_names_and_safe_order() -> None:

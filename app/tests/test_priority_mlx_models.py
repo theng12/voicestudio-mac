@@ -174,6 +174,28 @@ def test_qualified_qwen_base_uses_official_identity_and_safe_hardware_floor() ->
     )
 
 
+def test_qwen_17b_base_uses_the_official_language_roster_and_16gb_floor() -> None:
+    model = catalog.get_model(
+        "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+    )
+
+    assert model is not None
+    assert model.min_unified_memory_gb == 16
+    assert model.recommended_hardware == "Apple Silicon with 16 GB minimum; 24 GB preferred."
+    assert model.languages == (
+        "en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it",
+    )
+    assert all("11 languages" not in text for _kind, text in model.use_cases)
+    assert any(
+        kind == "avoid"
+        and "8 GB" in text
+        and "route" in text.lower()
+        and "16 GB or 24 GB" in text
+        for kind, text in model.use_cases
+    )
+    assert all("use 0.6b base" not in text.lower() for _kind, text in model.use_cases)
+
+
 def test_vibevoice_checkpoint_roster_is_exact_and_separates_experimental_languages() -> None:
     voices = generation.VIBEVOICE_PRESET_VOICES
     assert len(voices) == 25
@@ -857,6 +879,73 @@ def test_omnivoice_long_form_join_uses_boundary_aware_speed_compensated_gaps(
         assert np.max(np.abs(audio[start + 20:end - 20])) > 0.09
 
 
+def test_qwen_clone_long_form_join_uses_production_boundary_pacing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    chunks = [
+        "First complete sentence.",
+        "Second complete sentence.",
+        "Third soft phrase,",
+        "fourth soft phrase continues",
+    ]
+    full_text = f"{chunks[0]} {chunks[1]}\n\n{chunks[2]} {chunks[3]}"
+    output = tmp_path / "qwen.wav"
+    sections = tmp_path / "sections"
+    sections.mkdir()
+    calls = 0
+
+    def fake_generate_audio(*, model, output_path, join_audio, **kwargs) -> None:
+        nonlocal calls
+        calls += 1
+        sf.write(
+            Path(output_path) / "audio.wav",
+            np.full(200, calls / 10, dtype=np.float32),
+            1000,
+            subtype="PCM_16",
+        )
+
+    manager = object.__new__(generation.GenerationManager)
+    monkeypatch.setattr(
+        generation,
+        "_trim_model_terminal_silence",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("Qwen 1.7B assembly must retain every generated frame")
+        ),
+    )
+    job = generation.GenerationJob(
+        job_id="qwen-boundaries",
+        mode="txt2speech",
+        params={"speed": 1.25},
+    )
+    manager._generate_mlx_long_form_sections(
+        job,
+        "qwen3-tts",
+        "qwen-model",
+        {"text": full_text},
+        chunks,
+        sections,
+        output,
+        fake_generate_audio,
+        "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+    )
+
+    audio, sample_rate = sf.read(output, dtype="float32")
+
+    assert sample_rate == 1000
+    assert len(audio) == 200 + 375 + 200 + 750 + 200 + 225 + 200
+    assert np.allclose(audio[200:575], 0.0, atol=1e-6)
+    assert np.allclose(audio[775:1525], 0.0, atol=1e-6)
+    assert np.allclose(audio[1725:1950], 0.0, atol=1e-6)
+    assert np.allclose(audio[:200], 0.1, atol=1e-3)
+    assert np.allclose(audio[575:775], 0.2, atol=1e-3)
+    assert np.allclose(audio[1525:1725], 0.3, atol=1e-3)
+    assert np.allclose(audio[1950:2150], 0.4, atol=1e-3)
+
+
 def test_qwen_clone_and_omnivoice_use_their_owned_join_pauses() -> None:
     assert generation._long_form_join_pause_s(
         "qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
@@ -864,6 +953,9 @@ def test_qwen_clone_and_omnivoice_use_their_owned_join_pauses() -> None:
     assert generation._long_form_join_pause_s(
         "qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
     ) == pytest.approx(0.12)
+    assert generation._long_form_join_pause_s(
+        "qwen3-tts", "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+    ) == pytest.approx(0.30)
     assert generation._long_form_join_pause_s(
         "omnivoice", "mlx-community/OmniVoice-bfloat16"
     ) == pytest.approx(0.30)

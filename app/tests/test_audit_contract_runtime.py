@@ -33,6 +33,7 @@ OMNIVOICE_RECORD = (
     / "2026-08-08-omnivoice"
     / "mlx-community--OmniVoice-bfloat16.audit.json"
 )
+QWEN_17B_BASE = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
 
 
 @pytest.fixture(scope="module")
@@ -220,6 +221,40 @@ def test_the_expectation_is_the_family_default_not_the_audited_value(
     result = _validate(_mutate(omnivoice_record, "section_budget"), sources)
     check = next(c for c in result["checks"] if c["id"] == "section_budget")
     assert check["status"] == acr.MISMATCH
+
+
+def test_qwen_17b_assembly_claims_are_verified_against_runtime(sources) -> None:
+    """A candidate cannot claim Qwen's approved joins or lossless assembly.
+
+    Each mutation below represents a contract that would look internally
+    consistent after hashing, but would misdescribe the code running on a
+    worker. Removing the runtime-assembly check would make every mutation pass.
+    """
+    record = {
+        "subject": {"model_id": QWEN_17B_BASE},
+        "contract": {
+            "input_limits": {
+                "private_join_pause_milliseconds": 300,
+                "private_paragraph_join_pause_milliseconds": 600,
+                "private_soft_join_pause_milliseconds": 180,
+                "private_edge_destructive_trim": False,
+                "private_speech_crossfade": False,
+            },
+        },
+    }
+
+    assert _status(_validate(record, sources), "long_form_assembly") == acr.OK
+
+    for key, value in (
+        ("private_join_pause_milliseconds", 180),
+        ("private_paragraph_join_pause_milliseconds", 300),
+        ("private_soft_join_pause_milliseconds", 0),
+        ("private_edge_destructive_trim", True),
+        ("private_speech_crossfade", True),
+    ):
+        mutated = copy.deepcopy(record)
+        mutated["contract"]["input_limits"][key] = value
+        assert _status(_validate(mutated, sources), "long_form_assembly") == acr.MISMATCH
 
 
 # ─── graceful degradation ──────────────────────────────────────────────────
