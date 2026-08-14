@@ -463,7 +463,17 @@ def _cache_with_companions(repo: str) -> dict:
     comps = catalog.companions_for(repo)
     if not comps:
         return snap
-    pending = [c for c in comps if cache.cache_state(c["repo"]) != "cached"]
+
+    def companion_state(companion: dict) -> str:
+        state = cache.cache_state(companion["repo"])
+        patterns = companion.get("allow_patterns")
+        if state != "cached" and patterns and cache.snapshot_contains_patterns(
+            companion["repo"], patterns
+        ):
+            return "cached"
+        return state
+
+    pending = [c for c in comps if companion_state(c) != "cached"]
     if pending and snap.get("state") == "cached":
         snap = {**snap, "state": "partial"}
     snap["companions_pending"] = [
@@ -478,6 +488,7 @@ def _cache_with_companions(repo: str) -> dict:
     total_bytes = own_bytes
     for c in comps:
         csnap = cache.status_snapshot(c["repo"])
+        csnap["state"] = companion_state(c)
         cbytes = int(csnap.get("bytes_complete") or 0)
         total_bytes += cbytes
         companions.append({

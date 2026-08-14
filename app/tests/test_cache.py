@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import cache
+from backend import cache, main
 
 
 REPO = "example/model"
@@ -216,3 +216,53 @@ def test_orphan_incomplete_is_pruned_only_after_complete_snapshot_verification(
         REPO, complete_snapshot_verified=True
     ) == {"removed_files": 1, "removed_bytes": 8}
     assert not orphan.exists()
+
+
+def test_metadata_only_snapshot_can_verify_required_companion_files(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+    root = cache.repo_cache_dir(REPO)
+    snapshot = root / "snapshots" / ("a" * 40)
+    snapshot.mkdir(parents=True)
+    (snapshot / "tokenizer.json").write_text("{}")
+    (snapshot / "spiece.model").write_bytes(b"tokenizer")
+
+    assert cache.cache_state(REPO) == "partial"
+    assert cache.snapshot_contains_patterns(
+        REPO, ("tokenizer.json", "spiece.model")
+    )
+    assert not cache.snapshot_contains_patterns(
+        REPO, ("tokenizer.json", "missing.json")
+    )
+
+
+def test_catalog_accepts_complete_metadata_only_companion(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main.cache,
+        "status_snapshot",
+        lambda repo: {
+            "repo": repo,
+            "state": "cached" if repo == "example/model" else "partial",
+            "bytes_complete": 10,
+        },
+    )
+    monkeypatch.setattr(main.cache, "cache_state", lambda _repo: "partial")
+    monkeypatch.setattr(
+        main.cache, "snapshot_contains_patterns", lambda _repo, _patterns: True
+    )
+    monkeypatch.setattr(
+        main.catalog,
+        "companions_for",
+        lambda _repo: ({
+            "repo": "example/tokenizer",
+            "label": "Tokenizer",
+            "allow_patterns": ("tokenizer.json",),
+        },),
+    )
+
+    result = main._cache_with_companions("example/model")
+
+    assert result["state"] == "cached"
+    assert result["companions_pending"] == []
+    assert result["companions"][0]["state"] == "cached"

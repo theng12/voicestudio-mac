@@ -10,6 +10,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.1.1] — 2026-08-14
+
+### Fixed — tokenizer-only companions report complete truthfully
+
+- A companion repository containing only the exact tokenizer files requested
+  by a model is now verified against that allowlist instead of being required
+  to contain an unrelated model-weight extension. LongCat's fully stocked
+  UMT5 tokenizer therefore reports cached after offline generation proves it
+  usable; missing files, mutable snapshots, and incomplete blobs remain partial.
+
 ## [2.1.0] — 2026-08-14
 
 ### Added — LongCat AudioDiT as a qualified-hardware internal candidate

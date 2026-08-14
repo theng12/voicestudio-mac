@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Optional
 
@@ -187,6 +188,28 @@ def cache_state(repo: str) -> str:
     resumable partial state rather than routable runtime evidence.
     """
     return _cache_state_for_revision(repo, snapshot_revision(repo))
+
+
+def snapshot_contains_patterns(repo: str, patterns) -> bool:
+    """Verify an immutable metadata-only companion against its download list."""
+    revision = snapshot_revision(repo)
+    if revision is None or not _IMMUTABLE_REVISION.fullmatch(revision):
+        return False
+    snapshot = repo_cache_dir(repo) / "snapshots" / revision
+    if not snapshot.is_dir() or has_incomplete(repo):
+        return False
+    try:
+        names = {
+            str(path.relative_to(snapshot))
+            for path in snapshot.rglob("*")
+            if path.is_file() and not path.name.endswith(".incomplete")
+        }
+    except (FileNotFoundError, PermissionError):
+        return False
+    required = tuple(str(pattern) for pattern in (patterns or ()))
+    return bool(required) and all(
+        any(fnmatch(name, pattern) for name in names) for pattern in required
+    )
 
 
 def disk_bytes(repo: str) -> int:
