@@ -1928,10 +1928,15 @@ class GenerationManager:
             raise ValueError(f"Unknown repo: {repo}")
         requested_budget = params.get("section_max_characters")
         resolved_budget = params.get("_resolved_section_max_characters")
+        qwen_06b_base = (
+            model.family == "qwen3-tts"
+            and "0.6b-base" in repo.rsplit("/", 1)[-1].lower()
+        )
         if (
             model.section_size_control is not None
             or requested_budget is not None
             or resolved_budget is not None
+            or qwen_06b_base
         ):
             if requested_budget is None:
                 requested_budget = resolved_budget

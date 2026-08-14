@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from backend import catalog, generation, long_form_policy, main
+from backend import catalog, generation, long_form_policy, main, qwen_quality
 from backend.main import FLEET_TOKEN
 
 
@@ -197,6 +197,31 @@ def test_internal_queueing_rejects_an_out_of_range_qwen_section_budget(
 
     assert error.value.code == "SECTION_MAX_CHARACTERS_OUT_OF_RANGE"
     assert manager._jobs == {}
+
+
+def test_internal_queueing_keeps_qwen_06b_private_fallback_for_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _inert_generation_manager()
+    monkeypatch.setattr(generation.threading, "Thread", _InertThread)
+    text = " ".join(
+        f"Fallback validation sentence {index} remains independently bounded."
+        for index in range(1, 30)
+    )
+
+    job = manager.start_txt2speech({"repo": QWEN_06B_BASE, "text": text})
+
+    assert job.params["_resolved_section_max_characters"] == 288
+    assert "section_max_characters" not in job.params
+    chunks = generation._internal_mlx_text_chunks(
+        "qwen3-tts", QWEN_06B_BASE, text, max_chars_override=288,
+    )
+    expected = round(
+        sum(qwen_quality.automatic_duration_limit(chunk, 1.0) for chunk in chunks)
+        + (len(chunks) - 1) * 0.18,
+        3,
+    )
+    assert generation.GenerationManager._qwen_job_duration_limit(job) == expected
 
 
 def test_omitted_control_for_a_non_qwen_model_keeps_the_normal_queue_path(
