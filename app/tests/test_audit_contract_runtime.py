@@ -34,6 +34,12 @@ OMNIVOICE_RECORD = (
     / "mlx-community--OmniVoice-bfloat16.audit.json"
 )
 QWEN_17B_BASE = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+QWEN_17B_PRODUCTION_V1_RECORD = (
+    ROOT
+    / "model-audits"
+    / "2026-08-14-qwen3-17b-production"
+    / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
+)
 QWEN_17B_PRODUCTION_RECORD = (
     ROOT
     / "model-audits"
@@ -241,8 +247,24 @@ def test_qwen_17b_measured_promotion_verifies_its_evidenced_audit_override(
     assert check["claimed"] == {"maximum": 400, "auto_default": 280}
     assert check["expected"] == {"maximum": 400, "auto_default": 280}
     assert "model_audit" in check["derived_from"]
+    assert "section_max_characters = 280" in check["derived_from"]
     join = next(c for c in result["checks"] if c["id"] == "join_pause")
     assert "model_audit" in join["derived_from"]
+
+
+def test_superseded_qwen_production_v1_is_historical_not_runtime_authority(
+    sources,
+) -> None:
+    record = json.loads(QWEN_17B_PRODUCTION_V1_RECORD.read_text(encoding="utf-8"))
+
+    result = _validate(record, sources)
+
+    assert result["resolved"]["historical"] is True
+    assert result["resolved"]["superseded_by"] == (
+        "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2"
+    )
+    assert result["checks"] == []
+    assert result["mismatches"] == []
 
 
 @pytest.mark.parametrize("default", [None, True, 229, 401, 400.0])

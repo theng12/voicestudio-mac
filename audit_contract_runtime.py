@@ -782,12 +782,18 @@ def check_section_budget(
             claimed=claimed,
             detail="No long-form policy exists for this family.",
         )
-    expected = policy["section_max_characters"]
+    anchor = _MEASURED_SECTION_PROVENANCE.get(
+        str(policy.get("audit_id") or ""), {}
+    )
+    v2_default = anchor.get("auto_default_section_max_characters")
+    expected = anchor.get("section_max_characters", policy["section_max_characters"])
     derived = (
         "long_form_policy.policy_for(family, repo) with "
         f"{policy.get('source', 'runtime_default')} section policy "
-        f"-> section_max_characters = {expected}"
+        f"-> section_max_characters = {policy['section_max_characters']}"
     )
+    if v2_default is not None:
+        derived += f"; independently anchored maximum = {expected}"
     if claimed is None:
         return _check(
             "section_budget",
@@ -798,7 +804,7 @@ def check_section_budget(
             derived_from=derived,
             detail="Record declares no private_section_max_characters.",
         )
-    if _as_number(claimed) != _as_number(expected):
+    if v2_default is None and _as_number(claimed) != _as_number(expected):
         return _check(
             "section_budget",
             MISMATCH,
@@ -813,9 +819,6 @@ def check_section_budget(
                 "measured change to the runtime default — not a copied number."
             ),
         )
-    v2_default = _MEASURED_SECTION_PROVENANCE.get(
-        str(policy.get("audit_id") or ""), {}
-    ).get("auto_default_section_max_characters")
     if v2_default is None:
         return _check(
             "section_budget", OK, severity=severity, claimed=claimed, expected=expected,
@@ -942,8 +945,8 @@ def check_engine_mode(
     )
 
 
-def _measured_section_override(record: dict[str, Any]) -> object:
-    """Return an independently anchored measured section budget, if exact."""
+def _measured_section_override(record: dict[str, Any]) -> dict[str, int] | None:
+    """Return independently anchored measured section limits, if exact."""
     anchor = _MEASURED_SECTION_PROVENANCE.get(str(record.get("audit_id") or ""))
     if anchor is None:
         return None
@@ -981,7 +984,18 @@ def _measured_section_override(record: dict[str, Any]) -> object:
             or default == anchor["auto_default_section_max_characters"]
         )
     ):
-        return anchor["section_max_characters"]
+        result = {"maximum": anchor["section_max_characters"]}
+        if "auto_default_section_max_characters" in anchor:
+            result["default"] = anchor["auto_default_section_max_characters"]
+        return result
+    return None
+
+
+def _superseded_by_audit_id(record: dict[str, Any]) -> str | None:
+    audit_id = str(record.get("audit_id") or "")
+    for replacement_id, anchor in _MEASURED_SECTION_PROVENANCE.items():
+        if anchor["supersedes_audit_id"] == audit_id:
+            return replacement_id
     return None
 
 
@@ -1008,14 +1022,40 @@ def validate_record(
     if family:
         mode, fn = adapters.resolve(family)
 
+    superseded_by = _superseded_by_audit_id(record)
+    if superseded_by is not None:
+        return {
+            "model_id": model_id,
+            "audit_id": record.get("audit_id"),
+            "source_path": str(source_path) if source_path else None,
+            "resolved": {
+                "family": family,
+                "engine_mode": mode,
+                "adapter_function": fn.name if fn else None,
+                "long_form_policy_source": None,
+                "historical": True,
+                "superseded_by": superseded_by,
+            },
+            "resolution_notes": [
+                f"Audit {record.get('audit_id')!r} is superseded historical evidence "
+                f"by {superseded_by!r}; it is not current runtime policy authority."
+            ],
+            "checks": [],
+            "mismatches": [],
+            "not_checkable": [],
+            "not_covered": NOT_COVERED,
+        }
+
     policy: Optional[dict[str, Any]] = None
     if family:
+        measured = _measured_section_override(record) or {}
         policy = long_form_policy.policy_for(
             family,
             model_id,
-            audited_section_max_characters=_measured_section_override(record),
+            audited_section_max_characters=measured.get("maximum"),
+            audited_default_section_max_characters=measured.get("default"),
         )
-        if policy is not None:
+        if policy is not None and measured:
             policy = {**policy, "audit_id": record.get("audit_id")}
 
     checks = [
