@@ -1938,11 +1938,19 @@ class GenerationManager:
             or resolved_budget is not None
             or qwen_06b_base
         ):
-            if requested_budget is None:
-                requested_budget = resolved_budget
-            resolved_budget = catalog.resolve_section_budget(
-                model.family, repo, requested_budget
+            auto_budget = catalog.resolve_section_budget(
+                model.family, repo, None
             )
+            if requested_budget is None and resolved_budget == int(
+                auto_budget["section_max_characters"]
+            ):
+                resolved_budget = auto_budget
+            else:
+                if requested_budget is None:
+                    requested_budget = resolved_budget
+                resolved_budget = catalog.resolve_section_budget(
+                    model.family, repo, requested_budget
+                )
             params.pop("section_max_characters", None)
             params["_resolved_section_max_characters"] = int(
                 resolved_budget["section_max_characters"]

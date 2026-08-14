@@ -304,6 +304,126 @@ def test_internal_queueing_without_a_non_qwen_override_stays_accepted(
     assert "_resolved_section_max_characters" not in job.params
 
 
+def test_auto_budget_survives_audit_capability_mismatch_across_endpoint_and_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    queued_txt2speech_params: list[dict],
+) -> None:
+    original_policy_for = long_form_policy.policy_for
+
+    def mismatched_policy_for(
+        family: str,
+        repo: str,
+        *,
+        audited_section_max_characters: object = None,
+    ) -> dict | None:
+        policy = original_policy_for(
+            family,
+            repo,
+            audited_section_max_characters=audited_section_max_characters,
+        )
+        if repo == QWEN_17B_BASE and policy is not None:
+            return {**policy, "section_max_characters": 399}
+        return policy
+
+    monkeypatch.setattr(catalog.long_form_policy, "policy_for", mismatched_policy_for)
+    response = _client().post("/api/generate/txt2speech", json={
+        "repo": QWEN_17B_BASE,
+        "text": "A mismatch-safe Auto request.",
+    })
+    manager = _inert_generation_manager()
+    monkeypatch.setattr(generation.threading, "Thread", _InertThread)
+
+    assert response.status_code == 200
+    assert queued_txt2speech_params[0]["_resolved_section_max_characters"] == 399
+    job = manager.start_txt2speech(queued_txt2speech_params[0])
+    assert job.params["_resolved_section_max_characters"] == 399
+
+
+def test_auto_budget_survives_missing_audit_across_endpoint_and_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    queued_txt2speech_params: list[dict],
+) -> None:
+    monkeypatch.setattr(catalog.model_audits, "input_limits", lambda _repo: {})
+    response = _client().post("/api/generate/txt2speech", json={
+        "repo": QWEN_17B_BASE,
+        "text": "A missing-audit Auto request.",
+    })
+    manager = _inert_generation_manager()
+    monkeypatch.setattr(generation.threading, "Thread", _InertThread)
+
+    assert response.status_code == 200
+    assert queued_txt2speech_params[0]["_resolved_section_max_characters"] == 288
+    job = manager.start_txt2speech(queued_txt2speech_params[0])
+    assert job.params["_resolved_section_max_characters"] == 288
+
+
+def test_manager_rejects_a_forged_private_auto_budget_when_capability_disagrees(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_policy_for = long_form_policy.policy_for
+
+    def mismatched_policy_for(
+        family: str,
+        repo: str,
+        *,
+        audited_section_max_characters: object = None,
+    ) -> dict | None:
+        policy = original_policy_for(
+            family,
+            repo,
+            audited_section_max_characters=audited_section_max_characters,
+        )
+        if repo == QWEN_17B_BASE and policy is not None:
+            return {**policy, "section_max_characters": 399}
+        return policy
+
+    monkeypatch.setattr(catalog.long_form_policy, "policy_for", mismatched_policy_for)
+    manager = _inert_generation_manager()
+    monkeypatch.setattr(generation.threading, "Thread", _InertThread)
+
+    with pytest.raises(catalog.SectionSizeControlError) as error:
+        manager.start_txt2speech({
+            "repo": QWEN_17B_BASE,
+            "text": "A forged private request.",
+            "_resolved_section_max_characters": 400,
+        })
+
+    assert error.value.code == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+
+
+def test_custom_budget_stays_capability_gated_when_audit_and_capability_disagree(
+    monkeypatch: pytest.MonkeyPatch,
+    queued_txt2speech_params: list[dict],
+) -> None:
+    original_policy_for = long_form_policy.policy_for
+
+    def mismatched_policy_for(
+        family: str,
+        repo: str,
+        *,
+        audited_section_max_characters: object = None,
+    ) -> dict | None:
+        policy = original_policy_for(
+            family,
+            repo,
+            audited_section_max_characters=audited_section_max_characters,
+        )
+        if repo == QWEN_17B_BASE and policy is not None:
+            return {**policy, "section_max_characters": 399}
+        return policy
+
+    monkeypatch.setattr(catalog.long_form_policy, "policy_for", mismatched_policy_for)
+    response = _client().post("/api/generate/txt2speech", json={
+        "repo": QWEN_17B_BASE,
+        "text": "A capability-gated Custom request.",
+        "section_max_characters": 280,
+    })
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+    assert queued_txt2speech_params == []
+
+
 def test_catalog_publishes_only_the_audited_qwen_17b_control() -> None:
     payload = catalog.serialize_model(catalog.get_model(QWEN_17B_BASE))
     assert payload["long_form_delivery"]["section_size_control"] == {
