@@ -252,6 +252,36 @@ def test_qwen_v1_is_byte_stable_and_v2_is_the_runtime_source() -> None:
     }
 
 
+def test_qwen_v2_immutable_evidence_binds_retained_assembly_and_approval_migration() -> None:
+    record = json.loads(QWEN_17B_V2.read_text(encoding="utf-8"))
+    provenance = record["evidence"]["immutable_provenance"]
+
+    assert provenance["unchanged_frame_retention"] == {
+        "source_v1_audit_id": "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1",
+        "private_join_pause_milliseconds": 300,
+        "private_paragraph_join_pause_milliseconds": 600,
+        "private_soft_join_pause_milliseconds": 180,
+        "private_edge_destructive_trim": False,
+        "private_speech_crossfade": False,
+        "status": "unchanged; v1 frame-retention evidence remains applicable to v2",
+    }
+    assert provenance["v1_to_v2_approval_migration"] == {
+        "required": True,
+        "from": {
+            "audit_id": "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1",
+            "contract_hash": "sha256:c9be3368abdb8817369cc09a01231c8f1f5a7d68b936a0494920a918b3b8a38a",
+        },
+        "to": {
+            "audit_id": "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2",
+            "contract_hash": "sha256:feb681902d12102dd111932a3c0839df7a804c1f9058f00795cd664c9d419d42",
+        },
+        "approval_rule": (
+            "The Auto 280 runtime default may be relied on only after approval moves "
+            "from the exact v1 audit ID/hash to the exact v2 audit ID/hash."
+        ),
+    }
+
+
 @pytest.mark.parametrize("default", [None, True, 229, 401, 400.0])
 def test_invalid_v2_default_fails_closed(default, monkeypatch, tmp_path) -> None:
     record = json.loads(QWEN_17B_V2.read_text(encoding="utf-8"))

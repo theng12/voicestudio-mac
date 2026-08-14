@@ -360,6 +360,29 @@
       "ffmpeg_claim": "not live until the post-release canary verifies managed ffmpeg and ffprobe"
     },
     "v1_retained": "passed historical evidence; not revoked",
+    "immutable_provenance": {
+      "unchanged_frame_retention": {
+        "source_v1_audit_id": "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1",
+        "private_join_pause_milliseconds": 300,
+        "private_paragraph_join_pause_milliseconds": 600,
+        "private_soft_join_pause_milliseconds": 180,
+        "private_edge_destructive_trim": false,
+        "private_speech_crossfade": false,
+        "status": "unchanged; v1 frame-retention evidence remains applicable to v2"
+      },
+      "v1_to_v2_approval_migration": {
+        "required": true,
+        "from": {
+          "audit_id": "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1",
+          "contract_hash": "sha256:c9be3368abdb8817369cc09a01231c8f1f5a7d68b936a0494920a918b3b8a38a"
+        },
+        "to": {
+          "audit_id": "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2",
+          "contract_hash": "sha256:feb681902d12102dd111932a3c0839df7a804c1f9058f00795cd664c9d419d42"
+        },
+        "approval_rule": "The Auto 280 runtime default may be relied on only after approval moves from the exact v1 audit ID/hash to the exact v2 audit ID/hash."
+      }
+    },
     "section_policy": {
       "auto_default_private_section_max_characters": 280,
       "custom_private_section_max_characters": {

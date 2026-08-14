@@ -14,12 +14,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ### Changed
 
-- Corrected the Qwen 1.7B Base **Section size** UI and documentation: **Auto**
-  now states its audited 280-character private-section policy, while
-  **Custom** continues to accept whole numbers from 230 through the unchanged
-  400-character safety maximum. Auto requests still omit
-  `section_max_characters`; the existing local retry remains 230 characters
-  and the automatic 300/600/180 ms pacing remains unchanged.
+- Qwen 1.7B Base **Auto** and omitted `section_max_characters` runtime
+  resolution now change from 400 to the audited 280-character private-section
+  default. **Custom** continues to accept whole numbers from 230 through the
+  unchanged 400-character safety maximum; Auto requests still omit the field,
+  the local retry remains 230 characters, and automatic 300/600/180 ms pacing
+  remains unchanged. This behavior requires approval migration from exact v1
+  `voicestudio-20260814-qwen3-tts-1.7b-base-production-v1` /
+  `sha256:c9be3368abdb8817369cc09a01231c8f1f5a7d68b936a0494920a918b3b8a38a`
+  to exact v2 `voicestudio-20260815-qwen3-tts-1.7b-base-production-v2` /
+  `sha256:feb681902d12102dd111932a3c0839df7a804c1f9058f00795cd664c9d419d42`.
 
 ## [2.2.0] — 2026-08-14
 
