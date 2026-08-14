@@ -184,7 +184,9 @@ def _reject_cloud_repo(repo: str) -> None:
         )
 
 
-def _resolve_section_budget(body: "Txt2SpeechBody", model) -> int:
+def _resolve_section_budget(body: "Txt2SpeechBody", model) -> int | None:
+    if body.section_max_characters is None and model.section_size_control is None:
+        return None
     try:
         result = catalog.resolve_section_budget(
             model.family, body.repo, body.section_max_characters
@@ -1121,8 +1123,10 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
             detail=f"Model {body.repo} is not fully cached. Download it from the Models tab first.",
         )
 
-    params = body.model_dump(exclude={"section_max_characters"})
-    params["_resolved_section_max_characters"] = section_budget
+    params = body.model_dump()
+    if section_budget is not None:
+        params.pop("section_max_characters", None)
+        params["_resolved_section_max_characters"] = section_budget
     try:
         job = gen_manager.start_txt2speech(params)
     except ValueError as exc:
@@ -1215,9 +1219,11 @@ async def start_txt2speech_with_reference(
             status_code=422,
             detail={"code": exc.code, "detail": exc.detail},
         ) from exc
-    params = body.model_dump(exclude={"section_max_characters"})
+    params = body.model_dump()
+    if section_budget is not None:
+        params.pop("section_max_characters", None)
+        params["_resolved_section_max_characters"] = section_budget
     params.update({
-        "_resolved_section_max_characters": section_budget,
         "voice_library_id": None,
         "ref_transcript": prepared.get("transcript") or None,
         "_reference_audio_path": prepared["path"],

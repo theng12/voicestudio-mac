@@ -13,6 +13,8 @@ from backend.main import FLEET_TOKEN
 
 QWEN_17B_BASE = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
 QWEN_06B_BASE = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
+F5_TTS = "SWivid/F5-TTS"
+BARK = "mlx-community/bark"
 
 
 @pytest.fixture
@@ -195,6 +197,84 @@ def test_internal_queueing_rejects_an_out_of_range_qwen_section_budget(
 
     assert error.value.code == "SECTION_MAX_CHARACTERS_OUT_OF_RANGE"
     assert manager._jobs == {}
+
+
+def test_omitted_control_for_a_non_qwen_model_keeps_the_normal_queue_path(
+    queued_txt2speech_params: list[dict],
+) -> None:
+    response = _client().post("/api/generate/txt2speech", json={
+        "repo": BARK,
+        "text": "A normal non-Qwen request.",
+    })
+
+    assert response.status_code == 200
+    assert len(queued_txt2speech_params) == 1
+    assert queued_txt2speech_params[0]["section_max_characters"] is None
+    assert "_resolved_section_max_characters" not in queued_txt2speech_params[0]
+
+
+def test_omitted_control_for_a_non_qwen_model_prepares_reference_audio(
+    monkeypatch: pytest.MonkeyPatch,
+    queued_txt2speech_params: list[dict],
+) -> None:
+    prepared = False
+
+    def prepare(**_kwargs):
+        nonlocal prepared
+        prepared = True
+        return {
+            "path": "/private/reference.wav",
+            "derived_sha256": "a" * 64,
+            "source_sha256": "b" * 64,
+            "preparation_revision": "test-v1",
+            "duration_seconds": 3.0,
+            "transcript": "Prepared reference.",
+        }
+
+    monkeypatch.setattr(main.reference_audio, "prepare", prepare)
+    response = _client().post(
+        "/api/generate/txt2speech/reference",
+        data={"request_json": json.dumps({
+            "repo": F5_TTS,
+            "text": "A normal reference request.",
+        })},
+        files={"audio": ("reference.wav", b"RIFF", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    assert prepared is True
+    assert queued_txt2speech_params[0]["section_max_characters"] is None
+    assert "_resolved_section_max_characters" not in queued_txt2speech_params[0]
+
+
+@pytest.mark.parametrize("repo", [BARK, F5_TTS])
+def test_non_qwen_section_override_remains_fail_closed(
+    queued_txt2speech_params: list[dict], repo: str,
+) -> None:
+    response = _client().post("/api/generate/txt2speech", json={
+        "repo": repo,
+        "text": "An unsupported override.",
+        "section_max_characters": 280,
+    })
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+    assert queued_txt2speech_params == []
+
+
+def test_internal_queueing_without_a_non_qwen_override_stays_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _inert_generation_manager()
+    monkeypatch.setattr(generation.threading, "Thread", _InertThread)
+
+    job = manager.start_txt2speech({
+        "repo": F5_TTS,
+        "text": "An ordinary internal F5 request.",
+    })
+
+    assert "section_max_characters" not in job.params
+    assert "_resolved_section_max_characters" not in job.params
 
 
 def test_catalog_publishes_only_the_audited_qwen_17b_control() -> None:

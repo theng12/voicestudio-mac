@@ -1927,15 +1927,21 @@ class GenerationManager:
         if model is None:
             raise ValueError(f"Unknown repo: {repo}")
         requested_budget = params.get("section_max_characters")
-        if requested_budget is None:
-            requested_budget = params.get("_resolved_section_max_characters")
-        resolved_budget = catalog.resolve_section_budget(
-            model.family, repo, requested_budget
-        )
-        params.pop("section_max_characters", None)
-        params["_resolved_section_max_characters"] = int(
-            resolved_budget["section_max_characters"]
-        )
+        resolved_budget = params.get("_resolved_section_max_characters")
+        if (
+            model.section_size_control is not None
+            or requested_budget is not None
+            or resolved_budget is not None
+        ):
+            if requested_budget is None:
+                requested_budget = resolved_budget
+            resolved_budget = catalog.resolve_section_budget(
+                model.family, repo, requested_budget
+            )
+            params.pop("section_max_characters", None)
+            params["_resolved_section_max_characters"] = int(
+                resolved_budget["section_max_characters"]
+            )
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         request_id = str(params.get("client_request_id") or "").strip()
         with self._lock:
