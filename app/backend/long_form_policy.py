@@ -74,6 +74,11 @@ FISH_AUDIO_SECTION_MAX_CHARACTERS = 300
 # per call, no internal chunking. 280 chars leaves headroom under that budget
 # at typical narration pacing (~15 chars/sec).
 AUDIO8_SECTION_MAX_CHARACTERS = 280
+# The sustained 16 GB qualification rendered complete sentence-safe sections
+# at this measured budget. Keep LongCat's diffusion calls bounded while owner
+# listening establishes whether a larger section is equally reliable.
+LONGCAT_SECTION_MAX_CHARACTERS = 280
+LONGCAT_JOIN_PAUSE_SECONDS = 0.18
 # MOSS-TTS-Nano already auto-splits internally (~75 text-tokens/chunk) inside
 # one generate() call, but Voice Studio still owns the outer boundary for
 # progress reporting and mid-script cancellation. 300 chars keeps each owned
@@ -204,6 +209,15 @@ def _runtime_default(family: str, repo: str) -> Optional[LongFormPolicy]:
             note=(
                 "Keeps each synthesis pass safely under Audio8's ~24-second-per-call "
                 "budget while preserving the selected clone or zero-shot setting."
+            ),
+        )
+    if family == "longcat-audiodit":
+        return LongFormPolicy(
+            section_max_characters=LONGCAT_SECTION_MAX_CHARACTERS,
+            join_pause_seconds=LONGCAT_JOIN_PAUSE_SECONDS,
+            note=(
+                "Measured internal-candidate setting. Every section reuses the "
+                "same reference voice and exact transcript with APG guidance."
             ),
         )
     if family == "moss-tts-nano":

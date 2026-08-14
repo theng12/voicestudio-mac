@@ -20,6 +20,7 @@ from backend import catalog, generation, long_form_policy, model_audits
         ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit", 3000, 120),
         ("omnivoice", "mlx-community/OmniVoice-bfloat16", 288, 300),
         ("fish-audio-mlx", "mlx-community/fish-audio-s2-pro-8bit", 300, 120),
+        ("longcat-audiodit", "mlx-community/LongCat-AudioDiT-1B-4bit", 280, 180),
     ],
 )
 def test_catalog_and_runtime_share_exact_long_form_policy(

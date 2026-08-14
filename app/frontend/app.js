@@ -2673,7 +2673,8 @@ function studio() {
       return this.isVoxCPMMlx(repo) || this.isChatterboxMlx(repo)
           || this.isSparkTtsMlx(repo) || this.isOmniVoice(repo)
           || this.isFishAudio(repo) || this.isAudio8(repo) || this.isMossTtsNano(repo)
-          || this.isEchoTts(repo);
+          || this.isEchoTts(repo)
+          || (this.models || []).find(x => x.repo === repo)?.family === "longcat-audiodit";
     },
     /** Group Bark voice presets by language for the optgroup picker. */
     barkPresetsByLang() {

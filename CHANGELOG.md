@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.1.0] — 2026-08-14
+
+### Added — LongCat AudioDiT as a qualified-hardware internal candidate
+
+- Added the MIT-licensed `mlx-community/LongCat-AudioDiT-1B-4bit` voice-cloning
+  checkpoint to the local catalog, reusing the pinned `mlx-audio` worker with
+  no new runtime dependency. It requires a reference voice with its exact
+  transcript and automatically stages the small `google/umt5-base` tokenizer
+  companion.
+- Set a measured 16 GB minimum and 24 GB preferred tier. Real pinned-runtime
+  evidence on an M4 16 GB Mac produced 4:01 of audio in 7:04 with a 4.94 GB MLX
+  peak; the checkpoint stays internal and is not a GenStudio production route
+  until multi-voice long-form listening qualification passes.
+- Added sentence-safe 280-character private sections, 180 ms joins, exact job
+  seed propagation into LongCat's own sampler, saved-voice UI support, and
+  immutable model/reference revision evidence.
+
 ## [2.0.7] — 2026-08-14
 
 ### Fixed — startup-service generation can find Pinokio's bundled media tools

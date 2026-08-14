@@ -158,6 +158,30 @@ FAMILIES: dict[str, Family] = {
             note="Long voice-clone scripts are split into short sentence-safe sections, rendered with the same reference, and joined with relaxed narration pauses into one chapter. No manual splitting needed.",
         ),
     ),
+    "longcat-audiodit": Family(
+        id="longcat-audiodit",
+        label="LongCat AudioDiT (MLX)",
+        summary=(
+            "Meituan's LongCat AudioDiT 1B voice-cloning model, quantized to "
+            "4-bit for native Apple Silicon inference through mlx-audio. It "
+            "generates 24 kHz English and Chinese speech and is MIT licensed."
+        ),
+        how_to_use=(
+            "Pick a saved reference voice that includes its exact transcript, "
+            "then submit the complete script. LongCat is currently an internal "
+            "16/24 GB fleet candidate; it is not a production GenStudio route "
+            "until multi-voice listening qualification passes."
+        ),
+        text_guidance=TextGuidance(
+            soft_max_chars=None,
+            chunking="auto-split",
+            note=(
+                "Long scripts are rendered in sentence-safe ~280-character "
+                "sections with the same reference and transcript, then joined "
+                "with measured 180 ms pauses."
+            ),
+        ),
+    ),
     "kokoro-mlx": Family(
         id="kokoro-mlx",
         label="Kokoro v1.0 (MLX)",
@@ -761,6 +785,34 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Rapid iteration on voice character without sourcing clips"),
             ("weak",  "Same description twice may produce slightly different voices (no preset stability)"),
             ("avoid", "Cloning a specific real voice — use the 1.7B Base model for that"),
+        ),
+    ),
+
+    # ──────────── LongCat AudioDiT (MLX) ────────────
+    ModelEntry(
+        repo="mlx-community/LongCat-AudioDiT-1B-4bit",
+        label="LongCat AudioDiT 1B 4-bit (MLX) — internal candidate",
+        family="longcat-audiodit",
+        size_gb=1.3,
+        gated=False,
+        min_unified_memory_gb=16,
+        recommended_hardware=(
+            "Apple Silicon with 16 GB minimum; 24 GB preferred for comfortable "
+            "fleet operation alongside Studio Hub and another Studio."
+        ),
+        capabilities=("tts", "voice-cloning", "multilingual"),
+        best_for=(
+            "Internal evaluation of English or Chinese transcript-assisted "
+            "voice cloning on 16/24 GB Macs. The model fits the 16 GB tier but "
+            "remains outside production routing until owner listening passes."
+        ),
+        sample_rate_hz=24000,
+        languages=("en", "zh"),
+        use_cases=(
+            ("good", "MIT-licensed 1B voice cloning with a compact 4-bit checkpoint"),
+            ("good", "Runs through the fleet's existing pinned MLX runtime"),
+            ("weak", "Internal candidate: pronunciation and section-tail quality still need owner qualification"),
+            ("avoid", "8 GB Macs and GenStudio production routing until qualification passes"),
         ),
     ),
 
@@ -1503,6 +1555,21 @@ def ignore_patterns_for(repo: str) -> tuple[str, ...]:
 # OmniVoice / Spark / Fish S2 Pro / Audio8 (arktts) load their codecs from
 # inside their own repo (no companion).
 FAMILY_COMPANIONS: dict[str, tuple[dict, ...]] = {
+    "longcat-audiodit": (
+        {
+            # LongCat embeds the UMT5 encoder weights in its own checkpoint but
+            # resolves Google's tokenizer assets by repo id at generation time.
+            "repo": "google/umt5-base",
+            "allow_patterns": (
+                "config.json",
+                "special_tokens_map.json",
+                "spiece.model",
+                "tokenizer.json",
+                "tokenizer_config.json",
+            ),
+            "label": "UMT5 text tokenizer",
+        },
+    ),
     "bark": (
         {
             "repo": "mlx-community/encodec-24khz-float32",
@@ -1590,6 +1657,7 @@ def serialize_model(m: ModelEntry) -> dict:
         "qwen3-tts", "orpheus", "kittentts", "vibevoice",
         "omnivoice", "fish-audio-mlx", "voxtral-tts", "marvis", "bark",
         "arktts", "moss-tts-nano", "echo-tts",
+        "longcat-audiodit",
     )
     apple_optimized = m.family.endswith("-mlx") or m.family in _MLX_AUDIO_FAMILIES
     try:

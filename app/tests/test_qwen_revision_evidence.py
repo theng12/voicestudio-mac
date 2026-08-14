@@ -155,3 +155,32 @@ def test_fish_clone_records_model_and_reference_revisions(monkeypatch):
     assert result["runtime_revision"] == revision
     assert result["voice_library_id"] == "fish-voice-1"
     assert result["voice_revision"] == digest
+
+
+def test_longcat_clone_records_model_and_reference_revisions(monkeypatch):
+    revision = "7" * 40
+    digest = "e" * 64
+    monkeypatch.setattr(cache, "snapshot_revision", lambda _repo: revision)
+    monkeypatch.setattr(
+        voices.library,
+        "get",
+        lambda voice_id: (
+            SimpleNamespace(audio_sha256=digest)
+            if voice_id == "longcat-voice-1"
+            else None
+        ),
+    )
+    job = generation.GenerationJob(
+        job_id="longcat-proof",
+        mode="txt2speech",
+        params={
+            "repo": "mlx-community/LongCat-AudioDiT-1B-4bit",
+            "voice_library_id": "longcat-voice-1",
+        },
+    )
+
+    generation.GenerationManager._record_local_revision_evidence(job)
+
+    result = job.serialize()
+    assert result["runtime_revision"] == revision
+    assert result["voice_revision"] == digest

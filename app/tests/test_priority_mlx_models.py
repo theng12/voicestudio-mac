@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 import inspect
+import subprocess
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from backend import catalog, generation
+from backend import catalog, generation, model_audits
 
 
 class _VoiceLibrary:
@@ -69,6 +70,79 @@ def test_priority_catalog_is_focused_and_clone_capable() -> None:
     serialized = catalog.serialize_model(fish_model)
     assert serialized["min_unified_memory_gb"] == 24
     assert serialized["fit"]["state"] != "unqualified"
+
+
+def test_longcat_candidate_uses_the_shared_mlx_worker_and_16gb_floor() -> None:
+    model = catalog.get_model("mlx-community/LongCat-AudioDiT-1B-4bit")
+    assert model is not None
+    assert model.family == "longcat-audiodit"
+    assert model.min_unified_memory_gb == 16
+    assert model.capabilities == ("tts", "voice-cloning", "multilingual")
+    assert model.languages == ("en", "zh")
+
+    published = catalog.serialize_model(model)
+    assert published["apple_optimized"] is True
+    assert published["min_unified_memory_gb"] == 16
+    assert model_audits.candidate_summary(model.repo) is None
+    assert generation.MLX_AUDIO_FAMILIES["longcat-audiodit"]["mode"] == "longcat_clone"
+    assert "longcat-audiodit" in generation._WIRED_FAMILIES
+    assert generation._ENGINE_REQUIREMENTS["longcat-audiodit"] == [
+        "mlx", "mlx_audio", "transformers", "soundfile", "numpy",
+    ]
+
+
+def test_longcat_clone_requires_an_exact_reference_transcript(tmp_path: Path) -> None:
+    reference = tmp_path / "reference.wav"
+    reference.write_bytes(b"private")
+    manager = object.__new__(generation.GenerationManager)
+
+    missing = SimpleNamespace(library=_VoiceLibrary(reference, transcript=""))
+    with pytest.raises(ValueError, match="exact transcript"):
+        manager._mlx_kwargs_longcat(
+            {"voice_library_id": "voice-1"}, {}, missing
+        )
+
+    voices = SimpleNamespace(
+        library=_VoiceLibrary(reference, transcript="The saved reference words.")
+    )
+    kwargs: dict = {}
+    label = manager._mlx_kwargs_longcat(
+        {"voice_library_id": "voice-1"}, kwargs, voices
+    )
+
+    assert label == "clone (voice=voice-1, APG 16 steps)"
+    assert kwargs == {
+        "ref_audio": str(reference),
+        "ref_text": "The saved reference words.",
+        "guidance_method": "apg",
+        "cfg_strength": 4.0,
+        "steps": 16,
+    }
+
+
+def test_frontend_offers_saved_voices_to_longcat() -> None:
+    script = Path(__file__).resolve().parents[1] / "frontend/app.js"
+    probe = """
+const fs = require('fs');
+const vm = require('vm');
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+const app = studio();
+const repo = 'mlx-community/LongCat-AudioDiT-1B-4bit';
+app.models = [{
+  repo,
+  family: 'longcat-audiodit',
+  capabilities: ['tts', 'voice-cloning'],
+  apple_optimized: true,
+}];
+process.stdout.write(String(app.isMlxCloner(repo)));
+"""
+    result = subprocess.run(
+        ["node", "-e", probe, str(script)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout == "true"
 
 
 def test_unqualified_fish_memory_never_renders_as_a_numeric_fit_claim() -> None:
@@ -490,6 +564,52 @@ def test_mlx_worker_applies_seed_and_voxcpm_controls() -> None:
     assert 'gen_kwargs["max_tokens"]' in source
 
 
+def test_longcat_worker_passes_the_resolved_seed_to_its_sampler(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import importlib
+    import soundfile as sf
+
+    generate_module = importlib.import_module("mlx_audio.tts.generate")
+    sampler_seeds: list[int] = []
+
+    def fake_generate_audio(*, output_path, seed, **kwargs) -> None:
+        sampler_seeds.append(seed)
+        sf.write(
+            Path(output_path) / "audio.wav",
+            np.ones(240, dtype=np.float32),
+            24000,
+            subtype="PCM_16",
+        )
+
+    monkeypatch.setattr(generate_module, "generate_audio", fake_generate_audio)
+    monkeypatch.setattr(generation, "_release_device_memory", lambda device: None)
+
+    manager = object.__new__(generation.GenerationManager)
+    manager._mlx_audio_get_model = lambda repo: "longcat-model"
+    manager._resolve_mlx_kwargs = (
+        lambda mode, family, model_entry, params, gen_kwargs: "clone"
+    )
+    job = generation.GenerationJob(
+        job_id="longcat-seed",
+        mode="txt2speech",
+        params={"text": "A short reproducible sentence.", "seed": 4242},
+    )
+
+    manager._generate_mlx_audio(
+        job,
+        SimpleNamespace(
+            repo="mlx-community/LongCat-AudioDiT-1B-4bit",
+            family="longcat-audiodit",
+            sample_rate_hz=24000,
+        ),
+        tmp_path / "longcat.wav",
+    )
+
+    assert sampler_seeds == [4242]
+    assert job.resolved_seed == 4242
+
+
 def test_voxcpm_api_preserves_advanced_controls() -> None:
     from backend.main import Txt2SpeechBody
 
@@ -593,6 +713,7 @@ def test_qwen_clone_long_sentence_falls_back_to_word_boundaries() -> None:
         ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit", 3000),
         ("omnivoice", "mlx-community/OmniVoice-bfloat16", 288),
         ("fish-audio-mlx", "mlx-community/fish-audio-s2-pro-8bit", 300),
+        ("longcat-audiodit", "mlx-community/LongCat-AudioDiT-1B-4bit", 280),
     ],
 )
 def test_long_form_local_engines_split_safely_without_losing_text(
@@ -619,6 +740,7 @@ def test_long_form_catalogs_do_not_ask_callers_to_manually_chunk() -> None:
         "vibevoice",
         "omnivoice",
         "fish-audio-mlx",
+        "longcat-audiodit",
     ):
         guidance = catalog.FAMILIES[family].text_guidance
         assert guidance.soft_max_chars is None
@@ -632,6 +754,7 @@ def test_long_form_catalogs_do_not_ask_callers_to_manually_chunk() -> None:
         ("vibevoice", "mlx-community/VibeVoice-Realtime-0.5B-4bit"),
         ("omnivoice", "mlx-community/OmniVoice-bfloat16"),
         ("fish-audio-mlx", "mlx-community/fish-audio-s2-pro-8bit"),
+        ("longcat-audiodit", "mlx-community/LongCat-AudioDiT-1B-4bit"),
     ],
 )
 def test_customer_sized_40k_text_is_preserved_across_private_sections(

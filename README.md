@@ -6,10 +6,10 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
 
 ## What it does
 
-- **Catalog of focused local models** across 17 families, including Qwen3-TTS,
+- **Catalog of focused local models** across 18 families, including Qwen3-TTS,
   Chatterbox, OmniVoice, Fish Audio S2 Pro, VoxCPM2, Kokoro, F5-TTS, Spark-TTS,
   Bark, Orpheus, KittenTTS, VibeVoice, Voxtral, Marvis, Audio8 TTS Preview,
-  MOSS-TTS-Nano, and Echo-TTS.
+  MOSS-TTS-Nano, Echo-TTS, and LongCat AudioDiT.
 - **Apple Silicon first** — the priority families use curated MLX tiers instead
   of presenting every redundant precision. Qwen3 includes 0.6B and 1.7B Base
   voice cloning, preset speakers, and VoiceDesign. Long Qwen scripts are
@@ -21,6 +21,9 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   Chatterbox, OmniVoice, and Fish Audio S2 Pro expose their native cloning and
   quality controls. Fish S2 Pro is a high-memory research/non-commercial model;
   its 8-bit tier is the practical 24 GB candidate and its bf16 tier is for 32 GB+.
+  LongCat AudioDiT 1B 4-bit is a 16 GB+ internal cloning candidate using the
+  shared MLX worker; it remains outside GenStudio routing until multi-voice
+  long-form listening qualification passes.
   Kokoro keeps one
   full-quality MLX model with all 54 voices, nine language variants, speed, and
   equal voice blending. VoxCPM2 keeps a fast 4-bit tier and a bf16 final-render

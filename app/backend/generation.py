@@ -19,6 +19,7 @@ Currently wired (workers exist):
 - marvis          → mlx-audio worker (sesame/csm engine; 2 preset voices)
 - omnivoice       → mlx-audio worker (voice design + cloning)
 - fish-audio-mlx  → mlx-audio worker (Fish S2 Pro style + cloning)
+- longcat-audiodit → mlx-audio worker (LongCat AudioDiT transcript-assisted cloning)
 - f5-tts          → f5_tts.api.F5TTS (separate worker)
 
 Removed in v1.3.1:
@@ -547,6 +548,7 @@ _ENGINE_REQUIREMENTS = {
     # installed globally for other engines, but is not an OmniVoice contract.
     "omnivoice":      ["mlx", "mlx_audio", "transformers", "soundfile", "numpy"],
     "fish-audio-mlx": ["mlx", "mlx_lm", "mlx_audio", "transformers", "soundfile", "numpy"],
+    "longcat-audiodit": ["mlx", "mlx_audio", "transformers", "soundfile", "numpy"],
     "voxtral-tts":    ["mlx", "mlx_audio", "mistral_common", "soundfile", "numpy"],
     "marvis":         ["mlx", "mlx_lm", "mlx_audio", "soundfile", "numpy"],
     # mlx-audio v0.4.7 additions. Both self-verified via a real local
@@ -572,7 +574,7 @@ _WIRED_FAMILIES = {
     "chatterbox-mlx", "spark-tts-mlx", "orpheus",
     "kittentts", "vibevoice", "voxtral-tts", "marvis",
     "omnivoice", "fish-audio-mlx",
-    "arktts", "moss-tts-nano", "echo-tts",
+    "arktts", "moss-tts-nano", "echo-tts", "longcat-audiodit",
     # Its own loader (f5_tts.api.F5TTS) — separate worker.
     "f5-tts",
 }
@@ -610,6 +612,12 @@ MLX_AUDIO_FAMILIES: dict[str, dict] = {
         "uses_cfg": False,
         "mode": "qwen3",
         "label": "Qwen3-TTS",
+    },
+    "longcat-audiodit": {
+        "default_sample_rate": 24000,
+        "uses_cfg": False,
+        "mode": "longcat_clone",
+        "label": "LongCat AudioDiT",
     },
     "voxcpm-mlx": {
         "default_sample_rate": 48000,
@@ -2422,9 +2430,10 @@ class GenerationManager:
         is_chatterbox = "chatterbox" in normalized_repo
         is_fish = "fish-audio-s2-pro" in normalized_repo
         is_omnivoice = "omnivoice" in normalized_repo
+        is_longcat = "longcat-audiodit" in normalized_repo
         if not (
             is_qwen or is_voxcpm or is_kokoro or is_chatterbox
-            or is_fish or is_omnivoice
+            or is_fish or is_omnivoice or is_longcat
         ):
             return
         revision = cache.snapshot_revision(repo)
@@ -2454,6 +2463,7 @@ class GenerationManager:
             or is_chatterbox
             or (is_fish and (voice_id or private_revision))
             or (is_omnivoice and (voice_id or private_revision))
+            or (is_longcat and (voice_id or private_revision))
         ):
             if private_revision:
                 job.voice_revision = private_revision
@@ -2745,6 +2755,10 @@ class GenerationManager:
             # repeatable. Feed it the same resolved seed (its own range is a
             # plain int; keep it inside 2**32 like the mx seed below).
             gen_kwargs["rng_seed"] = int(seed) % (2**32)
+        elif family == "longcat-audiodit":
+            # LongCat reseeds inside Model.generate(), so mlx.core.random.seed
+            # alone is overwritten. Pass the recorded job seed through too.
+            gen_kwargs["seed"] = int(seed) % (2**32)
 
         if job.cancel_event.is_set():
             return
@@ -2960,6 +2974,7 @@ class GenerationManager:
         - "audio8"            — optional ref_audio (zero-shot otherwise), full sampling, no instruct/language
         - "moss_tts_nano"     — ref_audio REQUIRED (no zero-shot), full sampling, no instruct/language
         - "echo_tts"          — optional ref_audio, NO ref_text at all, diffusion sampler knobs
+        - "longcat_clone"     — transcript-assisted reference clone with fixed APG defaults
         """
         from . import voices as voices_module
 
@@ -2985,6 +3000,8 @@ class GenerationManager:
             return self._mlx_kwargs_moss_tts_nano(params, gen_kwargs, voices_module)
         if mode == "echo_tts":
             return self._mlx_kwargs_echo_tts(params, gen_kwargs, voices_module)
+        if mode == "longcat_clone":
+            return self._mlx_kwargs_longcat(params, gen_kwargs, voices_module)
         raise RuntimeError(f"Unknown mlx-audio mode {mode!r} for family {family!r}")
 
     # --- per-mode kwarg builders ---
@@ -3340,6 +3357,27 @@ class GenerationManager:
         )
         reference_label = voice_id or "private-reference"
         return f"clone (voice={reference_label})" if has_reference else "zero-shot (default voice)"
+
+    def _mlx_kwargs_longcat(self, params, gen_kwargs, voices_module) -> str:
+        """LongCat AudioDiT: transcript-assisted APG voice cloning only."""
+        voice_id = (params.get("voice_library_id") or "").strip()
+        if not voice_id and not params.get("_reference_audio_path"):
+            raise ValueError(
+                "LongCat needs a reference voice or private reference upload."
+            )
+        self._inject_voice_clone(
+            voice_id, params, gen_kwargs, voices_module, fallback_transcript=""
+        )
+        if not str(gen_kwargs.get("ref_text") or "").strip():
+            raise ValueError(
+                "LongCat needs the exact transcript spoken in the reference audio."
+            )
+        gen_kwargs.update({
+            "guidance_method": "apg",
+            "cfg_strength": 4.0,
+            "steps": 16,
+        })
+        return f"clone (voice={voice_id or 'private-reference'}, APG 16 steps)"
 
     def _mlx_kwargs_moss_tts_nano(self, params, gen_kwargs, voices_module) -> str:
         """MOSS-TTS-Nano: voice_clone is the model's only generation mode —
