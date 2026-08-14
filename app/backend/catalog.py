@@ -1568,7 +1568,13 @@ def resolve_section_budget(
     requested: object,
     capability: dict[str, int | str] | None = None,
 ) -> dict[str, object]:
-    control = capability if capability is not None else section_size_control_for(repo)
+    derived_control = section_size_control_for(repo)
+    if capability is not None and capability != derived_control:
+        raise SectionSizeControlError(
+            "SECTION_MAX_CHARACTERS_UNSUPPORTED",
+            f"Model {repo} has no section-size control.",
+        )
+    control = derived_control
     policy = long_form_policy.policy_for(
         family,
         repo,

@@ -57,6 +57,17 @@ def test_resolve_section_budget_rejects_override_for_model_without_capability() 
     assert error.value.code == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
 
 
+def test_resolve_section_budget_rejects_capability_from_another_model() -> None:
+    capability = catalog.section_size_control_for(QWEN_17B_BASE)
+
+    with pytest.raises(catalog.SectionSizeControlError) as error:
+        catalog.resolve_section_budget(
+            "qwen3-tts", QWEN_06B_BASE, 280, capability=capability
+        )
+
+    assert error.value.code == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+
+
 def test_catalog_fails_closed_when_the_audit_and_capability_disagree(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -82,4 +93,35 @@ def test_catalog_fails_closed_when_the_audit_and_capability_disagree(
     assert catalog.section_size_control_for(QWEN_17B_BASE) is None
     with pytest.raises(catalog.SectionSizeControlError) as error:
         catalog.resolve_section_budget("qwen3-tts", QWEN_17B_BASE, 280)
+    assert error.value.code == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
+
+
+def test_resolve_section_budget_rejects_a_stale_capability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = catalog.section_size_control_for(QWEN_17B_BASE)
+    original_policy_for = long_form_policy.policy_for
+
+    def mismatched_policy_for(
+        family: str,
+        repo: str,
+        *,
+        audited_section_max_characters: object = None,
+    ) -> dict | None:
+        policy = original_policy_for(
+            family,
+            repo,
+            audited_section_max_characters=audited_section_max_characters,
+        )
+        if repo == QWEN_17B_BASE and policy is not None:
+            return {**policy, "section_max_characters": 399}
+        return policy
+
+    monkeypatch.setattr(catalog.long_form_policy, "policy_for", mismatched_policy_for)
+
+    with pytest.raises(catalog.SectionSizeControlError) as error:
+        catalog.resolve_section_budget(
+            "qwen3-tts", QWEN_17B_BASE, 280, capability=capability
+        )
+
     assert error.value.code == "SECTION_MAX_CHARACTERS_UNSUPPORTED"
