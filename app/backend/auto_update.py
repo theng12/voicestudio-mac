@@ -32,8 +32,13 @@ FREQUENCIES = {"daily", "weekly"}
 STATES = {"idle", "checking", "available", "deferred", "updating",
           "restarting", "succeeded", "failed"}
 BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]{1,100}$")
-SECRET_RE = re.compile(r"(?i)(token|secret|password|authorization|api[_-]?key)\s*[:=]\s*([^\s,;]+)")
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+OPERATION_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+SECRET_RE = re.compile(r"(?i)(token|secret|password|authorization|api[_-]?key)\s*[:=]\s*(?:bearer\s+)?([^\s,;]+)")
 MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024
+RUN_MODES = {"service", "pinokio", "stopped"}
+MANAGED_PHASES = {"prepared", "stopping", "stopped", "merged", "verified", "restarting"}
 
 
 class UpdateError(RuntimeError):
@@ -76,7 +81,7 @@ def _atomic_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.parent.is_symlink():
         raise UpdateError(f"Unsafe symlinked updater directory: {path.parent}")
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -105,10 +110,12 @@ class AutoUpdater:
         self.config_path = self.state_dir / "config.json"
         self.status_path = self.state_dir / "status.json"
         self.lock_path = self.state_dir / "update.lock"
+        self.admission_lock_path = self.state_dir / "admission.lock"
         self.log_dir = self.root / "logs" / "auto_update"
         self.agent_label = f"com.kh.{self.spec['slug']}.updater"
         self.agent_path = Path.home() / "Library" / "LaunchAgents" / f"{self.agent_label}.plist"
         self._thread_lock = threading.Lock()
+        self._admission_thread_lock = threading.Lock()
         self._validate_spec()
         self.log = self._make_logger()
 
@@ -187,6 +194,7 @@ class AutoUpdater:
             "state": "idle", "last_checked": None, "latest_version": None,
             "next_check": None, "last_update_result": None, "defer_reason": None,
             "details": [], "rollback": None, "pending_manual": False,
+            "active_managed_update": None, "managed_operation_history": [],
         })
 
     def _write_status(self, **changes: object) -> dict:
@@ -204,6 +212,97 @@ class AutoUpdater:
         except OSError:
             return "unknown"
 
+    def _version_matches(self, actual: object, expected: str) -> bool:
+        value = str(actual or "")
+        return value == expected or (
+            bool(self.spec.get("allow_build_suffix")) and value.startswith(expected + ".")
+        )
+
+    def _managed_request(self, *, target_commit: Optional[str] = None,
+                         target_version: Optional[str] = None,
+                         operation_id: Optional[str] = None) -> Optional[dict]:
+        values = (target_commit, target_version, operation_id)
+        if not any(value is not None for value in values):
+            return None
+        if not all(isinstance(value, str) and value for value in values):
+            raise UpdateError("Managed update target_commit, target_version, and operation_id must all be provided.")
+        target_commit, target_version, operation_id = (str(value) for value in values)
+        if not COMMIT_RE.fullmatch(target_commit):
+            raise UpdateError("Managed target_commit must be a full lowercase Git commit SHA.")
+        if not VERSION_RE.fullmatch(target_version):
+            raise UpdateError("Managed target_version is invalid.")
+        if not OPERATION_RE.fullmatch(operation_id):
+            raise UpdateError("Managed operation_id is invalid.")
+        return {
+            "target_commit": target_commit,
+            "target_version": target_version,
+            "operation_id": operation_id,
+        }
+
+    def _active_managed_state(self, status: Optional[dict] = None) -> Optional[dict]:
+        value = (status or self._read_status()).get("active_managed_update")
+        if not isinstance(value, dict):
+            return None
+        try:
+            request = self._managed_request(
+                target_commit=value.get("target_commit"),
+                target_version=value.get("target_version"),
+                operation_id=value.get("operation_id"),
+            )
+        except UpdateError:
+            return None
+        if not request:
+            return None
+        mode = value.get("run_mode")
+        phase = value.get("phase")
+        rollback_sha = value.get("rollback_sha")
+        rollback_version = value.get("rollback_version")
+        return {
+            **request,
+            **({"run_mode": mode} if mode in RUN_MODES else {}),
+            **({"phase": phase} if phase in MANAGED_PHASES else {}),
+            **({"rollback_sha": rollback_sha} if isinstance(rollback_sha, str) and COMMIT_RE.fullmatch(rollback_sha) else {}),
+            **({"rollback_version": rollback_version} if isinstance(rollback_version, str) and VERSION_RE.fullmatch(rollback_version) else {}),
+        }
+
+    def _active_managed_request(self, status: Optional[dict] = None) -> Optional[dict]:
+        state = self._active_managed_state(status)
+        return ({key: state[key] for key in ("target_commit", "target_version", "operation_id")}
+                if state else None)
+
+    def _managed_history(self, status: Optional[dict] = None) -> list[dict]:
+        value = (status or self._read_status()).get("managed_operation_history")
+        if not isinstance(value, list):
+            return []
+        history = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            try:
+                request = self._managed_request(
+                    target_commit=item.get("target_commit"), target_version=item.get("target_version"),
+                    operation_id=item.get("operation_id"),
+                )
+            except UpdateError:
+                continue
+            if request:
+                history.append({**request, "result": str(item.get("result") or "unknown")[:32]})
+        return history
+
+    def _complete_managed_changes(self, managed: Optional[dict], result: str) -> dict:
+        if not managed:
+            return {}
+        history = [item for item in self._managed_history()
+                   if item["operation_id"] != managed["operation_id"]]
+        history.append({**managed, "result": result})
+        return {
+            "active_managed_update": None,
+            "managed_helper_pid": None,
+            "managed_operation_history": history,
+            # Drop the legacy active-state field when this version writes status.
+            "managed_update": None,
+        }
+
     def release_notes_url(self) -> str:
         return self.spec["expected_remote"][:-4] + "/blob/main/CHANGELOG.md"
 
@@ -212,13 +311,29 @@ class AutoUpdater:
         settings = self.settings()
         latest = status.get("latest_version")
         installed = self.installed_version()
+        details = status.get("details") if isinstance(status.get("details"), list) else []
+        scheduler = self.scheduler_status()
         return {
-            **status,
+            "state": status.get("state") if status.get("state") in STATES else "failed",
+            "last_checked": str(status.get("last_checked") or "")[:80] or None,
+            "latest_version": str(latest or "")[:80] or None,
+            "next_check": str(status.get("next_check") or "")[:80] or None,
+            "next_retry": str(status.get("next_retry") or "")[:80] or None,
+            "last_update_result": str(_redact(str(status.get("last_update_result") or "")))[:240] or None,
+            "defer_reason": str(_redact(str(status.get("defer_reason") or "")))[:480] or None,
+            "details": [str(_redact(str(value)))[:240] for value in details[:8]],
+            "rollback": str(status.get("rollback") or "")[:32] or None,
+            "pending_manual": bool(status.get("pending_manual")),
+            "managed_update": self._active_managed_request(status),
+            "capabilities": {"managed_exact_commit": True},
             "settings": settings,
             "installed_version": installed,
-            "latest_version": latest,
             "update_available": bool(latest and latest != installed),
-            "scheduler": self.scheduler_status(),
+            "scheduler": {
+                "installed": bool(scheduler.get("installed")),
+                "supported": bool(scheduler.get("supported")),
+                "label": str(scheduler.get("label") or "")[:160],
+            },
             "release_notes_url": self.release_notes_url(),
         }
 
@@ -337,7 +452,8 @@ class AutoUpdater:
             raise UpdateError("Repository is outside PINOKIO_HOME/api.")
         return home
 
-    def _git_preflight(self, *, fetch: bool = True) -> dict:
+    def _git_preflight(self, *, fetch: bool = True, target_commit: Optional[str] = None,
+                       target_version: Optional[str] = None) -> dict:
         if self._git("remote", "get-url", "origin") != self.spec["expected_remote"]:
             raise UpdateError("Unexpected Git remote. Repair origin before updating.")
         branch = self._git("symbolic-ref", "--quiet", "--short", "HEAD", check=False)
@@ -357,20 +473,33 @@ class AutoUpdater:
             self._git("fetch", "--prune", "origin", self.spec.get("branch", "main"), timeout=180)
         local = self._git("rev-parse", "HEAD")
         remote_ref = f"origin/{self.spec.get('branch', 'main')}"
-        remote = self._git("rev-parse", remote_ref)
+        main_tip = self._git("rev-parse", remote_ref)
         previous = self._read_status().get("last_remote_commit")
-        if previous and previous != remote:
-            if self._run(["/usr/bin/git", "merge-base", "--is-ancestor", str(previous), remote],
+        if previous and previous != main_tip:
+            if self._run(["/usr/bin/git", "merge-base", "--is-ancestor", str(previous), main_tip],
                          check=False).returncode:
                 raise UpdateError("Remote history was rewritten. Automatic update refused.")
+        managed = target_commit is not None
+        remote = main_tip
+        if managed:
+            if target_version is None:
+                raise UpdateError("Managed target version is required.")
+            remote = self._git("rev-parse", "--verify", f"{target_commit}^{{commit}}")
+            if remote != target_commit:
+                raise UpdateError("Managed target did not resolve to the requested commit.")
+            if self._run(["/usr/bin/git", "merge-base", "--is-ancestor", remote, main_tip],
+                         check=False).returncode:
+                raise UpdateError("Managed target is not an ancestor of origin/main.")
         if local != remote:
             if self._run(["/usr/bin/git", "merge-base", "--is-ancestor", local, remote],
                          check=False).returncode:
                 raise UpdateError("Local and remote history diverged. Fast-forward update refused.")
-        latest = self._git("show", f"{remote_ref}:VERSION").strip()
-        if not re.fullmatch(r"[0-9]+(?:\.[0-9A-Za-z-]+){1,4}", latest):
+        latest = self._git("show", f"{remote}:VERSION").strip()
+        if not VERSION_RE.fullmatch(latest):
             raise UpdateError("Published VERSION metadata is invalid.")
-        return {"local": local, "remote": remote, "latest": latest,
+        if managed and latest != target_version:
+            raise UpdateError("Managed target VERSION does not match target_version.")
+        return {"local": local, "remote": remote, "main_tip": main_tip, "latest": latest,
                 "available": local != remote}
 
     def check(self) -> dict:
@@ -403,16 +532,30 @@ class AutoUpdater:
         threading.Thread(target=worker, daemon=True).start()
         return self.public_status()
 
-    def readiness_reasons(self) -> list[str]:
+    def readiness_reasons(self, *, fail_closed: bool = False) -> list[str]:
         if self.readiness is not None:
             return [str(x) for x in self.readiness() if x]
         url = f"http://127.0.0.1:{int(self.spec['port'])}/api/auto-update/readiness"
         try:
             with urlopen(Request(url, headers={"User-Agent": "KH-Studio-Updater/1"}), timeout=4) as response:
                 data = json.loads(response.read().decode("utf-8"))
+            if not isinstance(data, dict) or not isinstance(data.get("reasons"), list):
+                raise UpdateError("The readiness endpoint returned an invalid response.")
             return [str(x) for x in data.get("reasons", []) if x]
         except Exception:
-            return []  # a stopped app owns no active jobs
+            if not fail_closed:
+                # Preserve Voice Studio's established ordinary Off/Notify/Auto
+                # behavior: an unavailable readiness endpoint is non-blocking.
+                return []
+            # A failed health/readiness request is not proof that the app owns no
+            # work: it may be alive-but-hung while an inference thread is still
+            # active. Only allow an update when launchd says the service is not
+            # loaded AND nothing is accepting connections on the app port.
+            if self._service_positively_stopped():
+                return []
+            return [
+                "the update safety check is unavailable and Voice Studio is not confirmed stopped"
+            ]
 
     def readiness_status(self) -> dict:
         reasons = self.readiness_reasons()
@@ -440,14 +583,54 @@ class AutoUpdater:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             handle.close()
 
-    def _health(self, expected: str, *, timeout: int = 90) -> bool:
+    @contextlib.contextmanager
+    def _admission_lock(self):
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        with self._admission_thread_lock:
+            handle = open(self.admission_lock_path, "a+", encoding="utf-8")
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                yield
+            finally:
+                with contextlib.suppress(OSError):
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                handle.close()
+
+    def _update_is_running(self) -> bool:
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        handle = open(self.lock_path, "a+", encoding="utf-8")
+        try:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            return False
+        finally:
+            with contextlib.suppress(OSError):
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+
+    def _managed_helper_alive(self, status: dict) -> bool:
+        if self._update_is_running():
+            return True
+        pid = status.get("managed_helper_pid")
+        if not isinstance(pid, int) or pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def _health(self, expected: str, expected_commit: Optional[str] = None, *, timeout: int = 90) -> bool:
         deadline = time.monotonic() + timeout
         url = f"http://127.0.0.1:{int(self.spec['port'])}/api/health"
         while time.monotonic() < deadline:
             try:
                 with urlopen(url, timeout=3) as response:
                     data = json.loads(response.read().decode("utf-8"))
-                if data.get("ok") and data.get("app_version") == expected:
+                if (data.get("ok") and self._version_matches(data.get("app_version"), expected)
+                        and (expected_commit is None or data.get("app_commit") == expected_commit)):
                     return True
             except Exception:
                 pass
@@ -459,6 +642,24 @@ class AutoUpdater:
         if not label:
             return False
         return self._launchctl("print", f"gui/{os.getuid()}/{label}").returncode == 0
+
+    def _port_accepting_connections(self) -> bool:
+        try:
+            with socket.create_connection(
+                ("127.0.0.1", int(self.spec["port"])), timeout=0.75
+            ):
+                return True
+        except OSError:
+            return False
+
+    def _service_positively_stopped(self) -> bool:
+        """Prove the updater is not looking at an unresponsive live service."""
+        try:
+            return not self._service_loaded() and not self._port_accepting_connections()
+        except Exception:
+            # An unavailable launchd/process-state check is uncertainty, not
+            # evidence that it is safe to stop an app and replace its files.
+            return False
 
     def _health_alive(self) -> bool:
         try:
@@ -519,18 +720,22 @@ class AutoUpdater:
                  else [str(python), "-m", "pip", "install"]
         self._run([*prefix, "-r", str(base)], cwd=self.root / "app", timeout=1200)
         marker = self.spec.get("generation_marker")
-        generation = self.root / "app" / self.spec.get("generation_requirements", "requirements-generation.txt")
+        generation = self.root / "app" / self.spec.get(
+            "generation_requirements", "requirements-generation.txt"
+        )
         if marker and generation.is_file() and any((self.root / "conda_env" / "lib").glob(f"python*/site-packages/{marker}")):
             self._run([*prefix, "-r", str(generation)], cwd=self.root / "app", timeout=1800)
 
     def _verify_import(self, expected: str) -> None:
         module = self.spec.get("verify_module", "backend.main")
+        allow_suffix = bool(self.spec.get("allow_build_suffix"))
         code = ("import importlib; m=importlib.import_module(" + repr(module) + "); "
-                "assert getattr(m,'APP_VERSION',None)==" + repr(expected) + ", "
-                "(getattr(m,'APP_VERSION',None)," + repr(expected) + "); print('UPDATE_VERIFY_OK')")
+                "v=str(getattr(m,'APP_VERSION','')); expected=" + repr(expected) + "; "
+                "assert v==expected or (" + repr(allow_suffix) + " and v.startswith(expected+'.')), (v,expected); "
+                "print('UPDATE_VERIFY_OK')")
         self._run([str(self._python()), "-c", code], cwd=self.root / "app", timeout=180)
 
-    def _temporary_health(self, expected: str) -> bool:
+    def _temporary_health(self, expected: str, expected_commit: Optional[str] = None) -> bool:
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -546,7 +751,8 @@ class AutoUpdater:
                 try:
                     with urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as response:
                         data = json.loads(response.read().decode("utf-8"))
-                    return bool(data.get("ok") and data.get("app_version") == expected)
+                    return bool(data.get("ok") and self._version_matches(data.get("app_version"), expected)
+                                and (expected_commit is None or data.get("app_commit") == expected_commit))
                 except Exception:
                     time.sleep(1)
             return False
@@ -558,8 +764,9 @@ class AutoUpdater:
                 except subprocess.TimeoutExpired:
                     process.kill()
 
-    def _verify_health(self, mode: str, expected: str) -> bool:
-        return self._temporary_health(expected) if mode == "stopped" else self._health(expected)
+    def _verify_health(self, mode: str, expected: str, expected_commit: Optional[str] = None) -> bool:
+        return (self._temporary_health(expected, expected_commit) if mode == "stopped"
+                else self._health(expected, expected_commit))
 
     def _rollback(self, old_sha: str, new_sha: str, mode: str, old_version: str) -> bool:
         try:
@@ -576,53 +783,123 @@ class AutoUpdater:
             self._install_dependencies()
             self._verify_import(old_version)
             self._start_mode(mode)
-            return self._verify_health(mode, old_version)
+            return self._verify_health(mode, old_version, old_sha)
         except Exception:
             self.log.exception("rollback failed")
             return False
 
-    def update(self, *, automatic: bool = False) -> dict:
+    def update(self, *, automatic: bool = False, target_commit: Optional[str] = None,
+               target_version: Optional[str] = None, operation_id: Optional[str] = None) -> dict:
+        managed = self._managed_request(target_commit=target_commit, target_version=target_version,
+                                        operation_id=operation_id)
         with self._exclusive_lock():
             old_sha = ""
             new_sha = ""
             old_version = self.installed_version()
             mode = self.active_mode()
+            managed_state = None
             try:
-                reasons = self.readiness_reasons()
+                if managed:
+                    # A trigger holds this lock through spawn and PID persistence;
+                    # wait for that handoff before the helper writes updater state.
+                    with self._admission_lock():
+                        active = self._active_managed_state()
+                        if active and self._active_managed_request() == managed:
+                            mode = active.get("run_mode", mode)
+                            phase = active.get("phase", "prepared")
+                            rollback = {
+                                key: active[key] for key in ("rollback_sha", "rollback_version")
+                                if key in active
+                            }
+                        else:
+                            phase = "prepared"
+                            rollback = {}
+                        managed_state = {**managed, **rollback, "run_mode": mode, "phase": phase}
+                        self._write_status(active_managed_update=managed_state, managed_update=None,
+                                           pending_manual=True)
+                reasons = (self.readiness_reasons(fail_closed=True) if managed
+                           else self.readiness_reasons())
                 if reasons:
                     reason = "; ".join(reasons)
                     self._write_status(state="deferred", defer_reason=reason,
                                        last_update_result="Update deferred",
-                                       next_retry=_iso(self.now() + dt.timedelta(minutes=15)))
+                                       next_retry=_iso(self.now() + dt.timedelta(minutes=15)),
+                                       pending_manual=bool(managed) or bool(self._read_status().get("pending_manual")))
+                    if self._read_status().get("pending_manual"):
+                        self.apply_scheduler(force_pending=True)
                     self._notify(f"{self.spec['title']} update deferred", reason)
                     raise UpdateDeferred(reason)
                 if shutil.disk_usage(self.root).free < int(self.spec.get("min_free_bytes", MIN_FREE_BYTES)):
                     raise UpdateError("Not enough free disk space for a safe update and rollback.")
-                preflight = self._git_preflight(fetch=True)
+                preflight = self._git_preflight(fetch=True, target_commit=target_commit,
+                                                 target_version=target_version)
                 old_sha = preflight["local"]
                 new_sha = preflight["remote"]
+                if managed and managed_state.get("rollback_sha"):
+                    old_sha = managed_state["rollback_sha"]
+                    old_version = managed_state.get("rollback_version", old_version)
+                elif managed and preflight["available"]:
+                    # Preserve a rollback point before the app is stopped or its
+                    # worktree changes, so a post-merge recovery can still fail safe.
+                    managed_state.update(rollback_sha=old_sha, rollback_version=old_version)
+                    self._write_status(active_managed_update=managed_state)
                 if not preflight["available"]:
+                    if managed and managed_state["phase"] in {"stopping", "stopped", "merged"}:
+                        # A matching checkout only proves the merge happened. Replay
+                        # these idempotent checks until their durable phase says done.
+                        self._install_dependencies()
+                        self._verify_import(preflight["latest"])
+                        managed_state["phase"] = "verified"
+                        self._write_status(active_managed_update=managed_state)
+                    if managed and managed_state["phase"] in {"stopping", "stopped", "merged", "verified", "restarting"} and mode != "stopped":
+                        managed_state["phase"] = "restarting"
+                        self._write_status(active_managed_update=managed_state, state="restarting")
+                        self._start_mode(mode)
+                    if managed and not self._verify_health(mode, preflight["latest"], new_sha):
+                        raise UpdateError("The loaded app does not attest to the requested commit and version.")
                     self._write_status(state="succeeded", latest_version=preflight["latest"],
                                        last_checked=_iso(self.now()), last_update_result="Already up to date",
-                                       defer_reason=None, pending_manual=False)
+                                       defer_reason=None, pending_manual=False, next_retry=None,
+                                       **self._complete_managed_changes(managed, "succeeded"))
+                    if self.settings()["mode"] == "off":
+                        self.apply_scheduler()
                     return self.public_status()
                 self._write_status(state="updating", latest_version=preflight["latest"],
                                    last_checked=_iso(self.now()), defer_reason=None,
                                    details=[f"Rollback point {old_sha[:12]}", f"Active mode: {mode}"])
                 self._notify(f"{self.spec['title']} update started", f"Installing {preflight['latest']}")
+                if managed:
+                    managed_state["phase"] = "stopping"
+                    self._write_status(active_managed_update=managed_state)
                 self._stop_mode(mode)
-                self._git("merge", "--ff-only", f"origin/{self.spec.get('branch', 'main')}")
+                if managed:
+                    managed_state["phase"] = "stopped"
+                    self._write_status(active_managed_update=managed_state)
+                self._git("merge", "--ff-only", new_sha)
+                if managed:
+                    managed_state["phase"] = "merged"
+                    self._write_status(active_managed_update=managed_state)
                 self._install_dependencies()
                 self._verify_import(preflight["latest"])
-                self._write_status(state="restarting")
+                if managed:
+                    managed_state["phase"] = "verified"
+                    self._write_status(active_managed_update=managed_state)
+                    managed_state["phase"] = "restarting"
+                    self._write_status(active_managed_update=managed_state, state="restarting")
+                else:
+                    self._write_status(state="restarting")
                 self._start_mode(mode)
-                if not self._verify_health(mode, preflight["latest"]):
-                    raise UpdateError("The updated app did not become healthy on the expected version.")
+                if not self._verify_health(mode, preflight["latest"], new_sha):
+                    raise UpdateError("The updated app did not attest to the expected commit and version.")
+                terminal_schedule = {"next_retry": None}
+                if not managed:
+                    terminal_schedule["next_check"] = _iso(self._next_regular())
                 self._write_status(state="succeeded", last_update_result=f"Updated to {preflight['latest']}",
-                                   rollback=None, pending_manual=False, next_retry=None,
-                                   next_check=_iso(self._next_regular()),
+                                   rollback=None, pending_manual=False,
                                    details=["Dependencies installed.", "Import check passed.",
-                                            "Health and running version verified."])
+                                            "Health and running version verified."],
+                                   **terminal_schedule,
+                                   **self._complete_managed_changes(managed, "succeeded"))
                 self._notify(f"{self.spec['title']} update succeeded", f"Now running {preflight['latest']}")
                 if self.settings()["mode"] == "off":
                     self.apply_scheduler()
@@ -636,35 +913,94 @@ class AutoUpdater:
                 message = str(_redact(str(exc)))
                 self._write_status(state="failed", last_update_result="Update failed",
                                    rollback="succeeded" if rollback else ("failed" if rollback is False else None),
-                                   details=[message], pending_manual=False)
+                                   details=[message], pending_manual=False, next_retry=None,
+                                   **self._complete_managed_changes(managed, "failed"))
                 self._notify(f"{self.spec['title']} update failed",
                              message if rollback is None else f"{message} Rollback {'succeeded' if rollback else 'failed'}.")
                 if self.settings()["mode"] == "off":
                     self.apply_scheduler()
                 raise
 
-    def trigger_update(self, *, after_current: bool = False) -> dict:
-        if after_current:
-            reasons = self.readiness_reasons()
-            self._write_status(state="deferred", defer_reason="; ".join(reasons) if reasons else "Queued for the next idle check",
-                               pending_manual=True, next_retry=_iso(self.now()))
-            self.apply_scheduler(force_pending=True)
+    def _managed_helper_args(self, managed: dict) -> list[str]:
+        return ["--update", "--manual", "--target-commit", managed["target_commit"],
+                "--target-version", managed["target_version"], "--operation-id", managed["operation_id"]]
+
+    def _start_managed_helper(self, managed: dict) -> dict:
+        # This wins over a future regular check after a restart, including when
+        # the operator's normal update mode is Off, Notify, or Auto.
+        self._write_status(next_retry=_iso(self.now()), pending_manual=True)
+        try:
+            process = self._spawn(*self._managed_helper_args(managed))
+        except Exception as exc:
+            self.log.exception("managed update helper did not start")
+            self._write_status(state="deferred", last_update_result="Managed update queued for retry",
+                               defer_reason="Managed helper will be retried by the durable schedule.",
+                               details=[str(_redact(str(exc)))], next_retry=_iso(self.now()),
+                               managed_helper_pid=None)
             return self.public_status()
-        self._spawn("--update", "--manual")
-        self._write_status(state="updating", last_update_result="Update started", defer_reason=None)
+        self._write_status(state="updating", last_update_result="Update started", defer_reason=None,
+                           pending_manual=True, managed_helper_pid=getattr(process, "pid", None))
         return self.public_status()
 
-    def retry(self) -> dict:
-        return self.trigger_update(after_current=False)
+    def trigger_update(self, *, after_current: bool = False, target_commit: Optional[str] = None,
+                       target_version: Optional[str] = None, operation_id: Optional[str] = None) -> dict:
+        managed = self._managed_request(target_commit=target_commit, target_version=target_version,
+                                        operation_id=operation_id)
+        with self._admission_lock():
+            status = self._read_status()
+            active = self._active_managed_request(status)
+            history = self._managed_history(status)
+            if managed:
+                for completed in history:
+                    if completed["operation_id"] == managed["operation_id"]:
+                        if {key: completed[key] for key in managed} != managed:
+                            raise UpdateError("Managed operation_id is already bound to a different target.")
+                        return self.public_status()
+                if active:
+                    if active["operation_id"] != managed["operation_id"] or active != managed:
+                        raise UpdateError("Another managed update operation is already active.")
+                    if self._managed_helper_alive(status):
+                        return self.public_status()
+                    self.apply_scheduler(force_pending=True)
+                    return self._start_managed_helper(managed)
+                self._write_status(active_managed_update=managed, managed_update=None,
+                                   managed_helper_pid=None, pending_manual=True)
+                if after_current:
+                    reasons = self.readiness_reasons(fail_closed=True)
+                    self._write_status(state="deferred", defer_reason="; ".join(reasons) if reasons else "Queued for the next idle check",
+                                       pending_manual=True, next_retry=_iso(self.now()))
+                    self.apply_scheduler(force_pending=True)
+                    return self.public_status()
+                # Persist and install the retry mechanism before helper launch, so a
+                # killed helper or a restart cannot lose an Off-mode managed request.
+                self.apply_scheduler(force_pending=True)
+                return self._start_managed_helper(managed)
+            if active:
+                raise UpdateError("A managed update operation is already active.")
+            self._write_status(active_managed_update=None, managed_update=None, managed_helper_pid=None)
+            if after_current:
+                reasons = self.readiness_reasons()
+                self._write_status(state="deferred", defer_reason="; ".join(reasons) if reasons else "Queued for the next idle check",
+                                   pending_manual=True, next_retry=_iso(self.now()))
+                self.apply_scheduler(force_pending=True)
+                return self.public_status()
+            self._spawn("--update", "--manual")
+            self._write_status(state="updating", last_update_result="Update started", defer_reason=None,
+                               pending_manual=False)
+            return self.public_status()
 
-    def _spawn(self, *args: str) -> None:
+    def retry(self) -> dict:
+        managed = self._active_managed_request()
+        return self.trigger_update(after_current=False, **(managed or {}))
+
+    def _spawn(self, *args: str) -> subprocess.Popen:
         python = self._python()
         self.log_dir.mkdir(parents=True, exist_ok=True)
         stream = open(self.log_dir / "helper.log", "a", encoding="utf-8")
         try:
-            subprocess.Popen([str(python), "-m", "backend.auto_update", *args],
-                             cwd=str(self.root / "app"), stdout=stream, stderr=stream,
-                             start_new_session=True, close_fds=True)
+            return subprocess.Popen([str(python), "-m", "backend.auto_update", *args],
+                                    cwd=str(self.root / "app"), stdout=stream, stderr=stream,
+                                    start_new_session=True, close_fds=True)
         finally:
             stream.close()
 
@@ -681,7 +1017,7 @@ class AutoUpdater:
             return self.public_status()
         if pending:
             try:
-                return self.update(automatic=False)
+                return self.update(automatic=False, **(self._active_managed_request(status) or {}))
             except UpdateDeferred:
                 return self.public_status()
         checked = self.check()
@@ -708,11 +1044,15 @@ def cli() -> int:
     parser.add_argument("--scheduled", action="store_true")
     parser.add_argument("--update", action="store_true")
     parser.add_argument("--manual", action="store_true")
+    parser.add_argument("--target-commit")
+    parser.add_argument("--target-version")
+    parser.add_argument("--operation-id")
     args = parser.parse_args()
     updater = create_updater()
     try:
         if args.update:
-            updater.update(automatic=not args.manual)
+            updater.update(automatic=not args.manual, target_commit=args.target_commit,
+                           target_version=args.target_version, operation_id=args.operation_id)
         else:
             updater.scheduled()
         return 0

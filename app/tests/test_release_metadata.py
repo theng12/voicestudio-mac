@@ -17,10 +17,10 @@ def test_installed_version_has_a_truthful_whats_new_entry() -> None:
     release_metadata_check.validate_current_release()
 
 
-def test_section_control_release_is_versioned_as_2_2_1() -> None:
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.2.1"
+def test_managed_updater_release_is_versioned_as_2_3_0() -> None:
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.3.0"
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert "## [2.2.1] — 2026-08-15" in changelog
+    assert "## [2.3.0] — 2026-08-15" in changelog
 
 
 def test_worktree_product_changes_require_release_metadata() -> None:

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
+import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
+from types import SimpleNamespace
 
 import pytest
 
-from backend.auto_update import AutoUpdater, UpdateDeferred, UpdateError, _redact
+from backend.auto_update import AutoUpdater, UpdateDeferred, UpdateError, _parse_iso, _redact
 
 
 @pytest.fixture
@@ -156,7 +160,7 @@ def test_auto_mode_installs_available_update(updater: AutoUpdater, monkeypatch):
 
 
 def test_active_work_defers_and_records_reason(updater: AutoUpdater, monkeypatch):
-    monkeypatch.setattr(updater, "readiness_reasons", lambda: ["voice generation is running"])
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: ["voice generation is running"])
     with pytest.raises(UpdateDeferred):
         updater.update(automatic=True)
     status = updater.public_status()
@@ -166,7 +170,7 @@ def test_active_work_defers_and_records_reason(updater: AutoUpdater, monkeypatch
 
 
 def test_update_after_work_creates_pending_retry(updater: AutoUpdater, monkeypatch):
-    monkeypatch.setattr(updater, "readiness_reasons", lambda: ["download active"])
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: ["download active"])
     status = updater.trigger_update(after_current=True)
     assert status["pending_manual"] is True
     assert status["state"] == "deferred"
@@ -255,7 +259,7 @@ def test_dirty_worktree_refusal_caps_the_path_preview_at_five(updater: AutoUpdat
 
 
 def test_disk_space_failure_happens_before_files_change(updater: AutoUpdater, monkeypatch):
-    monkeypatch.setattr(updater, "readiness_reasons", lambda: [])
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: [])
     monkeypatch.setattr("backend.auto_update.shutil.disk_usage", lambda _p: type("D", (), {"free": 1})())
     monkeypatch.setattr(updater, "_git_preflight", lambda **kwargs: pytest.fail("Git update must not start"))
     with pytest.raises(UpdateError, match="disk space"):
@@ -264,7 +268,7 @@ def test_disk_space_failure_happens_before_files_change(updater: AutoUpdater, mo
 
 @pytest.mark.parametrize("failure", ["dependencies", "health"])
 def test_install_or_health_failure_attempts_rollback(updater: AutoUpdater, monkeypatch, failure):
-    monkeypatch.setattr(updater, "readiness_reasons", lambda: [])
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: [])
     monkeypatch.setattr(updater, "active_mode", lambda: "stopped")
     monkeypatch.setattr(updater, "_git_preflight", lambda **kwargs: {
         "local": "a" * 40, "remote": "b" * 40, "latest": "2.0.0", "available": True,
@@ -273,7 +277,7 @@ def test_install_or_health_failure_attempts_rollback(updater: AutoUpdater, monke
     monkeypatch.setattr(updater, "_git", lambda *args, **kwargs: "")
     monkeypatch.setattr(updater, "_verify_import", lambda expected: None)
     monkeypatch.setattr(updater, "_start_mode", lambda mode: None)
-    monkeypatch.setattr(updater, "_verify_health", lambda mode, version: failure != "health")
+    monkeypatch.setattr(updater, "_verify_health", lambda *_args: failure != "health")
     if failure == "dependencies":
         monkeypatch.setattr(updater, "_install_dependencies", lambda: (_ for _ in ()).throw(UpdateError("dependency install failed")))
     else:
@@ -287,7 +291,7 @@ def test_install_or_health_failure_attempts_rollback(updater: AutoUpdater, monke
 
 
 def test_rollback_failure_is_reported(updater: AutoUpdater, monkeypatch):
-    monkeypatch.setattr(updater, "readiness_reasons", lambda: [])
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: [])
     monkeypatch.setattr(updater, "active_mode", lambda: "stopped")
     monkeypatch.setattr(updater, "_git_preflight", lambda **kwargs: {
         "local": "a" * 40, "remote": "b" * 40, "latest": "2.0.0", "available": True,
@@ -323,3 +327,496 @@ def test_next_daily_and_weekly_checks_are_future(updater: AutoUpdater):
     weekly = updater._next_regular({**updater.defaults, "frequency": "weekly", "maintenance_hour": 2})
     assert daily > now
     assert weekly > daily
+
+
+def test_managed_target_requires_all_fields(updater: AutoUpdater):
+    with pytest.raises(UpdateError, match="all be provided"):
+        updater.trigger_update(target_commit="a" * 40)
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("unknown", "did not resolve"),
+        ("not_on_main", "not an ancestor"),
+        ("version_mismatch", "VERSION does not match"),
+        ("rewritten_main", "history was rewritten"),
+    ],
+)
+def test_managed_preflight_refuses_unattested_targets(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch, case: str, message: str
+):
+    target = "b" * 40
+    main_tip = "c" * 40
+    previous = "d" * 40
+    if case == "rewritten_main":
+        updater._write_status(last_remote_commit=previous)
+
+    def fake_git(*args, **_kwargs):
+        command = tuple(args)
+        if command == ("remote", "get-url", "origin"):
+            return updater.spec["expected_remote"]
+        if command[:3] == ("symbolic-ref", "--quiet", "--short"):
+            return "main"
+        if command[:2] == ("status", "--porcelain") or command[:1] == ("fetch",):
+            return ""
+        if command == ("rev-parse", "HEAD"):
+            return "a" * 40
+        if command == ("rev-parse", "origin/main"):
+            return main_tip
+        if command == ("rev-parse", "--verify", f"{target}^{{commit}}"):
+            return "e" * 40 if case == "unknown" else target
+        if command == ("show", f"{target}:VERSION"):
+            return "2.0.1" if case == "version_mismatch" else "2.0.0"
+        raise AssertionError(command)
+
+    def fake_run(args, **_kwargs):
+        if "merge-base" not in args:
+            raise AssertionError(args)
+        if case == "rewritten_main" and args[-2:] == [previous, main_tip]:
+            return subprocess.CompletedProcess(args, 1, "", "")
+        if case == "not_on_main" and args[-2:] == [target, main_tip]:
+            return subprocess.CompletedProcess(args, 1, "", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(updater, "_git", fake_git)
+    monkeypatch.setattr(updater, "_run", fake_run)
+
+    with pytest.raises(UpdateError, match=message):
+        updater._git_preflight(target_commit=target, target_version="2.0.0")
+
+
+def test_readiness_failure_remains_nonblocking_for_ordinary_updates(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        "backend.auto_update.urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("unavailable")),
+    )
+    monkeypatch.setattr(updater, "_service_positively_stopped", lambda: False)
+
+    assert updater.readiness_reasons() == []
+    assert updater.readiness_reasons(fail_closed=True)
+
+
+def test_generation_dependency_refresh_uses_voice_source_requirements(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    source = updater.root / "app" / "requirements-generation.txt"
+    source.write_text("mlx-audio>=0.1\n")
+    marker = updater.root / "conda_env" / "lib" / "python3.12" / "site-packages" / "mlx_audio"
+    marker.mkdir(parents=True)
+    updater.spec["generation_marker"] = "mlx_audio"
+    calls = []
+    monkeypatch.setattr(updater, "_pinokio_home", lambda: updater.root.parent.parent)
+    monkeypatch.setattr(
+        updater,
+        "_run",
+        lambda args, **_kwargs: calls.append([str(item) for item in args])
+        or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+
+    updater._install_dependencies()
+
+    requirement_paths = [call[call.index("-r") + 1] for call in calls if "-r" in call]
+    assert str(source) in requirement_paths
+    assert not any(path.endswith("requirements-generation.lock.txt") for path in requirement_paths)
+
+
+@pytest.mark.parametrize("version", ["1.2", "01.2.3", "1.2.3.4", "1.2.3+build.1"])
+def test_managed_target_requires_release_compatible_semver(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch, version: str
+):
+    monkeypatch.setattr(updater, "_spawn", lambda *_args: None)
+    with pytest.raises(UpdateError, match="target_version is invalid"):
+        updater.trigger_update(
+            target_commit="a" * 40, target_version=version, operation_id="hub-op-1"
+        )
+
+
+def test_matching_managed_operation_is_adopted_without_duplicate_helper(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    spawned = []
+    monkeypatch.setattr(
+        updater, "_spawn",
+        lambda *args: spawned.append(args) or SimpleNamespace(pid=os.getpid()),
+    )
+
+    request = {
+        "target_commit": "a" * 40,
+        "target_version": "2.0.0",
+        "operation_id": "hub-op-1",
+    }
+    updater.trigger_update(**request)
+    adopted = updater.trigger_update(**request)
+
+    assert len(spawned) == 1
+    assert adopted["managed_update"] == request
+
+
+def test_concurrent_identical_managed_requests_admit_one_helper(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    request = {"target_commit": "a" * 40, "target_version": "2.0.0", "operation_id": "hub-op-1"}
+    original_read = updater._read_status
+    barrier = threading.Barrier(2)
+    reads = 0
+    reads_lock = threading.Lock()
+    spawned = []
+
+    def synchronized_read():
+        nonlocal reads
+        with reads_lock:
+            reads += 1
+            wait = reads <= 2
+        if wait:
+            try:
+                barrier.wait(timeout=0.2)
+            except threading.BrokenBarrierError:
+                pass
+        return original_read()
+
+    monkeypatch.setattr(updater, "_read_status", synchronized_read)
+    monkeypatch.setattr(
+        updater, "_spawn",
+        lambda *args: spawned.append(args) or SimpleNamespace(pid=os.getpid()),
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _unused: updater.trigger_update(**request), range(2)))
+
+    assert len(spawned) == 1
+    assert all(result["managed_update"] == request for result in results)
+
+
+def test_concurrent_conflicting_managed_requests_reject_one(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    first = {"target_commit": "a" * 40, "target_version": "2.0.0", "operation_id": "hub-op-1"}
+    second = {"target_commit": "b" * 40, "target_version": "2.0.0", "operation_id": "hub-op-2"}
+    original_read = updater._read_status
+    barrier = threading.Barrier(2)
+    reads = 0
+    reads_lock = threading.Lock()
+    spawned = []
+
+    def synchronized_read():
+        nonlocal reads
+        with reads_lock:
+            reads += 1
+            wait = reads <= 2
+        if wait:
+            try:
+                barrier.wait(timeout=0.2)
+            except threading.BrokenBarrierError:
+                pass
+        return original_read()
+
+    monkeypatch.setattr(updater, "_read_status", synchronized_read)
+    monkeypatch.setattr(
+        updater, "_spawn",
+        lambda *args: spawned.append(args) or SimpleNamespace(pid=os.getpid()),
+    )
+
+    def trigger(request):
+        try:
+            return updater.trigger_update(**request)
+        except UpdateError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(trigger, (first, second)))
+
+    assert len(spawned) == 1
+    assert sum(isinstance(result, UpdateError) for result in results) == 1
+
+
+def test_completed_managed_target_does_not_hijack_ordinary_deferred_update(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    updater._write_status(
+        managed_update={
+            "target_commit": "a" * 40,
+            "target_version": "2.0.0",
+            "operation_id": "hub-op-1",
+        },
+        pending_manual=False,
+    )
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: ["generation active"])
+    updater.trigger_update(after_current=True)
+    calls = []
+    monkeypatch.setattr(updater, "update", lambda **kwargs: calls.append(kwargs) or {"state": "succeeded"})
+
+    updater.scheduled()
+
+    assert calls == [{"automatic": False}]
+
+
+def test_dead_managed_operation_reinstalls_durable_recovery(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    request = {"target_commit": "a" * 40, "target_version": "2.0.0", "operation_id": "hub-op-1"}
+    updater._write_status(active_managed_update=request, pending_manual=True, managed_helper_pid=999_999)
+    scheduled = []
+    spawned = []
+    monkeypatch.setattr(updater, "apply_scheduler", lambda **kwargs: scheduled.append(kwargs) or {"installed": True})
+    monkeypatch.setattr(
+        updater, "_spawn",
+        lambda *args: spawned.append(args) or SimpleNamespace(pid=os.getpid()),
+    )
+
+    updater.trigger_update(**request)
+
+    assert scheduled == [{"force_pending": True}]
+    assert len(spawned) == 1
+
+
+def test_resumed_managed_update_restarts_original_service_after_stop(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    request = {"target_commit": "b" * 40, "target_version": "2.0.0", "operation_id": "hub-op-1"}
+    updater._write_status(
+        active_managed_update={**request, "run_mode": "service", "phase": "stopped"},
+        pending_manual=True,
+    )
+    monkeypatch.setattr(updater, "active_mode", lambda: "stopped")
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: [])
+    monkeypatch.setattr(updater, "_git_preflight", lambda **_kwargs: {
+        "local": request["target_commit"], "remote": request["target_commit"],
+        "latest": request["target_version"], "available": False,
+    })
+    started = []
+    verified = []
+    monkeypatch.setattr(updater, "_install_dependencies", lambda: None)
+    monkeypatch.setattr(updater, "_verify_import", lambda _version: None)
+    monkeypatch.setattr(updater, "_start_mode", lambda mode: started.append(mode))
+    monkeypatch.setattr(
+        updater, "_verify_health", lambda mode, *_args: verified.append(mode) or True
+    )
+
+    updater.update(**request)
+
+    assert started == ["service"]
+    assert verified == ["service"]
+
+
+@pytest.mark.parametrize("phase", ["stopped", "merged", "merged"], ids=[
+    "after-merge-before-phase-write", "during-install", "after-install-before-import",
+])
+def test_target_checkout_recovery_replays_install_and_import_before_restart(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch, phase: str
+):
+    request = {"target_commit": "b" * 40, "target_version": "2.0.0", "operation_id": "hub-op-1"}
+    updater._write_status(
+        active_managed_update={
+            **request, "run_mode": "service", "phase": phase,
+            "rollback_sha": "a" * 40, "rollback_version": "1.0.0",
+        },
+        pending_manual=True,
+    )
+    monkeypatch.setattr(updater, "active_mode", lambda: "stopped")
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: [])
+    monkeypatch.setattr(updater, "_git_preflight", lambda **_kwargs: {
+        "local": request["target_commit"], "remote": request["target_commit"],
+        "latest": request["target_version"], "available": False,
+    })
+    calls = []
+    monkeypatch.setattr(updater, "_install_dependencies", lambda: calls.append("install"))
+    monkeypatch.setattr(updater, "_verify_import", lambda _version: calls.append("import"))
+    monkeypatch.setattr(updater, "_start_mode", lambda mode: calls.append(f"start:{mode}"))
+    monkeypatch.setattr(updater, "_verify_health", lambda *_args: calls.append("health") or True)
+
+    updater.update(**request)
+
+    assert calls == ["install", "import", "start:service", "health"]
+
+
+@pytest.mark.parametrize("outcome", ["no-op", "failure", "success"])
+def test_managed_terminal_paths_clear_retry_and_preserve_regular_check(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch, outcome: str
+):
+    request = {"target_commit": "b" * 40, "target_version": "2.0.0", "operation_id": "hub-op-1"}
+    regular_check = "2030-01-01T00:00:00Z"
+    _save(updater, "auto")
+    updater._write_status(
+        active_managed_update={**request, "run_mode": "stopped", "phase": "prepared"},
+        pending_manual=True, next_retry="2026-08-15T10:00:00Z", next_check=regular_check,
+    )
+    monkeypatch.setattr(updater, "active_mode", lambda: "stopped")
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: [])
+    if outcome == "success":
+        monkeypatch.setattr(updater, "_git_preflight", lambda **_kwargs: {
+            "local": "a" * 40, "remote": request["target_commit"],
+            "latest": request["target_version"], "available": True,
+        })
+        monkeypatch.setattr(updater, "_git", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(updater, "_stop_mode", lambda _mode: None)
+        monkeypatch.setattr(updater, "_install_dependencies", lambda: None)
+        monkeypatch.setattr(updater, "_verify_import", lambda _version: None)
+        monkeypatch.setattr(updater, "_start_mode", lambda _mode: None)
+        monkeypatch.setattr(updater, "_verify_health", lambda *_args: True)
+    else:
+        monkeypatch.setattr(updater, "_git_preflight", lambda **_kwargs: {
+            "local": request["target_commit"], "remote": request["target_commit"],
+            "latest": request["target_version"], "available": False,
+        })
+        monkeypatch.setattr(updater, "_verify_health", lambda *_args: outcome == "no-op")
+
+    if outcome == "failure":
+        with pytest.raises(UpdateError):
+            updater.update(**request)
+    else:
+        updater.update(**request)
+
+    status = updater.public_status()
+    assert status["next_retry"] is None
+    assert status["next_check"] == regular_check
+    monkeypatch.setattr(updater, "check", lambda: pytest.fail("terminal managed update must not trigger Auto work"))
+    updater.scheduled()
+
+
+def test_target_checkout_recovery_keeps_persisted_rollback_point(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    request = {"target_commit": "b" * 40, "target_version": "2.0.0", "operation_id": "hub-op-1"}
+    updater._write_status(
+        active_managed_update={
+            **request, "run_mode": "service", "phase": "merged",
+            "rollback_sha": "a" * 40, "rollback_version": "1.0.0",
+        },
+        pending_manual=True,
+    )
+    monkeypatch.setattr(updater, "active_mode", lambda: "stopped")
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: [])
+    monkeypatch.setattr(updater, "_git_preflight", lambda **_kwargs: {
+        "local": request["target_commit"], "remote": request["target_commit"],
+        "latest": request["target_version"], "available": False,
+    })
+    monkeypatch.setattr(
+        updater, "_install_dependencies", lambda: (_ for _ in ()).throw(UpdateError("install failed"))
+    )
+    rollbacks = []
+    monkeypatch.setattr(updater, "_rollback", lambda *args: rollbacks.append(args) or True)
+
+    with pytest.raises(UpdateError, match="install failed"):
+        updater.update(**request)
+
+    assert rollbacks == [("a" * 40, "b" * 40, "service", "1.0.0")]
+
+
+def test_managed_launch_sets_prompt_retry_ahead_of_future_regular_check(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    request = {"target_commit": "a" * 40, "target_version": "2.0.0", "operation_id": "hub-op-1"}
+    now = dt.datetime(2026, 8, 15, 10, tzinfo=dt.timezone.utc)
+    updater.now = lambda: now
+    updater._write_status(next_check="2030-01-01T00:00:00Z")
+    monkeypatch.setattr(updater, "_spawn", lambda *_args: SimpleNamespace(pid=os.getpid()))
+
+    updater.trigger_update(**request)
+
+    assert _parse_iso(updater.public_status()["next_retry"]) <= now
+    calls = []
+    monkeypatch.setattr(updater, "update", lambda **kwargs: calls.append(kwargs) or {"state": "succeeded"})
+    updater.scheduled()
+    assert calls == [{"automatic": False, **request}]
+
+
+def test_completed_managed_operation_remains_idempotent_beyond_eight_later_operations(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
+):
+    history = [
+        {
+            "target_commit": f"{index:x}" * 40,
+            "target_version": "2.0.0",
+            "operation_id": f"hub-op-{index}",
+            "result": "succeeded",
+        }
+        for index in range(9)
+    ]
+    updater._write_status(managed_operation_history=history)
+    monkeypatch.setattr(updater, "_spawn", lambda *_args: pytest.fail("completed operation must be adopted"))
+
+    result = updater.trigger_update(
+        target_commit="0" * 40, target_version="2.0.0", operation_id="hub-op-0"
+    )
+
+    assert result["managed_update"] is None
+
+
+def test_managed_target_only_merges_requested_sha(updater: AutoUpdater, monkeypatch):
+    target = "b" * 40
+    main_tip = "c" * 40
+    calls = []
+
+    def fake_git(*args, **_kwargs):
+        command = tuple(args)
+        calls.append(command)
+        if command == ("remote", "get-url", "origin"):
+            return updater.spec["expected_remote"]
+        if command[:3] == ("symbolic-ref", "--quiet", "--short"):
+            return "main"
+        if command[:2] == ("status", "--porcelain") or command[:1] == ("fetch",):
+            return ""
+        if command == ("rev-parse", "HEAD"):
+            return "a" * 40
+        if command == ("rev-parse", "origin/main"):
+            return main_tip
+        if command == ("rev-parse", "--verify", f"{target}^{{commit}}"):
+            return target
+        if command == ("show", f"{target}:VERSION"):
+            return "2.0.0"
+        if command[:1] == ("merge",):
+            return ""
+        raise AssertionError(command)
+
+    monkeypatch.setattr(updater, "_git", fake_git)
+    monkeypatch.setattr(
+        updater, "_run",
+        lambda args, **_kwargs: subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: [])
+    monkeypatch.setattr(updater, "active_mode", lambda: "stopped")
+    monkeypatch.setattr(updater, "_stop_mode", lambda _mode: None)
+    monkeypatch.setattr(updater, "_install_dependencies", lambda: None)
+    monkeypatch.setattr(updater, "_verify_import", lambda _version: None)
+    monkeypatch.setattr(updater, "_start_mode", lambda _mode: None)
+    monkeypatch.setattr(updater, "_verify_health", lambda *_args: True)
+
+    updater.update(target_commit=target, target_version="2.0.0", operation_id="hub-op-1")
+
+    assert ("merge", "--ff-only", target) in calls
+    assert ("merge", "--ff-only", "origin/main") not in calls
+
+
+def test_busy_managed_update_keeps_durable_target(updater: AutoUpdater, monkeypatch):
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: ["generation active"])
+
+    with pytest.raises(UpdateDeferred):
+        updater.update(
+            target_commit="a" * 40,
+            target_version="2.0.0",
+            operation_id="hub-op-1",
+        )
+
+    status = updater.public_status()
+    assert status["pending_manual"] is True
+    assert status["managed_update"] == {
+        "target_commit": "a" * 40,
+        "target_version": "2.0.0",
+        "operation_id": "hub-op-1",
+    }
+
+
+def test_public_status_redacts_and_bounds_details(updater: AutoUpdater):
+    updater._write_status(
+        details=[f"token=secret-{index}" for index in range(20)],
+        last_update_result="Authorization: Bearer super-secret",
+    )
+
+    status = updater.public_status()
+
+    assert len(status["details"]) <= 8
+    assert "super-secret" not in status["last_update_result"]
+    assert all("secret-" not in item for item in status["details"])

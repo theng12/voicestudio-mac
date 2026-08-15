@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.3.0] — 2026-08-15
+
+### Added
+
+- Managed Studio Hub updates can now pin one exact reachable `main` commit,
+  release version, and idempotency operation ID. Voice Studio verifies that
+  tuple before merging only the requested fast-forward commit, and success
+  requires the running health endpoint to attest to both the requested version
+  and loaded commit.
+- Managed update admission, recovery, and retry state are durable across helper
+  death and service restart. Duplicate requests adopt their original operation;
+  conflicting targets are refused. Existing Off, Notify, and Automatic update
+  behavior is unchanged for ordinary updates.
+
 ## [2.2.1] — 2026-08-15
 
 ### Changed
