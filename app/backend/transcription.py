@@ -124,6 +124,39 @@ _PROCESSOR_BASE = {
 }
 
 
+# Whisper decodes 30-second windows. By default (`condition_on_previous_text=True`)
+# it feeds its own previous output back in as the prompt for the next window. That
+# is helpful on clean speech, but it makes hallucination self-reinforcing: one bad
+# token becomes the context that makes the next bad token likelier, and the decoder
+# runs away into a block of invented text — most visibly foreign-script text, since
+# the language token conditions only the START of decoding and never restricts the
+# vocabulary. (Real observed output: "马 West outside The gust,".)
+#
+# Measured on 19 chapters of the owner's own narration spanning sleep stories,
+# narrative history and spoken explainers, scored against the ground-truth scripts
+# the voice actually read (v2.3.1):
+#
+#     conditioning ON  (old)   recall 98.64%   758 invented words   434s
+#     conditioning OFF (this)  recall 98.55%    46 invented words   235s
+#
+# 94% fewer invented words, ~1.8x faster (no temperature-fallback retries on
+# garbage it emits anyway), and the 7-word recall difference across ~7,700 words
+# is entirely word-boundary and homophone variance ("adrift"/"a drift",
+# "stair"/"stare") plus one dropped article — no coherent speech is lost.
+#
+# This is deliberately NOT a per-request option. Voice Studio is English-only by
+# product decision, transcripts feed downstream image-prompt generation where an
+# invented sentence produces a wrong image, and no caller has ever wanted the
+# hallucination cascade back. A flag here would only be a way to turn the bug on.
+#
+# NOTE for anyone tempted to also add `suppress_tokens` for non-Latin scripts:
+# that was measured too, and it is worse. Masking the CJK/Cyrillic/Hebrew logits
+# does not stop the runaway — it launders it, so the decoder emits the same length
+# of invented text in fluent English instead (758 -> 957 invented words when used
+# on its own). Removing the cascade is the fix; hiding its alphabet is not.
+_CONDITION_ON_PREVIOUS_TEXT = False
+
+
 class _TokenizerOnlyProcessor:
     """Minimal stand-in exposing only `.tokenizer` — the single attribute
     mlx-audio's whisper `get_tokenizer()` reads off `model._processor`. Lets us
@@ -561,6 +594,9 @@ class TranscriptionManager:
                     language=lang,
                     word_timestamps=word_timestamps,
                     return_timestamps=True,
+                    # See _CONDITION_ON_PREVIOUS_TEXT above: kills the
+                    # hallucination cascade. Not caller-configurable.
+                    condition_on_previous_text=_CONDITION_ON_PREVIOUS_TEXT,
                 )
                 telemetry_state = "completed"
             except Exception as exc:

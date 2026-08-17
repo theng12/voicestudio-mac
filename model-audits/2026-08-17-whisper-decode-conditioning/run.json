@@ -1,0 +1,46 @@
+{
+  "schema": "studio.model-audit-run",
+  "schema_version": 1,
+  "run_id": "2026-08-17-whisper-decode-conditioning",
+  "studio": "Voice Studio KH",
+  "studio_version": "2.3.1",
+  "started_at": "2026-08-17T00:00:00Z",
+  "completed_at": "2026-08-17T00:00:00Z",
+  "baseline_commit": "bf13bdf7d9688da87ec6e3a5e89961245beeede0",
+  "source_tree": "Voice Studio 2.3.1 whisper decode-conditioning release",
+  "scope": "Re-audit of the transcription runtime after a decode-parameter change. The checkpoint is unchanged; the adapter's decode behaviour is not.",
+  "machine": {
+    "model": "Mac mini (Mac16,10)",
+    "chip": "Apple M4",
+    "unified_memory_gb": 16,
+    "os": "macOS 26.5.2",
+    "note": "Shared development machine also running Story Studio, the GenStudio API and Postgres. Model inference was run strictly one at a time; wall-clock timings are therefore indicative of the ratio between arms, not of an idle-machine floor."
+  },
+  "runtime": {
+    "python": "3.12.13",
+    "mlx": "0.31.2",
+    "mlx_audio": "0.4.7",
+    "transformers": "5.14.1",
+    "tokenizers": "0.22.2",
+    "misaki": "0.9.4",
+    "soundfile": "0.14.0"
+  },
+  "records": [
+    "mlx-community--whisper-large-v3-turbo.audit.json"
+  ],
+  "summary": {
+    "passed": 1,
+    "conditional": 0,
+    "failed": 0,
+    "candidate_for_genstudio": 1
+  },
+  "safety": {
+    "paid_provider_calls": 0,
+    "managed_service_restarted": false,
+    "historical_jobs_modified": false,
+    "fleet_machines_contacted": 0,
+    "approval_performed": false,
+    "owner_content_modified": false,
+    "note": "Audio was read from the owner's project tree; no subtitle, script or project file was written. The comparison model checkpoint was fetched into a scratch cache outside the app's HF_HOME so the app's own model availability state was not altered."
+  }
+}

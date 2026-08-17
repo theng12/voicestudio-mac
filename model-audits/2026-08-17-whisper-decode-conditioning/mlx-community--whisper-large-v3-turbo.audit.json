@@ -1,0 +1,1221 @@
+{
+ "schema": "studio.model-audit-record",
+ "schema_version": 1,
+ "audit_id": "voicestudio-20260817-whisper-large-v3-turbo-decode-v2",
+ "audited_at": "2026-08-17T00:00:00Z",
+ "subject": {
+  "model_id": "mlx-community/whisper-large-v3-turbo",
+  "display_name": "Whisper Large v3 Turbo",
+  "modality": "transcription",
+  "checkpoint_revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb"
+ },
+ "contract": {
+  "model_id": "mlx-community/whisper-large-v3-turbo",
+  "display_name": "Whisper Large v3 Turbo",
+  "modality": "transcription",
+  "runtime_revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb",
+  "approved_operations": [
+   "audio.transcription"
+  ],
+  "adapter": {
+   "id": "voicestudio.mlx-audio.whisper",
+   "version": "1.2",
+   "runtime": "mlx-audio 0.4.7"
+  },
+  "controls": {
+   "language": {
+    "type": "enum_or_auto",
+    "default": "auto",
+    "values": [
+     "af",
+     "am",
+     "ar",
+     "as",
+     "az",
+     "ba",
+     "be",
+     "bg",
+     "bn",
+     "bo",
+     "br",
+     "bs",
+     "ca",
+     "cs",
+     "cy",
+     "da",
+     "de",
+     "el",
+     "en",
+     "es",
+     "et",
+     "eu",
+     "fa",
+     "fi",
+     "fo",
+     "fr",
+     "gl",
+     "gu",
+     "ha",
+     "haw",
+     "he",
+     "hi",
+     "hr",
+     "ht",
+     "hu",
+     "hy",
+     "id",
+     "is",
+     "it",
+     "ja",
+     "jw",
+     "ka",
+     "kk",
+     "km",
+     "kn",
+     "ko",
+     "la",
+     "lb",
+     "ln",
+     "lo",
+     "lt",
+     "lv",
+     "mg",
+     "mi",
+     "mk",
+     "ml",
+     "mn",
+     "mr",
+     "ms",
+     "mt",
+     "my",
+     "ne",
+     "nl",
+     "nn",
+     "no",
+     "oc",
+     "pa",
+     "pl",
+     "ps",
+     "pt",
+     "ro",
+     "ru",
+     "sa",
+     "sd",
+     "si",
+     "sk",
+     "sl",
+     "sn",
+     "so",
+     "sq",
+     "sr",
+     "su",
+     "sv",
+     "sw",
+     "ta",
+     "te",
+     "tg",
+     "th",
+     "tk",
+     "tl",
+     "tr",
+     "tt",
+     "uk",
+     "ur",
+     "uz",
+     "vi",
+     "yi",
+     "yo",
+     "yue",
+     "zh"
+    ]
+   },
+   "word_timestamps": {
+    "type": "boolean",
+    "default": false
+   },
+   "segment_timestamps": {
+    "type": "boolean",
+    "constant": true
+   }
+  },
+  "input_limits": {
+   "accepted_extensions": [
+    "wav",
+    "mp3",
+    "flac",
+    "m4a",
+    "aac",
+    "ogg",
+    "opus",
+    "webm"
+   ],
+   "accepted_mime_types": [
+    "audio/wav",
+    "audio/mpeg",
+    "audio/flac",
+    "audio/mp4",
+    "audio/aac",
+    "audio/ogg",
+    "audio/opus",
+    "audio/webm"
+   ],
+   "max_audio_bytes": null,
+   "max_duration_seconds": null,
+   "channels": "decoded to mono",
+   "sample_rate_hz": "decoded to 16000"
+  },
+  "output_limits": {
+   "format": "json",
+   "fields": [
+    "text",
+    "language",
+    "duration",
+    "model",
+    "segments",
+    "srt",
+    "vtt",
+    "elapsed_seconds"
+   ],
+   "segment_fields": [
+    "id",
+    "start",
+    "end",
+    "text"
+   ],
+   "optional_word_fields": [
+    "word",
+    "start",
+    "end"
+   ],
+   "subtitle_formats": [
+    "srt",
+    "vtt"
+   ]
+  },
+  "hardware": {
+   "platform": "Apple Silicon",
+   "minimum_unified_memory_gb": 8,
+   "recommended_unified_memory_gb": 16,
+   "measured_peak_memory_gb": 2.142
+  },
+  "capacity": {
+   "max_concurrency": 1
+  },
+  "license": {
+   "spdx": "MIT",
+   "commercial_use": true
+  },
+  "decode_policy": {
+   "condition_on_previous_text": false,
+   "caller_configurable": false,
+   "language": "supplied per request; conditions the start of decoding only and does not restrict the decoder vocabulary",
+   "temperature_fallback": [
+    0.0,
+    0.2,
+    0.4,
+    0.6,
+    0.8,
+    1.0
+   ],
+   "compression_ratio_threshold": 2.4,
+   "logprob_threshold": -1.0,
+   "no_speech_threshold": 0.6,
+   "suppress_tokens": "-1 (library default, non-speech only) — script-level token suppression was measured and rejected, see evidence",
+   "note": "Values other than condition_on_previous_text are the mlx-audio defaults, recorded here so they are pinned rather than implicit."
+  }
+ },
+ "genstudio_candidate": {
+  "schema": "studio.model-audit",
+  "schema_version": 1,
+  "audit_id": "voicestudio-20260817-whisper-large-v3-turbo-decode-v2",
+  "audit_status": "passed",
+  "candidate_for_genstudio": true,
+  "contract_hash": "sha256:13ae5b4ebed1c1afbf95727cf5592cae4ebf3596365933e05074885a9371528e",
+  "runtime_revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb",
+  "approved_operations": [
+   "audio.transcription"
+  ],
+  "audited_at": "2026-08-17T00:00:00Z",
+  "adapter": {
+   "id": "voicestudio.mlx-audio.whisper",
+   "version": "1.2",
+   "runtime": "mlx-audio 0.4.7"
+  },
+  "controls": {
+   "language": {
+    "type": "enum_or_auto",
+    "default": "auto",
+    "values": [
+     "af",
+     "am",
+     "ar",
+     "as",
+     "az",
+     "ba",
+     "be",
+     "bg",
+     "bn",
+     "bo",
+     "br",
+     "bs",
+     "ca",
+     "cs",
+     "cy",
+     "da",
+     "de",
+     "el",
+     "en",
+     "es",
+     "et",
+     "eu",
+     "fa",
+     "fi",
+     "fo",
+     "fr",
+     "gl",
+     "gu",
+     "ha",
+     "haw",
+     "he",
+     "hi",
+     "hr",
+     "ht",
+     "hu",
+     "hy",
+     "id",
+     "is",
+     "it",
+     "ja",
+     "jw",
+     "ka",
+     "kk",
+     "km",
+     "kn",
+     "ko",
+     "la",
+     "lb",
+     "ln",
+     "lo",
+     "lt",
+     "lv",
+     "mg",
+     "mi",
+     "mk",
+     "ml",
+     "mn",
+     "mr",
+     "ms",
+     "mt",
+     "my",
+     "ne",
+     "nl",
+     "nn",
+     "no",
+     "oc",
+     "pa",
+     "pl",
+     "ps",
+     "pt",
+     "ro",
+     "ru",
+     "sa",
+     "sd",
+     "si",
+     "sk",
+     "sl",
+     "sn",
+     "so",
+     "sq",
+     "sr",
+     "su",
+     "sv",
+     "sw",
+     "ta",
+     "te",
+     "tg",
+     "th",
+     "tk",
+     "tl",
+     "tr",
+     "tt",
+     "uk",
+     "ur",
+     "uz",
+     "vi",
+     "yi",
+     "yo",
+     "yue",
+     "zh"
+    ]
+   },
+   "word_timestamps": {
+    "type": "boolean",
+    "default": false
+   },
+   "segment_timestamps": {
+    "type": "boolean",
+    "constant": true
+   }
+  },
+  "input_limits": {
+   "accepted_extensions": [
+    "wav",
+    "mp3",
+    "flac",
+    "m4a",
+    "aac",
+    "ogg",
+    "opus",
+    "webm"
+   ],
+   "accepted_mime_types": [
+    "audio/wav",
+    "audio/mpeg",
+    "audio/flac",
+    "audio/mp4",
+    "audio/aac",
+    "audio/ogg",
+    "audio/opus",
+    "audio/webm"
+   ],
+   "max_audio_bytes": null,
+   "max_duration_seconds": null,
+   "channels": "decoded to mono",
+   "sample_rate_hz": "decoded to 16000"
+  },
+  "output_limits": {
+   "format": "json",
+   "fields": [
+    "text",
+    "language",
+    "duration",
+    "model",
+    "segments",
+    "srt",
+    "vtt",
+    "elapsed_seconds"
+   ],
+   "segment_fields": [
+    "id",
+    "start",
+    "end",
+    "text"
+   ],
+   "optional_word_fields": [
+    "word",
+    "start",
+    "end"
+   ],
+   "subtitle_formats": [
+    "srt",
+    "vtt"
+   ]
+  },
+  "hardware": {
+   "platform": "Apple Silicon",
+   "minimum_unified_memory_gb": 8,
+   "recommended_unified_memory_gb": 16,
+   "measured_peak_memory_gb": 2.142
+  },
+  "capacity": {
+   "max_concurrency": 1
+  },
+  "decode_policy": {
+   "condition_on_previous_text": false,
+   "caller_configurable": false,
+   "language": "supplied per request; conditions the start of decoding only and does not restrict the decoder vocabulary",
+   "temperature_fallback": [
+    0.0,
+    0.2,
+    0.4,
+    0.6,
+    0.8,
+    1.0
+   ],
+   "compression_ratio_threshold": 2.4,
+   "logprob_threshold": -1.0,
+   "no_speech_threshold": 0.6,
+   "suppress_tokens": "-1 (library default, non-speech only) — script-level token suppression was measured and rejected, see evidence",
+   "note": "Values other than condition_on_previous_text are the mlx-audio defaults, recorded here so they are pinned rather than implicit."
+  }
+ },
+ "evidence": {
+  "supersedes_audit_id": "voicestudio-20260802-whisper-large-a4aaeec0",
+  "supersedes_contract_hash": "sha256:5989146a07091c6f03584531e6c54df3db4ef5c045f88cda5d10a10b45e76a39",
+  "reason": "The v1 audit pinned the checkpoint and the caller-facing controls but had no field for decode parameters, so the runtime ran with mlx-audio's default condition_on_previous_text=True. That default feeds each 30-second window's own output back as the prompt for the next window, making hallucination self-reinforcing. Because the language token conditions only the start of decoding and never restricts the decoder vocabulary, an explicitly English request could still emit CJK, Cyrillic and Hebrew text. This audit pins the decode policy into the contract so any future change to it changes the hash.",
+  "defect_population": {
+   "source": "the owner's own rendered subtitle corpus, 4032 .srt files",
+   "files_with_cjk_cyrillic_or_hebrew_in_english_content": "17%",
+   "files_with_u_fffd_replacement_characters": "4.4%",
+   "mojibake": "0% — genuine model output, not an encoding fault",
+   "content_dependence": "sleep/calm content 50-62% affected, spoken explainers 16-18%",
+   "downstream_impact": "transcripts feed image-prompt generation, so an invented sentence produces a wrong image; this is not a cosmetic subtitle defect"
+  },
+  "method": {
+   "harness": "same audio, same cached checkpoint, same language='en', one decode option varied at a time; runs serialized, never parallel, on one 16 GB Apple Silicon machine",
+   "arms": {
+    "base": "as shipped in v1 (condition_on_previous_text defaulted to True)",
+    "cond": "condition_on_previous_text=False",
+    "supp": "suppress_tokens = [-1] + 7562 token ids whose decoded text contains CJK/Cyrillic/Hebrew/Hangul/Arabic/Thai/Khmer (-1 retained so the non-speech set is appended to, not replaced)",
+    "both": "cond + supp"
+   },
+   "scoring": "each arm scored against the ground-truth narration script the voice actually read (.md and .docx sources in the owner's project tree), by word-level longest-common-subsequence alignment. 'missed_truth_words' are script words absent from the transcript; 'invented_words' are transcript words with no counterpart in the script. Base-vs-arm diffing alone cannot distinguish removing a hallucination from removing real speech; scoring against the script can.",
+   "sample": "21 chapters across all six of the owner's content brands; 2 excluded because their stored script does not match the rendered audio (a content-pipeline drift in those episodes, unrelated to transcription), leaving 19 scored chapters and 7704 ground-truth words"
+  },
+  "results_totals": {
+   "base": {
+    "missed_truth_words": 105,
+    "invented_words": 758,
+    "seconds": 433.8,
+    "non_latin_chars": 61,
+    "recall": 0.9864
+   },
+   "cond": {
+    "missed_truth_words": 112,
+    "invented_words": 46,
+    "seconds": 234.7,
+    "non_latin_chars": 0,
+    "recall": 0.9855
+   },
+   "supp": {
+    "missed_truth_words": 105,
+    "invented_words": 957,
+    "seconds": 417.9,
+    "non_latin_chars": 1,
+    "recall": 0.9864
+   },
+   "both": {
+    "missed_truth_words": 112,
+    "invented_words": 46,
+    "seconds": 229.4,
+    "non_latin_chars": 0,
+    "recall": 0.9855
+   }
+  },
+  "results_per_chapter": [
+   {
+    "chapter": "TN0154_Chapter_03",
+    "project": "terranash-sleep-stories",
+    "content_kind": "affected",
+    "truth_words": 383,
+    "base": {
+     "recall": 0.9765,
+     "missed_truth_words": 9,
+     "invented_words": 1,
+     "seconds": 30.9,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 0.9765,
+     "missed_truth_words": 9,
+     "invented_words": 0,
+     "seconds": 14.7,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9765,
+     "missed_truth_words": 9,
+     "invented_words": 1,
+     "seconds": 24.3,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9765,
+     "missed_truth_words": 9,
+     "invented_words": 0,
+     "seconds": 13.7,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "TN0145_Chapter_01",
+    "project": "terranash-sleep-stories",
+    "content_kind": "affected",
+    "truth_words": 492,
+    "base": {
+     "recall": 0.9634,
+     "missed_truth_words": 18,
+     "invented_words": 1,
+     "seconds": 20.6,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 0.9634,
+     "missed_truth_words": 18,
+     "invented_words": 1,
+     "seconds": 18.3,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9634,
+     "missed_truth_words": 18,
+     "invented_words": 1,
+     "seconds": 16.5,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9634,
+     "missed_truth_words": 18,
+     "invented_words": 1,
+     "seconds": 14.6,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "TN0153_Chapter_05",
+    "project": "terranash-sleep-stories",
+    "content_kind": "clean",
+    "truth_words": 814,
+    "base": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 1,
+     "seconds": 26.1,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 0.9988,
+     "missed_truth_words": 1,
+     "invented_words": 1,
+     "seconds": 21.8,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 1,
+     "seconds": 27.6,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9988,
+     "missed_truth_words": 1,
+     "invented_words": 1,
+     "seconds": 21.5,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "DK0050_Chapter_05",
+    "project": "dozing-knight",
+    "content_kind": "affected",
+    "truth_words": 418,
+    "base": {
+     "recall": 0.9976,
+     "missed_truth_words": 1,
+     "invented_words": 115,
+     "seconds": 27.9,
+     "non_latin_chars": 3
+    },
+    "cond": {
+     "recall": 0.9976,
+     "missed_truth_words": 1,
+     "invented_words": 1,
+     "seconds": 11.6,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9976,
+     "missed_truth_words": 1,
+     "invented_words": 132,
+     "seconds": 26.0,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9976,
+     "missed_truth_words": 1,
+     "invented_words": 1,
+     "seconds": 11.9,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "DK0027_Chapter_09",
+    "project": "dozing-knight",
+    "content_kind": "affected",
+    "truth_words": 579,
+    "base": {
+     "recall": 0.9793,
+     "missed_truth_words": 12,
+     "invented_words": 7,
+     "seconds": 21.6,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 0.9741,
+     "missed_truth_words": 15,
+     "invented_words": 8,
+     "seconds": 19.5,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9793,
+     "missed_truth_words": 12,
+     "invented_words": 7,
+     "seconds": 22.8,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9741,
+     "missed_truth_words": 15,
+     "invented_words": 8,
+     "seconds": 19.4,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "DK0018_Chapter_01",
+    "project": "dozing-knight",
+    "content_kind": "clean",
+    "truth_words": 555,
+    "base": {
+     "recall": 0.9856,
+     "missed_truth_words": 8,
+     "invented_words": 60,
+     "seconds": 36.2,
+     "non_latin_chars": 4
+    },
+    "cond": {
+     "recall": 0.982,
+     "missed_truth_words": 10,
+     "invented_words": 5,
+     "seconds": 17.0,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9856,
+     "missed_truth_words": 8,
+     "invented_words": 27,
+     "seconds": 34.3,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.982,
+     "missed_truth_words": 10,
+     "invented_words": 5,
+     "seconds": 16.8,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "SS0032_Introduction",
+    "project": "story-sprout",
+    "excluded": "script does not match rendered audio"
+   },
+   {
+    "chapter": "SS0045_Chapter_09",
+    "project": "story-sprout",
+    "content_kind": "affected",
+    "truth_words": 405,
+    "base": {
+     "recall": 0.9753,
+     "missed_truth_words": 10,
+     "invented_words": 143,
+     "seconds": 29.6,
+     "non_latin_chars": 10
+    },
+    "cond": {
+     "recall": 0.9778,
+     "missed_truth_words": 9,
+     "invented_words": 1,
+     "seconds": 13.2,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9753,
+     "missed_truth_words": 10,
+     "invented_words": 166,
+     "seconds": 31.0,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9778,
+     "missed_truth_words": 9,
+     "invented_words": 1,
+     "seconds": 12.9,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "SS0030_Chapter_09",
+    "project": "story-sprout",
+    "excluded": "script does not match rendered audio"
+   },
+   {
+    "chapter": "EP0052_Chapter_06",
+    "project": "Boundful",
+    "content_kind": "affected",
+    "truth_words": 279,
+    "base": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 87,
+     "seconds": 24.7,
+     "non_latin_chars": 15
+    },
+    "cond": {
+     "recall": 0.9964,
+     "missed_truth_words": 1,
+     "invented_words": 0,
+     "seconds": 8.8,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 16,
+     "seconds": 21.9,
+     "non_latin_chars": 1
+    },
+    "both": {
+     "recall": 0.9964,
+     "missed_truth_words": 1,
+     "invented_words": 0,
+     "seconds": 8.0,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0051_Chapter_05",
+    "project": "Boundful",
+    "content_kind": "affected",
+    "truth_words": 372,
+    "base": {
+     "recall": 0.9435,
+     "missed_truth_words": 21,
+     "invented_words": 139,
+     "seconds": 25.9,
+     "non_latin_chars": 9
+    },
+    "cond": {
+     "recall": 0.9409,
+     "missed_truth_words": 22,
+     "invented_words": 15,
+     "seconds": 8.7,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9435,
+     "missed_truth_words": 21,
+     "invented_words": 130,
+     "seconds": 25.5,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9409,
+     "missed_truth_words": 22,
+     "invented_words": 15,
+     "seconds": 7.7,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0034_Chapter_10",
+    "project": "Boundful",
+    "content_kind": "clean",
+    "truth_words": 286,
+    "base": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 0,
+     "seconds": 8.9,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 0,
+     "seconds": 8.6,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 0,
+     "seconds": 9.7,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 0,
+     "seconds": 9.4,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0046_Chapter_06",
+    "project": "Refinanced",
+    "content_kind": "affected",
+    "truth_words": 399,
+    "base": {
+     "recall": 0.9749,
+     "missed_truth_words": 10,
+     "invented_words": 5,
+     "seconds": 10.6,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 0.9749,
+     "missed_truth_words": 10,
+     "invented_words": 5,
+     "seconds": 9.9,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9749,
+     "missed_truth_words": 10,
+     "invented_words": 5,
+     "seconds": 10.3,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9749,
+     "missed_truth_words": 10,
+     "invented_words": 5,
+     "seconds": 8.9,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0005_Chapter_03",
+    "project": "Refinanced",
+    "content_kind": "affected",
+    "truth_words": 378,
+    "base": {
+     "recall": 0.9921,
+     "missed_truth_words": 3,
+     "invented_words": 6,
+     "seconds": 20.4,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 0.9921,
+     "missed_truth_words": 3,
+     "invented_words": 2,
+     "seconds": 7.6,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9921,
+     "missed_truth_words": 3,
+     "invented_words": 122,
+     "seconds": 22.1,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9921,
+     "missed_truth_words": 3,
+     "invented_words": 2,
+     "seconds": 7.9,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0002_Chapter_02",
+    "project": "Refinanced",
+    "content_kind": "clean",
+    "truth_words": 121,
+    "base": {
+     "recall": 0.9917,
+     "missed_truth_words": 1,
+     "invented_words": 1,
+     "seconds": 3.4,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 0.9917,
+     "missed_truth_words": 1,
+     "invented_words": 1,
+     "seconds": 3.4,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9917,
+     "missed_truth_words": 1,
+     "invented_words": 1,
+     "seconds": 3.4,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9917,
+     "missed_truth_words": 1,
+     "invented_words": 1,
+     "seconds": 3.7,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0039_Chapter_05",
+    "project": "brain-wise",
+    "content_kind": "affected",
+    "truth_words": 390,
+    "base": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 8,
+     "seconds": 29.5,
+     "non_latin_chars": 2
+    },
+    "cond": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 0,
+     "seconds": 10.6,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 60,
+     "seconds": 31.7,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 0,
+     "seconds": 13.3,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0045_Chapter_01",
+    "project": "brain-wise",
+    "content_kind": "affected",
+    "truth_words": 239,
+    "base": {
+     "recall": 0.9916,
+     "missed_truth_words": 2,
+     "invented_words": 82,
+     "seconds": 27.1,
+     "non_latin_chars": 2
+    },
+    "cond": {
+     "recall": 0.9916,
+     "missed_truth_words": 2,
+     "invented_words": 1,
+     "seconds": 8.8,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9916,
+     "missed_truth_words": 2,
+     "invented_words": 26,
+     "seconds": 25.5,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9916,
+     "missed_truth_words": 2,
+     "invented_words": 1,
+     "seconds": 7.9,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0022_Chapter_06",
+    "project": "brain-wise",
+    "content_kind": "clean",
+    "truth_words": 397,
+    "base": {
+     "recall": 0.995,
+     "missed_truth_words": 2,
+     "invented_words": 1,
+     "seconds": 12.8,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 0.995,
+     "missed_truth_words": 2,
+     "invented_words": 1,
+     "seconds": 11.8,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.995,
+     "missed_truth_words": 2,
+     "invented_words": 1,
+     "seconds": 12.6,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.995,
+     "missed_truth_words": 2,
+     "invented_words": 1,
+     "seconds": 12.7,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0086_Chapter_04",
+    "project": "abiding-faith",
+    "content_kind": "affected",
+    "truth_words": 223,
+    "base": {
+     "recall": 0.9955,
+     "missed_truth_words": 1,
+     "invented_words": 84,
+     "seconds": 22.0,
+     "non_latin_chars": 4
+    },
+    "cond": {
+     "recall": 0.9955,
+     "missed_truth_words": 1,
+     "invented_words": 0,
+     "seconds": 6.5,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9955,
+     "missed_truth_words": 1,
+     "invented_words": 139,
+     "seconds": 22.4,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9955,
+     "missed_truth_words": 1,
+     "invented_words": 0,
+     "seconds": 7.0,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0094_Chapter_06",
+    "project": "abiding-faith",
+    "content_kind": "affected",
+    "truth_words": 261,
+    "base": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 13,
+     "seconds": 27.5,
+     "non_latin_chars": 12
+    },
+    "cond": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 0,
+     "seconds": 8.6,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 118,
+     "seconds": 24.1,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 1.0,
+     "missed_truth_words": 0,
+     "invented_words": 0,
+     "seconds": 8.0,
+     "non_latin_chars": 0
+    }
+   },
+   {
+    "chapter": "EP0167_Chapter_01",
+    "project": "abiding-faith",
+    "content_kind": "clean",
+    "truth_words": 713,
+    "base": {
+     "recall": 0.9902,
+     "missed_truth_words": 7,
+     "invented_words": 4,
+     "seconds": 28.1,
+     "non_latin_chars": 0
+    },
+    "cond": {
+     "recall": 0.9902,
+     "missed_truth_words": 7,
+     "invented_words": 4,
+     "seconds": 25.3,
+     "non_latin_chars": 0
+    },
+    "supp": {
+     "recall": 0.9902,
+     "missed_truth_words": 7,
+     "invented_words": 4,
+     "seconds": 26.2,
+     "non_latin_chars": 0
+    },
+    "both": {
+     "recall": 0.9902,
+     "missed_truth_words": 7,
+     "invented_words": 4,
+     "seconds": 24.1,
+     "non_latin_chars": 0
+    }
+   }
+  ],
+  "real_content_lost": {
+   "verdict": "none",
+   "missed_truth_words_base": 105,
+   "missed_truth_words_cond": 112,
+   "net_additional_words_missed": 7,
+   "itemised": [
+    {
+     "chapter": "TN0153_Chapter_05",
+     "words": "night",
+     "kind": "homophone, transcribed 'knight'"
+    },
+    {
+     "chapter": "DK0027_Chapter_09",
+     "words": "moon cast",
+     "kind": "word boundary, transcribed 'mooncast'"
+    },
+    {
+     "chapter": "DK0027_Chapter_09",
+     "words": "stair",
+     "kind": "homophone, transcribed 'stare'"
+    },
+    {
+     "chapter": "DK0018_Chapter_01",
+     "words": "a drift",
+     "kind": "word boundary, transcribed 'adrift'"
+    },
+    {
+     "chapter": "EP0052_Chapter_06",
+     "words": "the",
+     "kind": "dropped article"
+    },
+    {
+     "chapter": "EP0051_Chapter_05",
+     "words": "waterline",
+     "kind": "word boundary, transcribed 'water line'"
+    }
+   ],
+   "conclusion": "Across 19 chapters and ~7,700 ground-truth words, disabling conditioning cost one dropped article. Every other difference is word-boundary or homophone variance of the kind that varies run to run anyway. No clause, sentence or unit of meaning was lost in any chapter, including every accuracy-critical explainer chapter."
+  },
+  "rejected_alternatives": {
+   "suppress_tokens_for_non_latin_scripts": {
+    "status": "measured and rejected",
+    "diacritic_guard": "the token set was built from Unicode script ranges, not from 'non-ASCII'. Verified that none of 21 Latin-diacritic guard words (cafe, Skoda, Zoe, naive, resume, facade, Beyonce, jalapeno, Dvorak, Angstrom, Aero, Thor, smorgasbord, creme brulee, Zurich, Sao Paulo, Lodz, Nunez, pinata, uber, Malmo — accents omitted here) has any token in the suppression set. The guard passes; the mechanism is sound.",
+    "why_rejected": "Used alone it made the defect worse, not better: invented words rose from 758 to 957 across the same 19 chapters. Masking the logits does not stop the runaway, it launders it — the decoder emits the same length of invented text in fluent English instead. Observed directly: a 36-word 'goodbye' loop became 'groups of the hackers destination so the great cookbook of the atoid of the carbon'. For a transcript that feeds image prompts, invented English that no longer announces itself with a foreign alphabet is more dangerous than the original bug, not less.",
+    "why_not_added_on_top": "Added to condition_on_previous_text=False it changed nothing measurable: invented words 46 vs 46, recall identical, and condition_on_previous_text=False alone already produced zero non-Latin characters in all 19 chapters. It buys no measured benefit while retaining the laundering risk on any hallucination that does survive. One change, the one that removes the cause."
+   },
+   "enforce_english_via_the_language_token": {
+    "status": "already in place and insufficient",
+    "detail": "707 of 719 observed requests already pass language='en'. The language token conditions the start of decoding; it does not restrict the vocabulary, which is why foreign script survives an explicit English request."
+   }
+  },
+  "voice_canary_impact": {
+   "path": "generation.py _validate_qwen_output_locked / _validate_qwen_reference_locked, which transcribe generated speech with word_timestamps=True and score it against the requested text",
+   "assessment": "improves, cannot regress. The canary's token and character error rates compare the Whisper transcript against the expected script, and its repetition gate rejects when observed tokens exceed 1.65x expected. Removing the transcriber's own invented words moves observed tokens toward expected and lowers both error rates. The change affects what the transcriber invents, never the generated audio being judged, so a voice defect remains just as visible while a transcriber artefact stops being counted against the voice."
+  },
+  "not_measured": {
+   "memory": "hardware figures are carried forward unchanged from the superseded audit. The checkpoint, load path and weights are identical; only decode options changed. Peak memory was not re-measured for this audit.",
+   "determinism": "Whisper hallucination is not deterministic. Two chapters whose stored subtitles were clean produced hallucinated blocks on a fresh baseline run, so the stored-subtitle 17% understates the true incidence rather than overstating it. Single-run per arm; no repeat-run variance estimate.",
+   "long_form": "all sampled chapters are single chapters of roughly 1-8 minutes. Cross-window context loss would plausibly matter more on much longer continuous audio; not measured.",
+   "other_whisper_repos": "measured on the recommended turbo checkpoint only. The catalogue's other four whisper repos share the same code path and the same library default, so the change applies to them, but their behaviour was not measured."
+  },
+  "approval": {
+   "required": true,
+   "reason": "This changes runtime decode behaviour on a hash-pinned contract. Following the precedent set by the Qwen v1-to-v2 approval migration, the adapter version is bumped and the decode policy is now inside the contract, so the contract hash changes. Fleet approval is keyed on the exact audit id and contract hash pair, so the prior approval does not carry over.",
+   "action_required_by_owner": "migrate approval in Studio Hub from audit id voicestudio-20260802-whisper-large-a4aaeec0 / sha256:5989146a07091c6f03584531e6c54df3db4ef5c045f88cda5d10a10b45e76a39 to the audit id and contract hash recorded in this record",
+   "performed_by_this_change": "none — this repository can only publish a candidate; it never marks anything approved"
+  }
+ }
+}

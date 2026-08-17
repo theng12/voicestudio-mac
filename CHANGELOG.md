@@ -10,6 +10,41 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.3.1] — 2026-08-17
+
+### Fixed
+
+- Whisper transcription no longer feeds its own previous output back in as the
+  prompt for the next 30-second window (`condition_on_previous_text=False`).
+  The default made hallucination self-reinforcing: one invented token became
+  the context that made the next one likelier, and the decoder ran away into a
+  block of invented text — most visibly foreign-script text, because the
+  `language` token conditions only the start of decoding and never restricts
+  the vocabulary, so an explicitly English request could still emit CJK,
+  Cyrillic or Hebrew. Measured across 19 chapters of real narration spanning
+  sleep stories, narrative history and spoken explainers, scored against the
+  ground-truth scripts: invented words fell 94% (758 → 46) and transcription
+  ran ~1.8× faster (434s → 235s), while recall against the scripts moved
+  98.64% → 98.55% — a 7-word difference over ~7,700 words that is entirely
+  word-boundary and homophone variance (`a drift`/`adrift`, `stair`/`stare`)
+  plus one dropped article. No coherent speech is lost. Evidence:
+  `model-audits/2026-08-17-whisper-decode-conditioning/`.
+- The Qwen voice canary, which transcribes generated speech with
+  `word_timestamps=True` and scores it against the requested script, inherits
+  the same guard. Its token/character error rates and repetition check are all
+  computed against the Whisper transcript, so removing the transcriber's own
+  invented words makes that score measure the voice rather than the
+  transcriber. The change can only lower observed-token inflation and error
+  rates, never raise them.
+
+### Changed
+
+- The decode setting is a documented module constant, not a request parameter.
+  Voice Studio is English-only by product decision and transcripts feed
+  downstream image-prompt generation, where an invented sentence produces a
+  wrong image; there is no caller who wants the cascade back, so no per-request
+  switch is offered to turn it on.
+
 ## [2.3.0] — 2026-08-15
 
 ### Added

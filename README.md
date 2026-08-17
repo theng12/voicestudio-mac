@@ -218,6 +218,13 @@ Exact checkpoint audits live under `model-audits/<run-id>/`. A valid record
 binds its controls, limits, adapter, hardware requirements, operation set, and
 immutable model revision to a canonical SHA-256 contract hash.
 
+From 2.3.1 a transcription record also binds its `decode_policy` — the
+generation parameters the runtime pins internally, which callers cannot set.
+These were previously implicit, so a change in decode behaviour could not be
+seen in the contract hash. They now can: changing one changes the hash, which
+means the prior approval no longer applies and Studio Hub must approve the new
+audit id and hash pair before routing to it.
+
 Passed records are surfaced additively as `genstudio_candidate` on the matching
 `GET /api/catalog` or `GET /api/transcribe/availability` row. The sibling only
 asserts that the checkpoint passed its local audit and may be considered as a
