@@ -1211,13 +1211,237 @@
    "memory": "hardware figures are carried forward unchanged from the superseded audit. The checkpoint, load path and weights are identical; only decode options changed. Peak memory was not re-measured for this audit.",
    "determinism": "Whisper hallucination is not deterministic. Two chapters whose stored subtitles were clean produced hallucinated blocks on a fresh baseline run, so the stored-subtitle 17% understates the true incidence rather than overstating it. Single-run per arm; no repeat-run variance estimate.",
    "long_form": "all sampled chapters are single chapters of roughly 1-8 minutes. Cross-window context loss would plausibly matter more on much longer continuous audio; not measured.",
-   "other_whisper_repos": "measured on the recommended turbo checkpoint only. The catalogue's other four whisper repos share the same code path and the same library default, so the change applies to them, but their behaviour was not measured."
+   "other_whisper_repos": "The turbo and full large-v3 checkpoints were both measured. The catalogue's remaining three whisper repos (turbo-q4, small, base) share the same code path and the same library default, so the change applies to them, but their behaviour was not measured.",
+   "alternative_architectures": "Not measured, offered only as a reading of the library source: mlx-audio also ships CTC/RNNT/TDT models such as parakeet, whose decoders do not condition on previously emitted text and whose fixed English vocabulary contains no CJK or Cyrillic pieces, so this failure mode is structurally absent there. Whether their accuracy on this content is acceptable was not tested and no change is proposed."
   },
   "approval": {
    "required": true,
    "reason": "This changes runtime decode behaviour on a hash-pinned contract. Following the precedent set by the Qwen v1-to-v2 approval migration, the adapter version is bumped and the decode policy is now inside the contract, so the contract hash changes. Fleet approval is keyed on the exact audit id and contract hash pair, so the prior approval does not carry over.",
    "action_required_by_owner": "migrate approval in Studio Hub from audit id voicestudio-20260802-whisper-large-a4aaeec0 / sha256:5989146a07091c6f03584531e6c54df3db4ef5c045f88cda5d10a10b45e76a39 to the audit id and contract hash recorded in this record",
    "performed_by_this_change": "none — this repository can only publish a candidate; it never marks anything approved"
+  },
+  "checkpoint_comparison": {
+   "question": "Is this a weakness of the recommended turbo checkpoint that a bigger model would avoid, and should the default change?",
+   "answer": "No, and no. The defect is the decode default, not the checkpoint. With the fix applied the two checkpoints are equivalent in accuracy and turbo is 2.7x faster, so turbo remains the right default.",
+   "method": "4 affected chapters spanning sleep story, narrative history and two spoken explainers, run through mlx-community/whisper-large-v3-mlx (revision 49e6aa286ad60c14352c404340ded53710378a11) with the same harness and the same ground-truth scoring. Fetched into a scratch cache outside the app's HF_HOME so the app's model availability state was not altered.",
+   "totals": {
+    "whisper-large-v3-turbo": {
+     "conditioning_on": {
+      "recall": 0.9985,
+      "missed_truth_words": 2,
+      "invented_words": 294,
+      "non_latin_chars": 24,
+      "seconds": 104.1
+     },
+     "conditioning_off": {
+      "recall": 0.9977,
+      "missed_truth_words": 3,
+      "invented_words": 1,
+      "non_latin_chars": 0,
+      "seconds": 37.5
+     }
+    },
+    "whisper-large-v3-full": {
+     "conditioning_on": {
+      "recall": 0.9511,
+      "missed_truth_words": 64,
+      "invented_words": 202,
+      "non_latin_chars": 6,
+      "seconds": 236.1
+     },
+     "conditioning_off": {
+      "recall": 0.9985,
+      "missed_truth_words": 2,
+      "invented_words": 1,
+      "non_latin_chars": 0,
+      "seconds": 103.9
+     }
+    }
+   },
+   "per_chapter": [
+    {
+     "chapter": "DK0050_Chapter_05",
+     "model": "turbo",
+     "arm": "base",
+     "truth_words": 418,
+     "recall": 0.9976,
+     "missed": 1,
+     "spurious": 115,
+     "nonlatin": 3,
+     "seconds": 27.9
+    },
+    {
+     "chapter": "DK0050_Chapter_05",
+     "model": "turbo",
+     "arm": "cond",
+     "truth_words": 418,
+     "recall": 0.9976,
+     "missed": 1,
+     "spurious": 1,
+     "nonlatin": 0,
+     "seconds": 11.6
+    },
+    {
+     "chapter": "DK0050_Chapter_05",
+     "model": "large-v3",
+     "arm": "base",
+     "truth_words": 418,
+     "recall": 0.8493,
+     "missed": 63,
+     "spurious": 129,
+     "nonlatin": 0,
+     "seconds": 108.0
+    },
+    {
+     "chapter": "DK0050_Chapter_05",
+     "model": "large-v3",
+     "arm": "cond",
+     "truth_words": 418,
+     "recall": 0.9976,
+     "missed": 1,
+     "spurious": 1,
+     "nonlatin": 0,
+     "seconds": 35.5
+    },
+    {
+     "chapter": "EP0052_Chapter_06",
+     "model": "turbo",
+     "arm": "base",
+     "truth_words": 279,
+     "recall": 1.0,
+     "missed": 0,
+     "spurious": 87,
+     "nonlatin": 15,
+     "seconds": 24.7
+    },
+    {
+     "chapter": "EP0052_Chapter_06",
+     "model": "turbo",
+     "arm": "cond",
+     "truth_words": 279,
+     "recall": 0.9964,
+     "missed": 1,
+     "spurious": 0,
+     "nonlatin": 0,
+     "seconds": 8.8
+    },
+    {
+     "chapter": "EP0052_Chapter_06",
+     "model": "large-v3",
+     "arm": "base",
+     "truth_words": 279,
+     "recall": 1.0,
+     "missed": 0,
+     "spurious": 2,
+     "nonlatin": 0,
+     "seconds": 35.6
+    },
+    {
+     "chapter": "EP0052_Chapter_06",
+     "model": "large-v3",
+     "arm": "cond",
+     "truth_words": 279,
+     "recall": 1.0,
+     "missed": 0,
+     "spurious": 0,
+     "nonlatin": 0,
+     "seconds": 29.0
+    },
+    {
+     "chapter": "EP0039_Chapter_05",
+     "model": "turbo",
+     "arm": "base",
+     "truth_words": 390,
+     "recall": 1.0,
+     "missed": 0,
+     "spurious": 8,
+     "nonlatin": 2,
+     "seconds": 29.5
+    },
+    {
+     "chapter": "EP0039_Chapter_05",
+     "model": "turbo",
+     "arm": "cond",
+     "truth_words": 390,
+     "recall": 1.0,
+     "missed": 0,
+     "spurious": 0,
+     "nonlatin": 0,
+     "seconds": 10.6
+    },
+    {
+     "chapter": "EP0039_Chapter_05",
+     "model": "large-v3",
+     "arm": "base",
+     "truth_words": 390,
+     "recall": 1.0,
+     "missed": 0,
+     "spurious": 71,
+     "nonlatin": 6,
+     "seconds": 78.5
+    },
+    {
+     "chapter": "EP0039_Chapter_05",
+     "model": "large-v3",
+     "arm": "cond",
+     "truth_words": 390,
+     "recall": 1.0,
+     "missed": 0,
+     "spurious": 0,
+     "nonlatin": 0,
+     "seconds": 24.8
+    },
+    {
+     "chapter": "EP0086_Chapter_04",
+     "model": "turbo",
+     "arm": "base",
+     "truth_words": 223,
+     "recall": 0.9955,
+     "missed": 1,
+     "spurious": 84,
+     "nonlatin": 4,
+     "seconds": 22.0
+    },
+    {
+     "chapter": "EP0086_Chapter_04",
+     "model": "turbo",
+     "arm": "cond",
+     "truth_words": 223,
+     "recall": 0.9955,
+     "missed": 1,
+     "spurious": 0,
+     "nonlatin": 0,
+     "seconds": 6.5
+    },
+    {
+     "chapter": "EP0086_Chapter_04",
+     "model": "large-v3",
+     "arm": "base",
+     "truth_words": 223,
+     "recall": 0.9955,
+     "missed": 1,
+     "spurious": 0,
+     "nonlatin": 0,
+     "seconds": 14.0
+    },
+    {
+     "chapter": "EP0086_Chapter_04",
+     "model": "large-v3",
+     "arm": "cond",
+     "truth_words": 223,
+     "recall": 0.9955,
+     "missed": 1,
+     "spurious": 0,
+     "nonlatin": 0,
+     "seconds": 14.6
+    }
+   ],
+   "findings": [
+    "The full large-v3 checkpoint hallucinates under the same default, including foreign script: 202 invented words and 6 Cyrillic characters across the same 4 chapters (observed output: 'thewater доллар which is a waterkeeper'). Upgrading the checkpoint would not have fixed this.",
+    "Conditioning-on actually scored WORSE on the full model than on turbo (95.11% vs 99.85% recall) because on DK0050_Chapter_05 its runaway overwrote 63 words of real narration rather than merely appending garbage. The cascade can destroy real content, not only add invented content — which strengthens the case for removing it.",
+    "With conditioning off the two checkpoints are within one word of each other (turbo 99.77%, full 99.85%, both 1 invented word) while turbo runs 2.7x faster (37.5s vs 103.9s). The fix closes the accuracy gap that would have been the only reason to pay for the bigger model."
+   ],
+   "recommendation": "Keep mlx-community/whisper-large-v3-turbo as the recommended default. No catalogue change proposed."
   }
  }
 }
