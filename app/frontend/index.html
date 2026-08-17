@@ -1308,7 +1308,7 @@
         </button>
         <button class="models-subtab" :class="{active: modelsSubtab==='transcriber'}"
                 @click="modelsSubtab='transcriber'">
-          🎬 Audio Transcriber <span class="models-subtab-tag">Whisper · STT</span>
+          🎬 Audio Transcriber <span class="models-subtab-tag">Transcription · STT</span>
           <span class="models-subtab-badge" x-show="sttReadyCount > 0" x-text="sttReadyCount" x-cloak></span>
         </button>
         <button class="models-subtab" :class="{active: modelsSubtab==='storage'}"
@@ -1477,11 +1477,11 @@
       </section>
     </div>
 
-    <!-- ═════════ TRANSCRIBER sub-tab: Whisper / speech-to-text ═════════ -->
+    <!-- ═════════ TRANSCRIBER sub-tab: local speech-to-text ═════════ -->
     <div x-show="modelsSubtab==='transcriber'" x-cloak>
       <section class="stt-models-section">
         <div class="stt-models-head">
-          <h2>🎬 Subtitle models <span class="muted small">(Whisper · speech-to-text)</span></h2>
+          <h2>🎬 Transcription models <span class="muted small">(local speech-to-text)</span></h2>
           <span class="muted small">Powers the <a class="link-accent" @click="tab='subtitles'; refreshTranscribe()">Subtitles</a> tab + <code>/api/transcribe</code>. Download one to transcribe audio.</span>
         </div>
         <p class="muted" x-show="stt.models.length === 0" x-cloak>No transcription models available yet — check the engine status on the Subtitles tab.</p>
@@ -1494,6 +1494,15 @@
               </div>
               <code class="stt-model-repo" x-text="m.repo"></code>
               <p class="muted small" x-text="formatGb(m.size_gb) + (m.recommended ? ' · recommended' : '')"></p>
+              <div class="stt-capabilities" aria-label="Model capabilities">
+                <span class="chip neutral" x-text="m.engine === 'nemotron' ? 'Nemotron' : m.engine === 'moonshine' ? 'Moonshine' : 'Whisper'"></span>
+                <span class="chip neutral" x-show="m.internal_candidate">Internal pilot</span>
+                <span class="chip neutral" x-show="m.internal_candidate && m.min_unified_memory_gb === 8">8 GB candidate</span>
+                <span class="chip neutral" x-text="m.languages"></span>
+                <span class="chip neutral" x-text="m.supports_segment_timestamps ? 'Segment timing' : 'Transcript only'"></span>
+                <span class="chip neutral" x-text="m.supports_word_timestamps ? 'Word timing' : 'No word timing'"></span>
+                <span class="chip neutral" x-text="m.supports_long_form ? 'Long-form' : 'Short-form'"></span>
+              </div>
               <p class="muted small stt-model-note" x-text="m.note"></p>
               <button class="btn download-btn" x-show="!m.cached"
                       :disabled="stt.downloading"
@@ -2081,7 +2090,7 @@
             <span x-show="voiceUploader.transcribing">Transcribing…</span>
           </button>
           <span class="muted small" x-show="!voiceUploader.audioBlob">Add an audio clip first.</span>
-          <span class="muted small" x-show="voiceUploader.audioBlob && !voiceUploader.transcribing">Uses your cached Whisper model.</span>
+          <span class="muted small" x-show="voiceUploader.audioBlob && !voiceUploader.transcribing">Uses your selected cached transcription model.</span>
         </div>
         <textarea x-model="voiceUploader.transcript" rows="3"
                   placeholder="Exact words spoken in the reference clip. Required only if you'll use F5-TTS with this voice."></textarea>
@@ -2112,12 +2121,12 @@
     </div>
   </div>
 
-  <!-- ─────────── Subtitles (Whisper STT) ─────────── -->
+  <!-- ─────────── Subtitles (local transcription) ─────────── -->
   <main x-show="tab==='subtitles'" class="page" x-cloak>
     <section class="page-head">
       <h1>Subtitles</h1>
       <p class="muted">
-        Transcribe audio → timestamped subtitles (SRT / VTT) with Whisper. Drop a clip below, or
+        Transcribe audio into text and supported subtitle timing (SRT / VTT). Drop a clip below, or
         generate narration on the <a class="link-accent" @click="tab='generate'">Generate</a> tab first.
         Story Studio and other apps drive this over the API — see the <a class="link-accent" @click="tab='api'">API</a> tab.
       </p>
@@ -2133,8 +2142,9 @@
     <div class="subtitle-grid">
       <!-- Left: inputs -->
       <section class="control-block">
-        <label>Whisper model</label>
-        <select x-model="stt.model">
+        <label for="transcription-model">Transcription model</label>
+        <select id="transcription-model" x-model="stt.model"
+                @change="selectTranscriptionModel($event.target.value)">
           <template x-for="m in stt.models" :key="m.repo">
             <option :value="m.repo"
                     x-text="m.label + ' · ' + formatGb(m.size_gb) + (m.cached ? ' ✓ ready' : ' — not downloaded') + (m.recommended ? ' (recommended)' : '')"></option>
@@ -2180,10 +2190,16 @@
             <input type="text" class="prompt-input" x-model="stt.language" placeholder="en" maxlength="8">
           </div>
           <label class="subtitle-opt-check">
-            <input type="checkbox" x-model="stt.wordTimestamps">
+            <input type="checkbox" x-model="stt.wordTimestamps"
+                   :disabled="!sttWordTimestampsSupported"
+                   aria-describedby="word-timing-support">
             <span>Word-level timestamps</span>
           </label>
         </div>
+        <p id="word-timing-support" class="muted small subtitle-capability-note"
+           x-show="!sttWordTimestampsSupported" x-cloak>
+          Word timing is unavailable for this model. Transcript output remains available.
+        </p>
 
         <p class="error-text" x-show="stt.error" x-text="stt.error"></p>
 
@@ -2345,13 +2361,13 @@
 
     <section class="card auto-update-card memory-policy-card" x-show="memoryPolicy.loaded" x-cloak>
       <div class="auto-update-head">
-        <div><h2>Model memory</h2><p class="muted">Keep local TTS and Whisper models warm, or return unified memory after Voice Studio becomes idle.</p></div>
+        <div><h2>Model memory</h2><p class="muted">Keep local TTS and transcription models warm, or return unified memory after Voice Studio becomes idle.</p></div>
         <span class="auto-update-state" :class="memoryPolicy.busy ? 'checking' : (memoryPolicy.loaded_models.length ? 'available' : 'succeeded')" x-text="memoryPolicy.busy ? 'working' : (memoryPolicy.loaded_models.length ? 'model loaded' : 'memory clear')"></span>
       </div>
       <fieldset class="auto-update-mode-group" @change="markMemoryPolicyDirty()">
         <legend>Performance mode</legend>
         <div class="auto-update-mode-options memory-policy-options">
-          <label class="auto-update-mode-option" :class="{active:memoryPolicy.draft.mode==='performance'}"><input type="radio" name="memory-policy-mode" value="performance" x-model="memoryPolicy.draft.mode"><span><strong>Performance<template x-if="memoryPolicy.default_mode==='performance'"><span> · default</span></template></strong><small>Keep loaded TTS or Whisper models warm for faster repeat work.</small></span></label>
+          <label class="auto-update-mode-option" :class="{active:memoryPolicy.draft.mode==='performance'}"><input type="radio" name="memory-policy-mode" value="performance" x-model="memoryPolicy.draft.mode"><span><strong>Performance<template x-if="memoryPolicy.default_mode==='performance'"><span> · default</span></template></strong><small>Keep loaded TTS or transcription models warm for faster repeat work.</small></span></label>
           <label class="auto-update-mode-option" :class="{active:memoryPolicy.draft.mode==='balanced'}"><input type="radio" name="memory-policy-mode" value="balanced" x-model="memoryPolicy.draft.mode"><span><strong>Balanced<template x-if="memoryPolicy.default_mode==='balanced'"><span> · default</span></template></strong><small>Unload after 10 minutes without generation or transcription.</small></span></label>
           <label class="auto-update-mode-option" :class="{active:memoryPolicy.draft.mode==='memory_saver'}"><input type="radio" name="memory-policy-mode" value="memory_saver" x-model="memoryPolicy.draft.mode"><span><strong>Memory Saver<template x-if="memoryPolicy.default_mode==='memory_saver'"><span> · default</span></template></strong><small>Unload after 2 idle minutes.</small></span></label>
           <label class="auto-update-mode-option" :class="{active:memoryPolicy.draft.mode==='immediate'}"><input type="radio" name="memory-policy-mode" value="immediate" x-model="memoryPolicy.draft.mode"><span><strong>Immediate<template x-if="memoryPolicy.default_mode==='immediate'"><span> · default</span></template></strong><small>Unload after every completed local voice task.</small></span></label>

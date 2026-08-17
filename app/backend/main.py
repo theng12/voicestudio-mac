@@ -1379,11 +1379,11 @@ def release_memory() -> dict:
     }
 
 
-# ──── Transcription / subtitles (Whisper STT) ────
+# ──── Transcription / subtitles ────
 
 @app.get("/api/transcribe/availability")
 def transcribe_availability() -> dict:
-    """STT readiness + which whisper models are cached. A remote consumer
+    """STT readiness + which transcription models are cached. A remote consumer
     (e.g. Story Studio) hits this before transcribing to pick a ready model."""
     return stt_availability()
 
@@ -1404,7 +1404,7 @@ async def transcribe(
         without re-uploading the bytes (efficient same-machine path).
 
     Optional:
-      - `model`: whisper repo (default = the recommended turbo model).
+      - `model`: transcription repo (default = recommended Whisper turbo).
       - `language`: ISO code (e.g. 'en'); omit for auto-detect.
       - `word_timestamps`: include per-word timings in each segment.
     """

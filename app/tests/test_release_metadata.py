@@ -17,10 +17,13 @@ def test_installed_version_has_a_truthful_whats_new_entry() -> None:
     release_metadata_check.validate_current_release()
 
 
-def test_whisper_conditioning_release_is_versioned_as_2_3_1() -> None:
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.3.1"
+def test_internal_asr_pilot_release_is_versioned_as_2_4_0() -> None:
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.4.0"
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert "## [2.3.1] — 2026-08-17" in changelog
+    assert "## [2.4.0] — 2026-08-17" in changelog
+    assert "Moonshine Base" in changelog
+    assert "Nemotron 3.5 ASR Streaming" in changelog
+    assert "Whisper remains the recommended default" in changelog
 
 
 def test_worktree_product_changes_require_release_metadata() -> None:

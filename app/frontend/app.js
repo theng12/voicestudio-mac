@@ -4,7 +4,7 @@ function studio() {
   return {
     // ──────── state ────────
     tab: "generate",
-    // Models tab sub-view: TTS catalog, Whisper STT, or managed disk inventory.
+    // Models tab sub-view: TTS catalog, transcription, or managed disk inventory.
     modelsSubtab: "generator",
     health: { ok: false },
     showWhatsNew: false,
@@ -160,11 +160,11 @@ function studio() {
       overCapConfirmed: false,
     },
 
-    // ──────── Subtitles / STT (Whisper) ────────
+    // ──────── Subtitles / transcription ────────
     stt: {
       available: null,        // null=unknown, true/false after refreshTranscribe
       models: [],             // [{repo,label,size_gb,note,recommended,cached}]
-      model: "",              // selected whisper repo
+      model: "",              // selected transcription repo
       language: "en",
       wordTimestamps: false,
       file: null,             // File object
@@ -385,8 +385,8 @@ function studio() {
       setTimeout(() => this.refreshDiagnostics(), 750);
       await this.refreshSettings();
       await this.refreshVoices();
-      // STT/whisper availability — so the Models tab's "Subtitle models"
-      // section is populated regardless of which tab the user opens first.
+      // Transcription availability — so the Models tab's model section is
+      // populated regardless of which tab the user opens first.
       this.refreshTranscribe();
       // Restore last-used model + per-repo gen settings AFTER catalog +
       // availability + voices are loaded so option lists are populated.
@@ -460,7 +460,7 @@ function studio() {
     get effectiveRam() {
       return this.ramGb || this.system.unified_memory_gb || 16;
     },
-    /** Count of downloaded Whisper (transcriber) models — drives the
+    /** Count of downloaded transcription models — drives the
      *  Audio Transcriber sub-tab's "ready" badge. */
     get sttReadyCount() {
       return (this.stt?.models || []).filter(m => m.cached).length;
@@ -1061,9 +1061,17 @@ function studio() {
       return this.gen.wired_families || [];
     },
 
-    // Subtitles: the whisper model row matching stt.model, for note + cache UI.
+    // Subtitles: selected model row, including engine capability truth.
     get sttSelectedModel() {
       return (this.stt.models || []).find(m => m.repo === this.stt.model) || null;
+    },
+    get sttWordTimestampsSupported() {
+      return !this.sttSelectedModel
+        || this.sttSelectedModel.supports_word_timestamps !== false;
+    },
+    selectTranscriptionModel(repo) {
+      this.stt.model = repo;
+      if (!this.sttWordTimestampsSupported) this.stt.wordTimestamps = false;
     },
 
     get canSubmit() {
@@ -1531,7 +1539,7 @@ function studio() {
     async startDownload() {
       if (!this.pendingDownload) return;
       const repo = this.pendingDownload.repo;
-      const isWhisper = this.stt.models.some((m) => m.repo === repo);
+      const isTranscription = this.stt.models.some((m) => m.repo === repo);
       const body = { repo, token: this.downloadToken || null };
       this.pendingDownload = null;
       try {
@@ -1540,11 +1548,11 @@ function studio() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
-        // Whisper/STT downloads and TTS downloads use the same confirm
+        // Transcription and TTS downloads use the same confirm
         // modal and the same /api/downloads call, but each needs its own
         // follow-up refresh so the UI notices completion (v1.7.4).
-        if (isWhisper) {
-          this._pollWhisperUntilCached(repo);
+        if (isTranscription) {
+          this._pollTranscriptionUntilCached(repo);
         } else {
           await this.refreshCatalog();
         }
@@ -2041,11 +2049,11 @@ function studio() {
           await this.refreshTranscribe();
         }
         if (!this.stt.available) {
-          throw new Error("Whisper is unavailable. Check the Transcriber setup in Models first.");
+          throw new Error("Transcription is unavailable. Check the Transcriber setup in Models first.");
         }
 
         // Prefer the selected model, but fall back to any already-downloaded
-        // Whisper model so this one-click helper does not require model setup
+        // transcription model so this one-click helper does not require setup
         // in another tab.
         let model = this.stt.models.find(m => m.repo === this.stt.model);
         if (!model?.cached) {
@@ -2053,7 +2061,7 @@ function studio() {
           if (model) this.stt.model = model.repo;
         }
         if (!model?.cached) {
-          throw new Error("Download a Whisper model from Models → Transcriber, then try again.");
+          throw new Error("Download a transcription model from Models → Transcriber, then try again.");
         }
 
         const fd = new FormData();
@@ -2069,7 +2077,7 @@ function studio() {
         }
         const data = await r.json();
         const text = (data.text || "").trim();
-        if (!text) throw new Error("Whisper did not detect any speech in this clip.");
+        if (!text) throw new Error("The transcription model did not detect speech in this clip.");
         u.transcript = text;
         this.pushToast({ kind: "success", icon: "📝", title: "Transcript ready",
           body: `Review it below before adding ${u.name ? `“${u.name}”` : "the voice"} to your library.` });
@@ -3586,16 +3594,18 @@ function studio() {
         // recommended one, else first.
         const stillThere = this.stt.models.some(m => m.repo === this.stt.model);
         if (!stillThere) {
-          this.stt.model = data.default_model
+          this.selectTranscriptionModel(data.default_model
             || (this.stt.models.find(m => m.recommended) || this.stt.models[0] || {}).repo
-            || "";
+            || "");
+        } else {
+          this.selectTranscriptionModel(this.stt.model);
         }
       } catch {
         this.stt.available = false;
       }
     },
-    _pollWhisperUntilCached(repo) {
-      this.stt.model = repo;        // sync selection + per-card "Downloading…" label
+    _pollTranscriptionUntilCached(repo) {
+      this.selectTranscriptionModel(repo); // sync selection + download label
       this.stt.downloading = true;
       // Poll availability until the model flips to cached, so the UI
       // re-enables Transcribe without a manual refresh.
@@ -3645,7 +3655,9 @@ function studio() {
         fd.append("file", this.stt.file);
         if (this.stt.model) fd.append("model", this.stt.model);
         if (this.stt.language.trim()) fd.append("language", this.stt.language.trim());
-        if (this.stt.wordTimestamps) fd.append("word_timestamps", "true");
+        if (this.stt.wordTimestamps && this.sttWordTimestampsSupported) {
+          fd.append("word_timestamps", "true");
+        }
         const r = await fetch("/api/transcribe", { method: "POST", body: fd });
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));

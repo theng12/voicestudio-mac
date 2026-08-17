@@ -46,6 +46,15 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   voice under the same stable ID, audio hash, and transcript on every Voice
   Studio Mac. Existing machine-local voices are protected from collisions.
 - **Direct API** — bound on `0.0.0.0:47870`, hit it from your main Mac over LAN, Tailscale, or anywhere on the network.
+- **Local transcription** — Whisper Large v3 Turbo remains the recommended
+  default for subtitles and internal voice validation. The operator-only model
+  library also includes two unqualified 8 GB candidates: Moonshine Base
+  (`moonshine-ai/moonshine-base`, about 0.25 GB) for English short-form
+  transcript-first work without word timing, and Nemotron 3.5 ASR Streaming
+  0.6B 8-bit (`mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit`, about
+  0.76 GB) for multilingual chunked transcription with sentence and optional
+  word timing. They reuse the existing MLX worker, downloader, and cache; they
+  are not GenStudio routes and are not fleet-qualified merely by appearing here.
 
 ## How to use
 
@@ -111,7 +120,7 @@ model is eligible on the current machine at that moment.
 Settings now also provides model-memory modes. Fresh installs use
 **Immediate** so model memory is released after each completed local task and
 the Mac is ready for another sibling Studio; an explicit operator choice always
-wins. **Performance** preserves loaded local TTS and Whisper models for faster
+wins. **Performance** preserves loaded local TTS and transcription models for faster
 repeat work and never releases on idle. Balanced unloads after 10 idle minutes
 and Memory Saver after 2 minutes. **Release Memory / Unload Model** manually
 releases both caches when no generation or transcription is active. Weights,

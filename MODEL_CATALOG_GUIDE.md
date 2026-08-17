@@ -48,3 +48,22 @@ Keep `best_for` short and decisive. Put concrete strengths and limitations in
 
 Never add a frontend-only model list. `app/backend/catalog.py` is the single
 source of truth.
+
+## Add A Transcription Model
+
+Transcription models use the separate `TRANSCRIPTION_MODELS` registry in
+`app/backend/transcription.py`; the frontend consumes that registry through
+`GET /api/transcribe/availability`. Record the engine, decimal download size,
+language scope, minimum unified-memory candidate, timing support, long-form
+support, and whether it is an internal candidate. Do not invent a
+`genstudio_candidate` record: that evidence appears only after a real model
+audit exists.
+
+New engines must dispatch through the existing `TranscriptionManager`, Hugging
+Face cache, download manager, and global generation lock. Normalize their output
+into the existing text/segments/SRT/VTT response rather than adding a second
+transcription API. Whisper processor companions belong only to Whisper rows.
+
+For internal candidates, verify selection and capability truth in the operator
+UI at desktop and mobile widths. Appearance in Voice Studio is not fleet
+qualification or GenStudio publication; those remain separate decisions.

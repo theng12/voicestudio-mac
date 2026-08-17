@@ -10,6 +10,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.4.0] — 2026-08-17
+
+### Added
+
+- Added **Moonshine Base** (`moonshine-ai/moonshine-base`, about 0.25 GB) as an
+  internal English short-form transcription pilot. It is an 8 GB candidate and
+  returns transcript-first output without segment or word timing.
+- Added **Nemotron 3.5 ASR Streaming 0.6B 8-bit**
+  (`mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit`, about 0.76 GB) as an
+  internal multilingual, chunked long-form transcription pilot with sentence
+  and optional word timing.
+
+### Changed
+
+- Whisper remains the recommended default for `/api/transcribe` and internal
+  Qwen voice validation. The transcription model registry, storage family, and
+  operator UI now describe each engine's real language, timing, long-form, and
+  memory-candidate capabilities.
+- Both new models reuse the pinned `mlx-audio` runtime, existing Hugging Face
+  downloader, cache, global generation lock, and API response format. This
+  release adds no dependency or background service and performs no automatic
+  model download, fleet update, GenStudio exposure, or production qualification.
+
 ## [2.3.1] — 2026-08-17
 
 ### Fixed

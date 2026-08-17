@@ -10,7 +10,7 @@ import shutil
 from pathlib import Path
 
 from . import cache, catalog
-from .transcription import WHISPER_MODELS, _PROCESSOR_BASE
+from .transcription import TRANSCRIPTION_MODELS, WHISPER_MODELS, _PROCESSOR_BASE
 
 
 NOTICE_NAME = "README-VOICE-STUDIO-CACHE.md"
@@ -41,7 +41,7 @@ LEGACY_REPOS: dict[str, dict[str, str]] = {
         "reason": "Superseded by the compatible bfloat16 package and commonly left incomplete.",
     },
     "mlx-community/whisper-large-v3-turbo-asr-fp16": {
-        "family": "whisper-stt",
+        "family": "transcription-stt",
         "label": "Whisper Large v3 Turbo ASR fp16 (older alternative)",
         "reason": "Not referenced by Voice Studio's current transcription catalogue.",
     },
@@ -56,12 +56,12 @@ LEGACY_REPOS: dict[str, dict[str, str]] = {
         "reason": "Evaluated 2026-08-05 and not added to the catalogue: transcribe-back showed it silently drops text (63% word coverage at 174 characters, 0% and unintelligible at 191).",
     },
     "mlx-community/whisper-tiny": {
-        "family": "whisper-stt",
+        "family": "transcription-stt",
         "label": "Whisper Tiny (retired)",
         "reason": "Retired after fleet qualification found materially incomplete transcripts; Whisper Large v3 Turbo is the only GenStudio-qualified transcription model.",
     },
     "openai/whisper-tiny": {
-        "family": "whisper-stt",
+        "family": "transcription-stt",
         "label": "Whisper Tiny tokenizer (retired dependency)",
         "reason": "No longer required because its Whisper Tiny parent model is retired.",
     },
@@ -95,7 +95,7 @@ def _tts_models() -> dict[str, object]:
 
 
 def _stt_models() -> dict[str, object]:
-    return {model.repo: model for model in WHISPER_MODELS}
+    return {model.repo: model for model in TRANSCRIPTION_MODELS}
 
 
 def _dependency_map() -> dict[str, dict]:
@@ -120,7 +120,7 @@ def _dependency_map() -> dict[str, dict]:
             processor,
             {
                 "label": "Whisper tokenizer and processor",
-                "family": "whisper-stt",
+                "family": "transcription-stt",
                 "used_by": [],
             },
         )
@@ -131,8 +131,11 @@ def _dependency_map() -> dict[str, dict]:
 
 
 def _family_metadata(family: str) -> tuple[str, str]:
-    if family == "whisper-stt":
-        return "Whisper transcription", "Speech-to-text models and their tokenizer assets."
+    if family == "transcription-stt":
+        return (
+            "Transcription",
+            "Local speech-to-text models and their required tokenizer assets.",
+        )
     known = catalog.FAMILIES.get(family)
     if known:
         return known.label, known.summary
@@ -230,7 +233,7 @@ def inventory() -> dict:
             role = "Supported model option"
             detail = tts.best_for
         elif stt:
-            family = "whisper-stt"
+            family = "transcription-stt"
             label = stt.label
             item_type = "model"
             role = "Supported transcription model"

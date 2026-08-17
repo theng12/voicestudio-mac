@@ -1,5 +1,5 @@
 """
-Speech-to-text / subtitle generation (Whisper via mlx-audio).
+Speech-to-text / subtitle generation through mlx-audio.
 
 This is the STT counterpart to generation.py's TTS workers. The primary
 consumer is a remote app (Story Studio) that generates narration audio via
@@ -7,7 +7,7 @@ our TTS endpoints, then wants timestamped subtitles (SRT/VTT) for it.
 
 WHY THIS LIVES IN VOICE STUDIO (not a separate app):
 - `mlx-audio` (already a dependency for the MLX TTS engines) ships a complete
-  STT subsystem — `mlx_audio.stt` with whisper + a dozen other ASR models.
+  STT subsystem with Whisper and other local ASR model families.
   Adding subtitles is wiring, not a new install.
 - Same machine, same FastAPI server, same Tailscale endpoint, same HF cache,
   same download manager, same diagnostics. One thing to keep alive.
@@ -21,7 +21,7 @@ STANDARDS THIS FOLLOWS (see generation.py's module docstring):
 - Shared `_GEN_LOCK` (from generation.py): STT and TTS never run concurrently,
   so two MLX models can't both spike Metal memory and OOM the server.
 - MLX cache release on model switch (v1.2.7): `_release_device_memory`.
-- No silent downloads: if the requested whisper model isn't cached, raise a
+- No silent downloads: if the requested transcription model isn't cached, raise a
   clean error pointing at the Models tab / /api/downloads — never trigger an
   out-of-band download mid-request.
 """
@@ -51,56 +51,91 @@ from .generation import (
 from .model_audits import candidate_summary
 
 
-# ───────────── Whisper model registry ─────────────
+# ───────────── Transcription model registry ─────────────
 # All repos verified live on huggingface.co. Sizes are approximate on-disk
 # (post-download). `recommended` marks the default the API uses when no model
 # is specified. Adding a new ASR model is a one-line append here — the download
 # flow (generic /api/downloads) and the worker below need no other changes.
 
 @dataclass(frozen=True)
-class WhisperModel:
+class TranscriptionModel:
     repo: str
     label: str
     size_gb: float
     note: str
+    engine: str = "whisper"
+    min_unified_memory_gb: int = 8
+    languages: str = "Multilingual"
+    supports_segment_timestamps: bool = True
+    supports_word_timestamps: bool = True
+    supports_long_form: bool = True
+    internal_candidate: bool = False
     recommended: bool = False
 
 
-WHISPER_MODELS: tuple[WhisperModel, ...] = (
-    WhisperModel(
+TRANSCRIPTION_MODELS: tuple[TranscriptionModel, ...] = (
+    TranscriptionModel(
         repo="mlx-community/whisper-large-v3-turbo",
         label="Whisper large-v3 turbo",
         size_gb=1.6,
         note="Recommended. Near-large accuracy at ~8× the speed. Best default for subtitles.",
         recommended=True,
     ),
-    WhisperModel(
+    TranscriptionModel(
         repo="mlx-community/whisper-large-v3-turbo-q4",
         label="Whisper large-v3 turbo (4-bit)",
         size_gb=0.5,
         note="Quantized turbo — turbo accuracy at a third of the disk/memory. Great on 8 GB Macs.",
     ),
-    WhisperModel(
+    TranscriptionModel(
         repo="mlx-community/whisper-large-v3-mlx",
         label="Whisper large-v3 (full)",
         size_gb=3.1,
         note="Highest accuracy, slowest. Use for final renders or noisy/accented audio.",
     ),
-    WhisperModel(
+    TranscriptionModel(
         repo="mlx-community/whisper-small-mlx",
         label="Whisper small",
         size_gb=0.5,
         note="Fast, decent accuracy. Fine for clean TTS audio in English.",
     ),
-    WhisperModel(
+    TranscriptionModel(
         repo="mlx-community/whisper-base-mlx",
         label="Whisper base",
         size_gb=0.15,
         note="Very fast, lower accuracy. Quick drafts / very clean audio.",
     ),
+    TranscriptionModel(
+        repo="moonshine-ai/moonshine-base",
+        label="Moonshine Base",
+        size_gb=0.25,
+        note="Internal pilot. Lightweight English short-form transcription for 8 GB Macs.",
+        engine="moonshine",
+        languages="English",
+        supports_segment_timestamps=False,
+        supports_word_timestamps=False,
+        supports_long_form=False,
+        internal_candidate=True,
+    ),
+    TranscriptionModel(
+        repo="mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit",
+        label="Nemotron 3.5 ASR Streaming 0.6B (8-bit)",
+        size_gb=0.76,
+        note="Internal pilot. Multilingual chunked transcription candidate for 8 GB Macs.",
+        engine="nemotron",
+        languages="Multilingual",
+        internal_candidate=True,
+    ),
 )
 
-_BY_REPO = {m.repo: m for m in WHISPER_MODELS}
+WHISPER_MODELS = tuple(
+    model for model in TRANSCRIPTION_MODELS if model.engine == "whisper"
+)
+_BY_REPO = {m.repo: m for m in TRANSCRIPTION_MODELS}
+
+
+def model_for_repo(repo: str) -> TranscriptionModel:
+    return _BY_REPO[repo]
 
 # The mlx-community whisper repos ship ONLY config.json + weights — no HF
 # processor files (preprocessor_config.json, tokenizer, vocab). mlx-audio's
@@ -170,7 +205,7 @@ class _TokenizerOnlyProcessor:
 
 
 def recommended_model() -> str:
-    for m in WHISPER_MODELS:
+    for m in TRANSCRIPTION_MODELS:
         if m.recommended:
             return m.repo
     return WHISPER_MODELS[0].repo
@@ -188,12 +223,12 @@ def _have_mlx_audio_stt() -> bool:
 
 def availability() -> dict:
     """What the frontend / a remote consumer needs to know before transcribing:
-    is the STT stack importable, what device, and which whisper models are
+    is the STT stack importable, what device, and which transcription models are
     cached + ready right now."""
     stt_ok = _have_mlx_audio_stt()
     worker_busy = generation_manager.has_active_jobs() or manager.is_active()
     models = []
-    for m in WHISPER_MODELS:
+    for m in TRANSCRIPTION_MODELS:
         cache_snapshot = cache.status_snapshot(m.repo)
         candidate = candidate_summary(m.repo)
         runtime_match = bool(
@@ -215,6 +250,13 @@ def availability() -> dict:
             "label": m.label,
             "size_gb": m.size_gb,
             "note": m.note,
+            "engine": m.engine,
+            "min_unified_memory_gb": m.min_unified_memory_gb,
+            "languages": m.languages,
+            "supports_segment_timestamps": m.supports_segment_timestamps,
+            "supports_word_timestamps": m.supports_word_timestamps,
+            "supports_long_form": m.supports_long_form,
+            "internal_candidate": m.internal_candidate,
             "recommended": m.recommended,
             "cached": cache_snapshot.get("state") == "cached",
             "cache": cache_snapshot,
@@ -263,7 +305,7 @@ def segments_to_srt(segments: list[dict]) -> str:
         lines.append(text)
         lines.append("")          # blank line between cues
         idx += 1
-    return "\n".join(lines).strip() + "\n"
+    return "\n".join(lines).strip() + ("\n" if lines else "")
 
 
 def segments_to_vtt(segments: list[dict]) -> str:
@@ -375,6 +417,34 @@ def _normalize_segments(
     return " ".join(seg["text"] for seg in segments if seg["text"]).strip(), segments
 
 
+def _result_field(value, name: str, default=None):
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _segments_from_nemotron(result, *, word_timestamps: bool) -> list[dict]:
+    """Convert mlx-audio's AlignedResult into the existing subtitle shape."""
+    segments: list[dict] = []
+    for sentence in _result_field(result, "sentences", []) or []:
+        entry = {
+            "start": _result_field(sentence, "start", 0.0),
+            "end": _result_field(sentence, "end", 0.0),
+            "text": _result_field(sentence, "text", ""),
+        }
+        if word_timestamps:
+            entry["words"] = [
+                {
+                    "word": _result_field(token, "text", ""),
+                    "start": _result_field(token, "start", 0.0),
+                    "end": _result_field(token, "end", 0.0),
+                }
+                for token in (_result_field(sentence, "tokens", []) or [])
+            ]
+        segments.append(entry)
+    return segments
+
+
 # ───────────── transcription manager ─────────────
 
 @dataclass
@@ -389,11 +459,11 @@ class TranscriptionManager:
 
     def loaded_model_key(self) -> Optional[tuple[str, str]]:
         if self._model is not None and self._model_repo:
-            return (self._model_repo, "whisper-stt")
+            return (self._model_repo, "transcription-stt")
         return None
 
     def has_loaded_model(self) -> bool:
-        """Is a whisper model resident right now? Same definition memory_policy
+        """Is a transcription model resident right now? Same definition memory_policy
         releases against — a bare `self._model is not None` disagrees with it
         whenever the repo is unset, and telemetry must not carry its own idea
         of what "loaded" means (see GenerationManager.has_loaded_model)."""
@@ -407,7 +477,7 @@ class TranscriptionManager:
         actions: list[str] = []
         if self._model is not None:
             self._model = None
-            actions.append("cleared whisper transcription model")
+            actions.append("cleared transcription model")
         self._model_repo = None
         _release_device_memory("mps")
         actions.append("cleared transcription MLX and Metal allocator caches")
@@ -432,7 +502,7 @@ class TranscriptionManager:
         snapshots = repo_dir / "snapshots"
         if not snapshots.exists():
             raise RuntimeError(
-                f"Whisper model {repo} is not downloaded. "
+                f"Transcription model {repo} is not downloaded. "
                 "Download it first (Models tab, or POST /api/downloads)."
             )
         candidates = [s for s in snapshots.iterdir()
@@ -442,14 +512,14 @@ class TranscriptionManager:
         return candidates[0]
 
     def _get_model(self, repo: str):
-        """Lazy-load + cache one whisper model. Evicts on repo switch so two
-        whisper models (or a whisper + a TTS model) don't co-reside in unified
+        """Lazy-load + cache one transcription model. Evicts on repo switch so
+        two ASR models (or an ASR + a TTS model) don't co-reside in unified
         memory. Explicit-path standard: pass the snapshot Path, not the repo."""
         if self._model_repo == repo and self._model is not None:
             return self._model
 
         if self._model is not None:
-            print(f"[stt] evicting cached whisper model ({self._model_repo})", flush=True)
+            print(f"[stt] evicting cached transcription model ({self._model_repo})", flush=True)
             try:
                 del self._model
             except Exception:
@@ -460,13 +530,16 @@ class TranscriptionManager:
 
         from mlx_audio.stt.utils import load_model
         snapshot_path = self._snapshot_path(repo)
-        print(f"[stt] loading whisper from {snapshot_path}", flush=True)
+        print(f"[stt] loading transcription model from {snapshot_path}", flush=True)
         model = load_model(snapshot_path)          # Path object — see v1.2.8
 
         # The mlx-community repos don't bundle the HF processor, so load_model's
         # post-hook leaves model._processor = None → "Processor not found" at
         # transcribe time. Attach a tokenizer from the matching base OpenAI repo.
-        if getattr(model, "_processor", None) is None:
+        if (
+            model_for_repo(repo).engine == "whisper"
+            and getattr(model, "_processor", None) is None
+        ):
             self._attach_processor(model, repo)
 
         self._model = model
@@ -544,12 +617,15 @@ class TranscriptionManager:
         repo = (model_repo or "").strip() or recommended_model()
         if repo not in _BY_REPO:
             raise ValueError(
-                f"Unknown whisper model {repo!r}. "
+                f"Unknown transcription model {repo!r}. "
                 f"Known: {sorted(_BY_REPO)}"
             )
+        spec = model_for_repo(repo)
+        if word_timestamps and not spec.supports_word_timestamps:
+            raise ValueError(f"{spec.label} does not support word timestamps")
         if cache.cache_state(repo) != "cached":
             raise RuntimeError(
-                f"Whisper model {repo} is not fully cached. "
+                f"Transcription model {repo} is not fully cached. "
                 "Download it first (Models tab, or POST /api/downloads with this repo)."
             )
 
@@ -589,15 +665,22 @@ class TranscriptionManager:
                     f"(lang={lang or 'auto'}, word_ts={word_timestamps})",
                     flush=True,
                 )
-                result = model.generate(
-                    str(p),
-                    language=lang,
-                    word_timestamps=word_timestamps,
-                    return_timestamps=True,
-                    # See _CONDITION_ON_PREVIOUS_TEXT above: kills the
-                    # hallucination cascade. Not caller-configurable.
-                    condition_on_previous_text=_CONDITION_ON_PREVIOUS_TEXT,
-                )
+                if spec.engine == "whisper":
+                    result = model.generate(
+                        str(p),
+                        language=lang,
+                        word_timestamps=word_timestamps,
+                        return_timestamps=True,
+                        # See _CONDITION_ON_PREVIOUS_TEXT above: kills the
+                        # hallucination cascade. Not caller-configurable.
+                        condition_on_previous_text=_CONDITION_ON_PREVIOUS_TEXT,
+                    )
+                elif spec.engine == "moonshine":
+                    result = model.generate(str(p))
+                else:
+                    result = model.generate(
+                        str(p), language=lang or "auto", chunk_duration=30.0
+                    )
                 telemetry_state = "completed"
             except Exception as exc:
                 memory_failure = _is_memory_failure(exc)
@@ -620,15 +703,24 @@ class TranscriptionManager:
                         ),
                     )
 
-        # mlx-audio returns an STTOutput dataclass (or dict-ish) with .text,
-        # .segments (list of dicts), .language. Be defensive about shape.
-        text = getattr(result, "text", None)
-        raw_segments = getattr(result, "segments", None)
-        detected_lang = getattr(result, "language", None)
-        if text is None and isinstance(result, dict):
-            text = result.get("text")
-            raw_segments = result.get("segments")
-            detected_lang = result.get("language")
+        # mlx-audio returns different result shapes by engine. Normalize all of
+        # them into Voice Studio's existing transcript + subtitle contract.
+        text = _result_field(result, "text")
+        detected_lang = _result_field(result, "language")
+        if spec.engine == "moonshine":
+            clean_text = (text or "").strip()
+            raw_segments = (
+                [{"start": 0.0, "end": audio_duration or 0.0, "text": clean_text}]
+                if clean_text and audio_duration
+                else []
+            )
+        elif spec.engine == "nemotron":
+            raw_segments = _segments_from_nemotron(
+                result, word_timestamps=word_timestamps
+            )
+            detected_lang = lang or "auto"
+        else:
+            raw_segments = _result_field(result, "segments")
 
         text = (text or "").strip()
         raw_segments = raw_segments or []

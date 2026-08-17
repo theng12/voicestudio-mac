@@ -114,7 +114,7 @@ def test_retired_whisper_tiny_is_rejected_without_fallback(tmp_path: Path) -> No
     audio.write_bytes(b"audio")
     manager = transcription.TranscriptionManager()
 
-    with pytest.raises(ValueError, match="Unknown whisper model"):
+    with pytest.raises(ValueError, match="Unknown transcription model"):
         manager.transcribe(
             str(audio),
             model_repo="mlx-community/whisper-tiny",

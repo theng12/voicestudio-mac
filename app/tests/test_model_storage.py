@@ -89,6 +89,30 @@ def test_whisper_processor_without_weights_is_a_complete_dependency(tmp_path, mo
     assert item["used_by"] == [parent]
 
 
+def test_internal_asr_candidates_use_the_generic_transcription_family(
+    tmp_path, monkeypatch
+) -> None:
+    moonshine = "moonshine-ai/moonshine-base"
+    nemotron = "mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit"
+    _cached_repo(tmp_path, monkeypatch, moonshine)
+    _cached_repo(tmp_path, monkeypatch, nemotron)
+
+    payload = model_storage.inventory()
+    moonshine_item = _item(payload, moonshine)
+    nemotron_item = _item(payload, nemotron)
+    group = next(group for group in payload["groups"] if group["id"] == "transcription-stt")
+
+    assert moonshine_item["family"] == "transcription-stt"
+    assert nemotron_item["family"] == "transcription-stt"
+    assert moonshine_item["type"] == nemotron_item["type"] == "model"
+    assert moonshine_item["used_by"] == []
+    assert nemotron_item["used_by"] == []
+    assert group["label"] == "Transcription"
+    assert group["summary"] == (
+        "Local speech-to-text models and their required tokenizer assets."
+    )
+
+
 def test_unversioned_dependency_is_visible_as_partial(tmp_path, monkeypatch) -> None:
     parent = "mlx-community/whisper-large-v3-turbo-q4"
     companion = "openai/whisper-large-v3-turbo"
