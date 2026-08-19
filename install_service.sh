@@ -86,6 +86,47 @@ fi
 _bootstrap() { launchctl bootstrap "gui/$UID_NUM" "$1" 2>/dev/null || { sleep 1; launchctl bootstrap "gui/$UID_NUM" "$1"; }; }
 _bootstrap "$LA/$SRV.plist"
 _bootstrap "$LA/$WD.plist"
+
+# launchd owns this app once the service has bootstrapped. Disable Pinokio's
+# login autolaunch and inherited cross-Studio requirements in one replacement
+# so no other owner can start this fixed-port server. Keep unrelated settings.
+python3 - "$ROOT/ENVIRONMENT" <<'PY'
+import os
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+environment = Path(sys.argv[1])
+previous = environment.read_text(encoding="utf-8") if environment.exists() else ""
+retained = [
+    line for line in previous.splitlines()
+    if not line.startswith((
+        "PINOKIO_SCRIPT_AUTOLAUNCH=",
+        "PINOKIO_SCRIPT_AUTOLAUNCH_ENABLED=",
+        "PINOKIO_SCRIPT_REQUIRES=",
+    ))
+]
+retained.extend((
+    "PINOKIO_SCRIPT_AUTOLAUNCH=start.js",
+    "PINOKIO_SCRIPT_AUTOLAUNCH_ENABLED=false",
+    "PINOKIO_SCRIPT_REQUIRES=",
+))
+
+fd, temporary_name = tempfile.mkstemp(prefix=f".{environment.name}.", dir=environment.parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as temporary:
+        temporary.write("\n".join(retained) + "\n")
+        temporary.flush()
+        os.fsync(temporary.fileno())
+    if environment.exists():
+        os.chmod(temporary_name, stat.S_IMODE(environment.stat().st_mode))
+    os.replace(temporary_name, environment)
+except BaseException:
+    os.unlink(temporary_name)
+    raise
+PY
+
 launchctl kickstart "gui/$UID_NUM/$SRV" 2>/dev/null || true
 
 touch "$ROOT/service/.installed"

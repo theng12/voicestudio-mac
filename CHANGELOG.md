@@ -10,6 +10,26 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.4.1] — 2026-08-20
+
+### Fixed
+
+- Installing the launchd startup service now atomically records
+  `PINOKIO_SCRIPT_AUTOLAUNCH=start.js` and
+  `PINOKIO_SCRIPT_AUTOLAUNCH_ENABLED=false`, and clears stale
+  `PINOKIO_SCRIPT_REQUIRES` values in `ENVIRONMENT`. That prevents Pinokio autolaunch,
+  inherited cross-Studio dependencies, and the service from racing
+  to start the fixed-port server; repeated service installs retain unrelated
+  environment settings without duplicate startup keys.
+
+### Changed
+
+- **Qwen3-TTS 0.6B Base 8-bit** (`mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit`)
+  is the selected 8 GB production voice generator. Its catalog floor is now
+  8 GB; the 1.7B tiers and 0.6B CustomVoice preset remain unchanged.
+- The existing live-memory headroom admission checks and required Whisper quality guardrail
+  remain in force for Qwen generation.
+
 ## [2.4.0] — 2026-08-17
 
 ### Added

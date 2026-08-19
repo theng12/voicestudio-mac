@@ -17,13 +17,13 @@ def test_installed_version_has_a_truthful_whats_new_entry() -> None:
     release_metadata_check.validate_current_release()
 
 
-def test_internal_asr_pilot_release_is_versioned_as_2_4_0() -> None:
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.4.0"
+def test_service_and_qwen_base_fix_is_versioned_as_2_4_1() -> None:
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.4.1"
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert "## [2.4.0] — 2026-08-17" in changelog
-    assert "Moonshine Base" in changelog
-    assert "Nemotron 3.5 ASR Streaming" in changelog
-    assert "Whisper remains the recommended default" in changelog
+    assert "## [2.4.1] — 2026-08-20" in changelog
+    assert "Qwen3-TTS 0.6B Base" in changelog
+    assert "Pinokio autolaunch" in changelog
+    assert "Whisper quality guardrail" in changelog
 
 
 def test_worktree_product_changes_require_release_metadata() -> None:
@@ -33,6 +33,7 @@ def test_worktree_product_changes_require_release_metadata() -> None:
 def test_release_guard_distinguishes_product_changes_from_tests_and_docs() -> None:
     assert release_metadata_check.is_shipped_path("app/backend/generation.py") is True
     assert release_metadata_check.is_shipped_path("update.js") is True
+    assert release_metadata_check.is_shipped_path("install_service.sh") is True
     assert release_metadata_check.is_shipped_path("voicestudio-watchdog.sh") is True
     assert release_metadata_check.is_shipped_path("app/tests/test_generation.py") is False
     assert release_metadata_check.is_shipped_path("README.md") is False

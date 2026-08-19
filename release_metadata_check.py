@@ -113,6 +113,7 @@ def is_shipped_path(path: str) -> bool:
     return path in {
         "install.js",
         "install_generation.js",
+        "install_service.sh",
         "pinokio.js",
         "reset.js",
         "start.js",

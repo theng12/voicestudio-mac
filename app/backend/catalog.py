@@ -702,9 +702,9 @@ CATALOG: tuple[ModelEntry, ...] = (
         family="qwen3-tts",
         size_gb=1.9,
         gated=False,
-        min_unified_memory_gb=16,
+        min_unified_memory_gb=8,
         recommended_hardware=(
-            "Apple Silicon with 16 GB unified memory minimum; 24 GB preferred "
+            "Apple Silicon with 8 GB unified memory minimum; 16 GB preferred "
             "for normal memory pressure and faster generation."
         ),
         # Base model handles voice CLONING from a reference audio clip — pair
@@ -714,10 +714,9 @@ CATALOG: tuple[ModelEntry, ...] = (
         sample_rate_hz=24000,
         languages=("en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"),
         use_cases=(
-            ("good",  "Qualified transcript-assisted voice cloning on 16 GB and 24 GB Macs"),
+            ("good",  "Qualified transcript-assisted voice cloning on 8 GB and larger Macs"),
             ("good",  "Multilingual cloning across the ten upstream-supported languages"),
             ("good",  "MLX-native — no PyTorch install needed"),
-            ("avoid", "8 GB Macs — measured urgent memory pressure and swap make production unsafe"),
             ("weak",  "Less prosodic nuance than the 1.7B tier — voice character may sound flatter"),
         ),
     ),
@@ -765,7 +764,7 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Multilingual and cross-lingual cloning across 10 languages"),
             ("good",  "MLX 8-bit keeps the larger model practical on Apple Silicon"),
             ("weak",  "Slower and roughly 1 GB larger than the 0.6B Base tier"),
-            ("avoid", "8 GB cloning workers must route to an eligible 16 GB or 24 GB machine; 0.6B Base is also 16 GB minimum"),
+            ("avoid", "8 GB cloning workers must route to an eligible 16 GB or 24 GB machine; use the 0.6B Base production model on 8 GB."),
         ),
         section_size_control=SectionSizeControl(
             230, 400, 1, 280, 280, "qwen3-17b-production-v2-audit"

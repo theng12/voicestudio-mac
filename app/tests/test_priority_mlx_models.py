@@ -157,19 +157,19 @@ def test_unqualified_fish_memory_never_renders_as_a_numeric_fit_claim() -> None:
     assert ".fit-dot.fit-unqualified" in styles
 
 
-def test_qualified_qwen_base_uses_official_identity_and_safe_hardware_floor() -> None:
+def test_qwen_06b_base_is_the_8gb_production_voice_generator() -> None:
     model = catalog.get_model(
         "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
     )
     assert model is not None
     assert model.label == "Qwen3-TTS 0.6B Base"
-    assert model.min_unified_memory_gb == 16
+    assert model.min_unified_memory_gb == 8
     assert model.languages == (
         "en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it",
     )
-    assert "24 GB preferred" in model.recommended_hardware
+    assert "8 GB" in model.recommended_hardware
     assert any(
-        kind == "avoid" and "8 GB" in text
+        kind == "good" and "8 GB" in text
         for kind, text in model.use_cases
     )
 
