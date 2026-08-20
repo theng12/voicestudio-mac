@@ -119,6 +119,10 @@ def test_default_is_off_and_idle_only(updater: AutoUpdater):
         "idle_only": True, "weekday": 6,
     }
     assert updater.public_status()["scheduler"]["installed"] is False
+    assert updater.public_status()["capabilities"] == {
+        "managed_exact_commit": True,
+        "dependency_convergence": 1,
+    }
 
 
 def test_settings_modes_install_and_remove_schedule(updater: AutoUpdater):
@@ -399,16 +403,12 @@ def test_readiness_failure_remains_nonblocking_for_ordinary_updates(
     assert updater.readiness_reasons(fail_closed=True)
 
 
-def test_generation_dependency_refresh_uses_voice_source_requirements(
+def test_dependency_refresh_delegates_to_the_fixed_convergence_command(
     updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch
 ):
-    source = updater.root / "app" / "requirements-generation.txt"
-    source.write_text("mlx-audio>=0.1\n")
-    marker = updater.root / "conda_env" / "lib" / "python3.12" / "site-packages" / "mlx_audio"
-    marker.mkdir(parents=True)
-    updater.spec["generation_marker"] = "mlx_audio"
+    (updater.root / "app" / "backend").mkdir()
+    (updater.root / "app" / "backend" / "dependency_convergence.py").write_text("\n")
     calls = []
-    monkeypatch.setattr(updater, "_pinokio_home", lambda: updater.root.parent.parent)
     monkeypatch.setattr(
         updater,
         "_run",
@@ -418,9 +418,83 @@ def test_generation_dependency_refresh_uses_voice_source_requirements(
 
     updater._install_dependencies()
 
-    requirement_paths = [call[call.index("-r") + 1] for call in calls if "-r" in call]
-    assert str(source) in requirement_paths
-    assert not any(path.endswith("requirements-generation.lock.txt") for path in requirement_paths)
+    assert calls == [[
+        str(updater.root / "conda_env" / "bin" / "python"), "-m",
+        "backend.dependency_convergence", "all-installed",
+    ]]
+
+
+def test_ordinary_refresh_refuses_a_missing_convergence_module(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        updater,
+        "_run",
+        lambda args, **_kwargs: calls.append(args) or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+
+    with pytest.raises(UpdateError, match="convergence command is unavailable"):
+        updater._install_dependencies()
+
+    assert calls == []
+
+
+def test_convergence_failure_rolls_back_and_restores_a_pre_bridge_tree(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch,
+):
+    """Rollback must restore dependencies after the bridge module disappears."""
+    bridge = updater.root / "app" / "backend" / "dependency_convergence.py"
+    bridge.parent.mkdir()
+    bridge.write_text("\n")
+    old_sha = "a" * 40
+    new_sha = "b" * 40
+    head = old_sha
+    commands = []
+
+    def runner(args, **_kwargs):
+        commands.append(args)
+        if args[1:4] == ["-m", "backend.dependency_convergence", "all-installed"]:
+            return subprocess.CompletedProcess(args, 1, "", "ffmpeg failed")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    def git(*args, **_kwargs):
+        nonlocal head
+        if args == ("merge", "--ff-only", new_sha):
+            head = new_sha
+        elif args == ("rev-parse", "HEAD"):
+            return head
+        elif args == ("status", "--porcelain", "--untracked-files=normal"):
+            return ""
+        elif args == ("read-tree", "--reset", "-u", old_sha):
+            bridge.unlink()
+            head = old_sha
+        return ""
+
+    updater.runner = runner
+    monkeypatch.setattr(updater, "readiness_reasons", lambda **_kwargs: [])
+    monkeypatch.setattr(updater, "active_mode", lambda: "stopped")
+    monkeypatch.setattr(updater, "_git_preflight", lambda **_kwargs: {
+        "local": old_sha, "remote": new_sha, "latest": "2.0.0", "available": True,
+    })
+    monkeypatch.setattr(updater, "_git", git)
+    monkeypatch.setattr(updater, "_stop_mode", lambda _mode: None)
+    monkeypatch.setattr(updater, "_verify_import", lambda _version: None)
+    restarted = []
+    monkeypatch.setattr(updater, "_start_mode", lambda selected: restarted.append(selected))
+    monkeypatch.setattr(updater, "_verify_health", lambda *_args: True)
+
+    with pytest.raises(UpdateError, match="ffmpeg failed"):
+        updater.update()
+
+    assert commands == [
+        [str(updater.root / "conda_env" / "bin" / "python"), "-m",
+         "backend.dependency_convergence", "all-installed"],
+        [str(updater.root / "conda_env" / "bin" / "python"), "-m", "pip", "install", "-r",
+         str(updater.root / "app" / "requirements.txt")],
+    ]
+    assert updater.public_status()["rollback"] == "succeeded"
+    assert restarted == ["stopped"]
 
 
 @pytest.mark.parametrize("version", ["1.2", "01.2.3", "1.2.3.4", "1.2.3+build.1"])

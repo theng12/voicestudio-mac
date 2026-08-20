@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.4.2] — 2026-08-20
+
+### Fixed
+
+- Local Pinokio updates and controller-driven updates now share one fixed
+  dependency convergence command: it installs and verifies `ffmpeg` and
+  `ffprobe`, refreshes the base requirements, and verifies the generation stack
+  when that stack is already installed.
+
+### Changed
+
+- Optional generation remains an explicit install and is refreshed only on
+  installed-generation machines; normal updates do not download models or
+  create a generation environment. No model or live machine changed.
+
 ## [2.4.1] — 2026-08-20
 
 ### Fixed

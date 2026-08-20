@@ -325,7 +325,7 @@ class AutoUpdater:
             "rollback": str(status.get("rollback") or "")[:32] or None,
             "pending_manual": bool(status.get("pending_manual")),
             "managed_update": self._active_managed_request(status),
-            "capabilities": {"managed_exact_commit": True},
+            "capabilities": {"managed_exact_commit": True, "dependency_convergence": 1},
             "settings": settings,
             "installed_version": installed,
             "update_available": bool(latest and latest != installed),
@@ -712,12 +712,21 @@ class AutoUpdater:
 
     def _install_dependencies(self) -> None:
         python = self._python()
-        uv = self._pinokio_home() / "bin" / "miniforge" / "bin" / "uv"
-        base = self.root / "app" / self.spec.get("requirements", "requirements.txt")
+        module = self.root / "app" / "backend" / "dependency_convergence.py"
+        if not module.is_file():
+            raise UpdateError("Dependency convergence command is unavailable.")
+        self._run(
+            [str(python), "-m", "backend.dependency_convergence", "all-installed"],
+            cwd=self.root / "app", timeout=1800,
+        )
+
+    def _restore_rollback_dependencies(self) -> None:
+        """Restore an older rollback tree that predates dependency convergence."""
+        python = self._python()
+        base = self.root / "app" / "requirements.txt"
         if not base.is_file():
             raise UpdateError("Base requirements file is missing.")
-        prefix = [str(uv), "pip", "install", "--python", str(python)] if uv.is_file() \
-                 else [str(python), "-m", "pip", "install"]
+        prefix = [str(python), "-m", "pip", "install"]
         self._run([*prefix, "-r", str(base)], cwd=self.root / "app", timeout=1200)
         marker = self.spec.get("generation_marker")
         generation = self.root / "app" / self.spec.get(
@@ -780,7 +789,11 @@ class AutoUpdater:
             # exists in the worktree.
             self._git("read-tree", "--reset", "-u", old_sha)
             self._git("update-ref", "refs/heads/main", old_sha, new_sha)
-            self._install_dependencies()
+            module = self.root / "app" / "backend" / "dependency_convergence.py"
+            if module.is_file():
+                self._install_dependencies()
+            else:
+                self._restore_rollback_dependencies()
             self._verify_import(old_version)
             self._start_mode(mode)
             return self._verify_health(mode, old_version, old_sha)

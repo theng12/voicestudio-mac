@@ -86,12 +86,23 @@ def test_generation_and_transcription_capabilities_publish_safe_media_facts(
     assert str(ROOT) not in str(transcription_status.get("media"))
 
 
-def test_new_and_existing_installs_install_managed_ffmpeg() -> None:
-    """Both normal launcher flows must provision the same Conda media tools."""
-    for launcher in ("install.js", "update.js"):
+def test_launchers_delegate_dependency_convergence_without_duplicated_installs() -> None:
+    """Every launcher owns its workflow while the bridge owns dependency commands."""
+    expected_modes = {
+        "install.js": "base",
+        "update.js": "all-installed",
+        "install_generation.js": "generation",
+    }
+    for launcher, mode in expected_modes.items():
         source = (ROOT / launcher).read_text(encoding="utf-8")
-        assert "conda install -y -c conda-forge ffmpeg" in source
-        assert "ffmpeg -version && ffprobe -version" in source
-        assert source.index("conda install -y -c conda-forge ffmpeg") < source.index(
-            "ffmpeg -version && ffprobe -version"
-        )
+        assert source.count("backend.dependency_convergence") == 1
+        assert f"python -m backend.dependency_convergence {mode}" in source
+        assert "conda install" not in source
+        assert "uv pip install -r requirements" not in source
+        assert "GEN_VERIFY_OK" not in source
+
+    for launcher in ("update.js", "install_generation.js"):
+        source = (ROOT / launcher).read_text(encoding="utf-8")
+        assert "script.stop" in source
+        assert "install_service.sh" in source
+        assert 'uri: "start.js"' in source

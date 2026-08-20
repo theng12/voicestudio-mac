@@ -1,17 +1,14 @@
 // Heavy install: adds the generation stack to the existing conda_env. Required
 // for any generation endpoint to work. Safe to run more than once.
 //
-// SOURCE-FIRST (not the lock): install from `requirements-generation.txt`, the
-// authoritative range file that actually lists the heavy deps. We deliberately
-// do NOT install `requirements-generation.lock.txt` — a drifted lock once
-// shipped containing ONLY base web-server packages, so "Install Generation"
-// installed nothing, generation silently never worked, and the UI still
-// reported success. Installing from source can't have that failure mode.
+// SOURCE-FIRST (not the lock): the fixed convergence command installs from
+// `requirements-generation.txt`, the authoritative range file that actually
+// lists the heavy deps. We deliberately do NOT use
+// `requirements-generation.lock.txt` — a drifted lock once shipped containing
+// ONLY base web-server packages, so "Install Generation" installed nothing.
 //
-// VERIFY-THEN-NOTIFY: after installing we import the key modules. A failure
-// prints a traceback, the matcher breaks the run, and the success notify never
-// fires. The old script fired it unconditionally — telling users it worked even
-// on total failure.
+// VERIFY-THEN-NOTIFY: the fixed command imports the key modules after
+// installation. A failure ends this run before the success notification.
 //
 // Restart flow: stop the server first so its Python re-imports the freshly
 // installed packages, then restart whichever server this machine runs (launchd
@@ -32,19 +29,8 @@ module.exports = {
         path: "app",
         conda: { "path": "{{path.resolve(cwd, 'conda_env')}}" },
         message: [
-          "uv pip install -r requirements-generation.txt"
+          "python -m backend.dependency_convergence generation"
         ]
-      }
-    },
-    {
-      method: "shell.run",
-      params: {
-        path: "app",
-        conda: { "path": "{{path.resolve(cwd, 'conda_env')}}" },
-        message: [
-          "python -c \"import torch, torchaudio, transformers, diffusers, mlx, mlx_lm, mlx_audio, mistral_common, f5_tts, fugashi, jieba; from importlib.metadata import version; from misaki.ja import JAG2P; from misaki.zh import ZHG2P; assert version('mistral-common') == '1.11.5'; JAG2P(); ZHG2P(); print('GEN_VERIFY_OK')\" 2>&1"
-        ],
-        on: [{ event: "/(ModuleNotFoundError|ImportError|Traceback)/", break: true }]
       }
     },
     {

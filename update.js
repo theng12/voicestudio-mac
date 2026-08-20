@@ -26,31 +26,15 @@ module.exports = {
       params: { message: "git pull" }
     },
     {
-      // Base deps (always).
+      // Base deps, ffmpeg, and the generation stack when it was already
+      // installed. The fixed app command keeps normal updates model-neutral.
       when: "{{exists('conda_env')}}",
       method: "shell.run",
       params: {
         path: "app",
         conda: { "path": "{{path.resolve(cwd, 'conda_env')}}" },
         message: [
-          "conda install -y -c conda-forge ffmpeg",
-          "ffmpeg -version && ffprobe -version",
-          "python -m pip install --upgrade pip",
-          "uv pip install -r requirements.txt"
-        ]
-      }
-    },
-    {
-      // Generation deps — ONLY if generation is installed here. This is what
-      // makes an ML-dep bump land on the SAME Update click (no separate
-      // "Reinstall Generation").
-      when: "{{exists('conda_env/lib/python3.12/site-packages/diffusers')}}",
-      method: "shell.run",
-      params: {
-        path: "app",
-        conda: { "path": "{{path.resolve(cwd, 'conda_env')}}" },
-        message: [
-          "uv pip install -r requirements-generation.txt"
+          "python -m backend.dependency_convergence all-installed"
         ]
       }
     },
@@ -69,20 +53,6 @@ module.exports = {
       when: "{{!exists('service/.installed')}}",
       method: "script.start",
       params: { uri: "start.js" }
-    },
-    {
-      // Verify generation still imports (if installed). A failure breaks the run
-      // here → the success notify is withheld and the terminal shows the error.
-      when: "{{exists('conda_env/lib/python3.12/site-packages/diffusers')}}",
-      method: "shell.run",
-      params: {
-        path: "app",
-        conda: { "path": "{{path.resolve(cwd, 'conda_env')}}" },
-        message: [
-          "python -c \"import torch, torchaudio, transformers, diffusers, mlx, mlx_lm, mlx_audio, mistral_common, f5_tts; from importlib.metadata import version; assert version('mistral-common') == '1.11.5'; print('GEN_VERIFY_OK')\" 2>&1"
-        ],
-        on: [{ event: "/(ModuleNotFoundError|ImportError|Traceback)/", break: true }]
-      }
     },
     {
       method: "notify",

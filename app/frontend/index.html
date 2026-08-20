@@ -2688,6 +2688,7 @@
         <div><span class="models-eyebrow">Release notes</span><h2 id="whats-new-title">What's New</h2><p class="muted" x-text="releaseNotes.length ? 'Installed version: v' + releaseNotesCurrent : 'Loading release notes…'"></p></div>
         <button class="ghost" @click="showWhatsNew=false" aria-label="Close release notes">Close</button>
       </div>
+      <p class="muted" x-show="releaseNotesCurrent==='2.4.2'">This release unifies local and controller dependency convergence; optional generation stays installed-only, with no model or live-machine change.</p>
       <template x-if="!releaseNotes.length"><p class="release-empty">Release details are loading. If this stays empty, the installed changelog is unavailable.</p></template>
       <template x-for="release in releaseNotes" :key="release.version + release.heading">
         <article class="release-entry">

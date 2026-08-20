@@ -12,12 +12,7 @@ module.exports = {
           "python": "python=3.12"
         },
         message: [
-          "conda install -y -c conda-forge ffmpeg",
-          "ffmpeg -version && ffprobe -version",
-          "python -m pip install --upgrade pip",
-          // Install from the fully-pinned lock so a fresh machine gets the exact
-          // verified package set (see the lock's header for the upgrade flow).
-          "uv pip install -r requirements.lock.txt"
+          "python -m backend.dependency_convergence base"
         ]
       }
     }

@@ -17,13 +17,12 @@ def test_installed_version_has_a_truthful_whats_new_entry() -> None:
     release_metadata_check.validate_current_release()
 
 
-def test_service_and_qwen_base_fix_is_versioned_as_2_4_1() -> None:
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.4.1"
+def test_dependency_convergence_bridge_is_versioned_as_2_4_2() -> None:
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.4.2"
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert "## [2.4.1] — 2026-08-20" in changelog
-    assert "Qwen3-TTS 0.6B Base" in changelog
-    assert "Pinokio autolaunch" in changelog
-    assert "Whisper quality guardrail" in changelog
+    assert "## [2.4.2] — 2026-08-20" in changelog
+    assert "installed-generation" in changelog
+    assert "No model or live machine changed" in changelog
 
 
 def test_worktree_product_changes_require_release_metadata() -> None:
