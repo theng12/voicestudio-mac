@@ -1,6 +1,7 @@
 conda_env/
 cache/
 logs/
+/ENVIRONMENT
 app/output/
 app/uploads/
 app/voices/

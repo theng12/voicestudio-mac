@@ -4,6 +4,14 @@ module.exports = {
   },
   run: [
     {
+      when: "{{!exists('ENVIRONMENT')}}",
+      method: "fs.copy",
+      params: {
+        src: "ENVIRONMENT.example",
+        dest: "ENVIRONMENT"
+      }
+    },
+    {
       method: "shell.run",
       params: {
         path: "app",

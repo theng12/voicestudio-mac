@@ -4,6 +4,7 @@ import datetime as dt
 from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import threading
@@ -52,6 +53,56 @@ def _spec(root: Path) -> dict:
         "server_label": "com.kh.voicestudio.server",
         "watchdog_label": "com.kh.voicestudio.watchdog",
     }
+
+
+def _commit_all(root: Path, message: str) -> str:
+    subprocess.run(
+        ["git", "-C", str(root), "add", "-A"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", message],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _runtime_state_rollback_repository(tmp_path: Path) -> tuple[Path, str, str]:
+    root = tmp_path / "voicestudio-mac.git"
+    subprocess.run(
+        ["git", "init", "-b", "main", str(root)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "test@example.invalid"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.name", "Test User"],
+        check=True,
+    )
+    (root / ".gitignore").write_text("logs/\nauto_update/\n", encoding="utf-8")
+    (root / "ENVIRONMENT").write_bytes(b"HF_HOME=./cache/HF_HOME\n")
+    old_sha = _commit_all(root, "legacy tracked environment")
+
+    (root / "ENVIRONMENT").unlink()
+    (root / "ENVIRONMENT.example").write_bytes(b"HF_HOME=./cache/HF_HOME\n")
+    (root / ".gitignore").write_text(
+        "logs/\nauto_update/\n/ENVIRONMENT\n", encoding="utf-8",
+    )
+    new_sha = _commit_all(root, "machine-local environment")
+    return root, old_sha, new_sha
 
 
 def test_linked_worktree_gitfile_is_accepted(tmp_path: Path):
@@ -123,6 +174,39 @@ def test_default_is_off_and_idle_only(updater: AutoUpdater):
         "managed_exact_commit": True,
         "dependency_convergence": 1,
     }
+
+
+def test_git_preserves_porcelain_status_columns(updater: AutoUpdater):
+    updater.runner = lambda *_args, **_kwargs: subprocess.CompletedProcess(
+        [], 0, " M ENVIRONMENT\n", "",
+    )
+
+    assert updater._git("status", "--porcelain") == " M ENVIRONMENT"
+
+
+def test_dirty_checkout_renders_environment_without_truncating_the_first_letter(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch,
+):
+    def runner(args, **_kwargs):
+        command = tuple(args[1:])
+        if command == ("remote", "get-url", "origin"):
+            output = updater.spec["expected_remote"] + "\n"
+        elif command[:3] == ("symbolic-ref", "--quiet", "--short"):
+            output = "main\n"
+        elif command[:2] == ("status", "--porcelain"):
+            output = " M ENVIRONMENT\n"
+        else:
+            raise AssertionError(command)
+        return subprocess.CompletedProcess(args, 0, output, "")
+
+    updater.runner = runner
+
+    with pytest.raises(UpdateError) as excinfo:
+        updater._git_preflight(fetch=False)
+
+    assert str(excinfo.value) == (
+        "Working tree has local changes: ENVIRONMENT. Commit or remove them before updating."
+    )
 
 
 def test_settings_modes_install_and_remove_schedule(updater: AutoUpdater):
@@ -495,6 +579,129 @@ def test_convergence_failure_rolls_back_and_restores_a_pre_bridge_tree(
     ]
     assert updater.public_status()["rollback"] == "succeeded"
     assert restarted == ["stopped"]
+
+
+def test_rollback_to_legacy_commit_preserves_machine_environment_bytes_and_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    root, old_sha, new_sha = _runtime_state_rollback_repository(tmp_path)
+    machine_environment = b"HF_HOME=/Volumes/Models\r\nCUSTOM_SETTING=keep\n"
+    environment = root / "ENVIRONMENT"
+    environment.write_bytes(machine_environment)
+    environment.chmod(0o640)
+    updater = AutoUpdater(_spec(root))
+    monkeypatch.setattr(updater, "_stop_mode", lambda _mode: None)
+    monkeypatch.setattr(updater, "_restore_rollback_dependencies", lambda: None)
+    monkeypatch.setattr(updater, "_verify_import", lambda _version: None)
+    monkeypatch.setattr(updater, "_start_mode", lambda _mode: None)
+    monkeypatch.setattr(updater, "_verify_health", lambda *_args: True)
+
+    assert updater._rollback(old_sha, new_sha, "stopped", "2.4.2") is True
+
+    assert environment.read_bytes() == machine_environment
+    assert stat.S_IMODE(environment.stat().st_mode) == 0o640
+    assert subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() == old_sha
+    assert subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=normal"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout == " M ENVIRONMENT\n"
+
+
+def test_rollback_read_tree_failure_restores_machine_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    root, old_sha, new_sha = _runtime_state_rollback_repository(tmp_path)
+    machine_environment = b"HF_HOME=/Volumes/Models\nCUSTOM_SETTING=keep\n"
+    environment = root / "ENVIRONMENT"
+    environment.write_bytes(machine_environment)
+    environment.chmod(0o600)
+    updater = AutoUpdater(_spec(root))
+    real_git = updater._git
+
+    def fail_after_read_tree(*args, **kwargs):
+        result = real_git(*args, **kwargs)
+        if args == ("read-tree", "--reset", "-u", old_sha):
+            raise UpdateError("simulated failure after worktree mutation")
+        return result
+
+    monkeypatch.setattr(updater, "_git", fail_after_read_tree)
+    monkeypatch.setattr(updater, "_stop_mode", lambda _mode: None)
+
+    assert updater._rollback(old_sha, new_sha, "stopped", "2.4.2") is False
+
+    assert environment.read_bytes() == machine_environment
+    assert stat.S_IMODE(environment.stat().st_mode) == 0o600
+    assert subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() == new_sha
+    assert not list(root.glob(".ENVIRONMENT.rollback.*.tmp"))
+
+
+def test_rollback_preparation_failure_after_move_restores_machine_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    root, old_sha, new_sha = _runtime_state_rollback_repository(tmp_path)
+    machine_environment = b"HF_HOME=/Volumes/Models\nCUSTOM_SETTING=keep\n"
+    environment = root / "ENVIRONMENT"
+    environment.write_bytes(machine_environment)
+    environment.chmod(0o640)
+    updater = AutoUpdater(_spec(root))
+    real_replace = os.replace
+
+    def fail_after_environment_move(source, destination):
+        real_replace(source, destination)
+        if Path(source) == environment and Path(destination).name.startswith(
+            ".ENVIRONMENT.rollback."
+        ):
+            raise OSError("simulated failure after moving machine state")
+
+    monkeypatch.setattr("backend.auto_update.os.replace", fail_after_environment_move)
+    monkeypatch.setattr(updater, "_stop_mode", lambda _mode: None)
+
+    assert updater._rollback(old_sha, new_sha, "stopped", "2.4.2") is False
+
+    assert environment.read_bytes() == machine_environment
+    assert stat.S_IMODE(environment.stat().st_mode) == 0o640
+    assert subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() == new_sha
+    assert not list(root.glob(".ENVIRONMENT.rollback.*.tmp"))
+
+
+def test_rollback_refuses_symlinked_machine_environment_without_touching_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    root, old_sha, new_sha = _runtime_state_rollback_repository(tmp_path)
+    target = tmp_path / "operator-settings"
+    target.write_bytes(b"SECRET_SETTING=keep\n")
+    environment = root / "ENVIRONMENT"
+    environment.symlink_to(target)
+    updater = AutoUpdater(_spec(root))
+    monkeypatch.setattr(updater, "_stop_mode", lambda _mode: None)
+
+    assert updater._rollback(old_sha, new_sha, "stopped", "2.4.2") is False
+
+    assert environment.is_symlink()
+    assert target.read_bytes() == b"SECRET_SETTING=keep\n"
+    assert subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() == new_sha
 
 
 @pytest.mark.parametrize("version", ["1.2", "01.2.3", "1.2.3.4", "1.2.3+build.1"])

@@ -71,6 +71,12 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
    and safe removal actions. Existing Hugging Face downloads are indexed in
    place and are never moved or downloaded again just to appear in this view.
 
+`ENVIRONMENT.example` contains the shipped defaults. Pinokio creates the ignored,
+machine-local `ENVIRONMENT` on first Install or Start, and the startup-service
+installer creates it when needed. Existing machine values are never replaced by
+these seed steps, so updates preserve cache, sharing, custom model-directory,
+and startup-ownership settings.
+
 ### Local-only boundary
 
 Voice Studio synthesises with local Apple Silicon engines only. The former
@@ -167,7 +173,10 @@ fast-forward update, and enough disk space. Local edits are never discarded.
 After dependencies install, Voice Studio must pass its import check, health
 endpoint, and running-version check before success is reported. A failed update
 makes one bounded rollback attempt and clearly reports whether the previous
-version recovered. Technical logs are rotated under `logs/auto_update/`.
+version recovered. During the one-time transition from legacy tracked defaults,
+rollback preserves the exact regular machine-local `ENVIRONMENT`; unsafe
+symlink or non-file paths are refused. Technical logs are rotated under
+`logs/auto_update/`.
 
 Saving preferences validates the LaunchAgent separately; the Settings panel says
 **Installed & verified** only after launchd accepts it. Turning the mode Off
@@ -418,7 +427,8 @@ voicestudio-mac/
 ├── reset.js            # Nuke the conda env
 ├── pinokio.js          # Sidebar menu
 ├── pinokio.json        # Pinokio metadata
-└── ENVIRONMENT         # HF_HOME and share-proxy config
+├── ENVIRONMENT.example # tracked defaults
+└── ENVIRONMENT         # ignored per-machine settings, created on first use
 ```
 
 ## Ports

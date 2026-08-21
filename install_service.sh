@@ -16,6 +16,19 @@ WD="com.kh.voicestudio.watchdog"
 PORT=47870
 APPNAME="Voice Studio KH"
 
+seed_environment() {
+  local template_file="$1"
+  local environment_file="$2"
+  if [ -e "$environment_file" ] || [ -L "$environment_file" ]; then
+    return 0
+  fi
+  if [ ! -f "$template_file" ]; then
+    echo "Missing environment template: $template_file" >&2
+    return 1
+  fi
+  cp "$template_file" "$environment_file"
+}
+
 mkdir -p "$LA" "$ROOT/logs/service" "$ROOT/service"
 chmod +x "$ROOT/voicestudio-serve.sh" "$ROOT/voicestudio-watchdog.sh"
 
@@ -87,9 +100,11 @@ _bootstrap() { launchctl bootstrap "gui/$UID_NUM" "$1" 2>/dev/null || { sleep 1;
 _bootstrap "$LA/$SRV.plist"
 _bootstrap "$LA/$WD.plist"
 
-# launchd owns this app once the service has bootstrapped. Disable Pinokio's
+# launchd owns this app once the service has bootstrapped. Seed the machine file
+# without overwriting existing values, then disable Pinokio's
 # login autolaunch and inherited cross-Studio requirements in one replacement
 # so no other owner can start this fixed-port server. Keep unrelated settings.
+seed_environment "$ROOT/ENVIRONMENT.example" "$ROOT/ENVIRONMENT"
 python3 - "$ROOT/ENVIRONMENT" <<'PY'
 import os
 import stat

@@ -19,6 +19,7 @@ import plistlib
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -442,7 +443,7 @@ class AutoUpdater:
 
     def _git(self, *args: str, timeout: int = 120, check: bool = True) -> str:
         result = self._run(["/usr/bin/git", *args], timeout=timeout, check=check)
-        return result.stdout.strip()
+        return result.stdout.rstrip("\r\n")
 
     def _pinokio_home(self) -> Path:
         # Every supported checkout is PINOKIO_HOME/api/<app>. Resolve from the
@@ -777,6 +778,67 @@ class AutoUpdater:
         return (self._temporary_health(expected, expected_commit) if mode == "stopped"
                 else self._health(expected, expected_commit))
 
+    def _hide_machine_environment_for_rollback(
+        self, old_sha: str, new_sha: str,
+    ) -> Optional[Path]:
+        """Move machine state aside only while crossing back to a tracked template."""
+        if self._git("ls-tree", "--name-only", new_sha, "--", "ENVIRONMENT"):
+            return None
+        if self._git("ls-tree", "--name-only", old_sha, "--", "ENVIRONMENT") != "ENVIRONMENT":
+            return None
+        environment = self.root / "ENVIRONMENT"
+        try:
+            info = environment.lstat()
+        except FileNotFoundError:
+            return None
+        if stat.S_ISLNK(info.st_mode):
+            raise UpdateError("Refusing rollback with a symlinked ENVIRONMENT file.")
+        if not stat.S_ISREG(info.st_mode):
+            raise UpdateError("Refusing rollback with a non-file ENVIRONMENT path.")
+
+        backup = self.root / (
+            f".ENVIRONMENT.rollback.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(backup, flags, 0o600)
+        os.close(fd)
+        reservation = backup.lstat()
+        try:
+            os.replace(environment, backup)
+            if not stat.S_ISREG(backup.lstat().st_mode):
+                os.replace(backup, environment)
+                raise UpdateError("ENVIRONMENT changed during rollback preparation.")
+        except Exception as exc:
+            try:
+                backup_info = backup.lstat()
+            except FileNotFoundError:
+                backup_info = None
+            if backup_info is not None and not os.path.samestat(reservation, backup_info):
+                if environment.exists() or environment.is_symlink():
+                    raise UpdateError(
+                        f"Machine ENVIRONMENT is retained at {backup}; manual restore required."
+                    ) from exc
+                try:
+                    os.replace(backup, environment)
+                except OSError as restore_exc:
+                    raise UpdateError(
+                        f"Machine ENVIRONMENT is retained at {backup}; manual restore required."
+                    ) from restore_exc
+            elif backup_info is not None:
+                backup.unlink()
+            raise
+        return backup
+
+    def _restore_machine_environment_after_rollback(self, backup: Path) -> None:
+        if not stat.S_ISREG(backup.lstat().st_mode):
+            raise UpdateError(f"Unsafe rollback backup retained at {backup}.")
+        try:
+            os.replace(backup, self.root / "ENVIRONMENT")
+        except OSError as exc:
+            raise UpdateError(
+                f"Machine ENVIRONMENT is retained at {backup}; manual restore required."
+            ) from exc
+
     def _rollback(self, old_sha: str, new_sha: str, mode: str, old_version: str) -> bool:
         try:
             self._stop_mode(mode)
@@ -787,7 +849,12 @@ class AutoUpdater:
             # Move only the updater-applied clean tree back. This is deliberately
             # not `git reset --hard`, and it runs only after proving no user edit
             # exists in the worktree.
-            self._git("read-tree", "--reset", "-u", old_sha)
+            environment_backup = self._hide_machine_environment_for_rollback(old_sha, new_sha)
+            try:
+                self._git("read-tree", "--reset", "-u", old_sha)
+            finally:
+                if environment_backup is not None:
+                    self._restore_machine_environment_after_rollback(environment_backup)
             self._git("update-ref", "refs/heads/main", old_sha, new_sha)
             module = self.root / "app" / "backend" / "dependency_convergence.py"
             if module.is_file():

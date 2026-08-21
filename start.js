@@ -2,6 +2,14 @@ module.exports = {
   daemon: true,
   run: [
     {
+      when: "{{!exists('ENVIRONMENT')}}",
+      method: "fs.copy",
+      params: {
+        src: "ENVIRONMENT.example",
+        dest: "ENVIRONMENT"
+      }
+    },
+    {
       method: "shell.run",
       params: {
         path: "app",
@@ -9,6 +17,7 @@ module.exports = {
           "path": "{{path.resolve(cwd, 'conda_env')}}"
         },
         env: {
+          "HF_HOME": "{{envs.HF_HOME || path.resolve(cwd, 'cache/HF_HOME')}}",
           "PYTHONUNBUFFERED": "1"
         },
         message: [

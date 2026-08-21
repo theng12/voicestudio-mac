@@ -10,6 +10,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 
 ---
 
+## [2.4.3] — 2026-08-21
+
+### Fixed
+
+- The tracked defaults now live in `ENVIRONMENT.example`, while the live
+  `ENVIRONMENT` file is ignored as machine-local state. Install, Start, and the
+  startup-service installer seed it only when absent, preserving existing cache,
+  sharing, custom model-directory, and startup-ownership values across updates.
+- Automatic-update Git parsing now preserves porcelain status columns, so a
+  dirty `ENVIRONMENT` is reported by its complete name instead of the truncated
+  `NVIRONMENT`, while every unknown local change remains a hard stop.
+- A rollback from the new ignored machine-state layout to a legacy release that
+  tracked `ENVIRONMENT` now preserves the exact regular-file bytes and mode. A
+  symlink or non-file is refused, and restoration also runs when Git rollback
+  fails after touching the worktree.
+
+### Changed
+
+- The existing atomic service-ownership normalization, dependency convergence,
+  rollback safeguards, and model-neutral update behavior are unchanged. This
+  release adds no dependency and downloads or changes no model.
+
 ## [2.4.2] — 2026-08-20
 
 ### Fixed

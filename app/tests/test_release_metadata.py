@@ -18,11 +18,18 @@ def test_installed_version_has_a_truthful_whats_new_entry() -> None:
 
 
 def test_dependency_convergence_bridge_is_versioned_as_2_4_2() -> None:
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.4.2"
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "## [2.4.2] — 2026-08-20" in changelog
     assert "installed-generation" in changelog
     assert "No model or live machine changed" in changelog
+
+
+def test_runtime_state_migration_is_versioned_as_2_4_3() -> None:
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.4.3"
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## [2.4.3] — 2026-08-21" in changelog
+    assert "ENVIRONMENT.example" in changelog
+    assert "NVIRONMENT" in changelog
 
 
 def test_worktree_product_changes_require_release_metadata() -> None:
