@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from concurrent.futures import ThreadPoolExecutor
 import os
+import plistlib
 from pathlib import Path
 import stat
 import subprocess
@@ -215,6 +216,61 @@ def test_settings_modes_install_and_remove_schedule(updater: AutoUpdater):
     status = _save(updater, "off")
     assert status["scheduler"]["installed"] is False
     assert status["next_check"] is None
+
+
+def test_launchagent_uses_named_conda_wrapper_and_off_removes_both(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    updater.agent_path = tmp_path / "com.kh.voicestudio-test.updater.plist"
+    loaded = False
+
+    def launchctl(*args):
+        nonlocal loaded
+        if args[0] == "bootstrap":
+            loaded = True
+        elif args[0] == "bootout":
+            loaded = False
+        return subprocess.CompletedProcess(
+            args, 0 if (args[0] != "print" or loaded) else 1, "", ""
+        )
+
+    monkeypatch.setattr(updater, "_launchctl", launchctl)
+    monkeypatch.setattr(updater, "_pinokio_home", lambda: tmp_path)
+    monkeypatch.setattr(updater, "scheduler_status", lambda: {
+        "installed": loaded, "supported": True, "label": updater.agent_label,
+    })
+
+    _save(updater, "notify")
+    AutoUpdater.apply_scheduler(updater)
+    payload = plistlib.loads(updater.agent_path.read_bytes())
+    assert payload["ProgramArguments"] == [str(updater.wrapper_path)]
+    assert updater.wrapper_path.name == "voicestudio-test-updater.sh"
+    assert updater.wrapper_path.read_text() == (
+        "#!/bin/sh\n"
+        f"exec {updater.root / 'conda_env' / 'bin' / 'python'} -m backend.auto_update --scheduled\n"
+    )
+    assert updater.wrapper_path.stat().st_mode & 0o777 == 0o700
+
+    updater.save_settings({
+        "mode": "off", "frequency": "daily", "maintenance_hour": 2,
+        "idle_only": True,
+    })
+    final = AutoUpdater.apply_scheduler(updater)
+    assert final["installed"] is False
+    assert not updater.agent_path.exists()
+    assert not updater.wrapper_path.exists()
+
+
+def test_scheduler_reconciliation_does_not_run_while_update_lock_is_held(
+    updater: AutoUpdater, monkeypatch: pytest.MonkeyPatch,
+):
+    calls = []
+    monkeypatch.setattr(updater, "apply_scheduler", lambda: calls.append("bootout"))
+
+    with updater._exclusive_lock():
+        assert updater.apply_scheduler_if_idle() is False
+
+    assert calls == []
 
 
 def test_invalid_settings_are_rejected(updater: AutoUpdater):

@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import shlex
 import shutil
 import socket
 import stat
@@ -48,6 +49,10 @@ class UpdateError(RuntimeError):
 
 class UpdateDeferred(UpdateError):
     """Work is active, so the update must be retried later."""
+
+
+class _UpdateBusy(UpdateError):
+    """The updater lock is already held by another update process."""
 
 
 def _utc_now() -> dt.datetime:
@@ -115,6 +120,7 @@ class AutoUpdater:
         self.log_dir = self.root / "logs" / "auto_update"
         self.agent_label = f"com.kh.{self.spec['slug']}.updater"
         self.agent_path = Path.home() / "Library" / "LaunchAgents" / f"{self.agent_label}.plist"
+        self.wrapper_path = self.state_dir / f"{self.spec['slug']}-updater.sh"
         self._thread_lock = threading.Lock()
         self._admission_thread_lock = threading.Lock()
         self._validate_spec()
@@ -377,12 +383,9 @@ class AutoUpdater:
         return self.public_status()
 
     def _plist(self) -> bytes:
-        python = self.root / "conda_env" / "bin" / "python"
-        if not python.is_file():
-            python = Path(sys.executable)
         payload = {
             "Label": self.agent_label,
-            "ProgramArguments": [str(python), "-m", "backend.auto_update", "--scheduled"],
+            "ProgramArguments": [str(self.wrapper_path)],
             "WorkingDirectory": str(self.root / "app"),
             "RunAtLoad": True,
             "StartInterval": 900,
@@ -397,6 +400,32 @@ class AutoUpdater:
         }
         return plistlib.dumps(payload, sort_keys=True)
 
+    def _write_wrapper(self) -> None:
+        python = self.root / "conda_env" / "bin" / "python"
+        if not python.is_file():
+            python = Path(sys.executable)
+        if self.state_dir.is_symlink() or self.wrapper_path.is_symlink():
+            raise UpdateError("Refusing a symlinked updater wrapper path.")
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        content = (
+            "#!/bin/sh\n"
+            f"exec {shlex.quote(str(python))} -m backend.auto_update --scheduled\n"
+        )
+        temporary = self.wrapper_path.with_name(
+            f".{self.wrapper_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary, 0o700)
+            os.replace(temporary, self.wrapper_path)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                temporary.unlink()
+
     def _launchctl(self, *args: str, check: bool = False) -> subprocess.CompletedProcess:
         return self.runner(["/bin/launchctl", *args], text=True, capture_output=True,
                            timeout=30, check=check)
@@ -410,10 +439,13 @@ class AutoUpdater:
         if not should_install:
             with contextlib.suppress(FileNotFoundError):
                 self.agent_path.unlink()
+            with contextlib.suppress(FileNotFoundError):
+                self.wrapper_path.unlink()
             return self.scheduler_status()
         if self.agent_path.exists() and self.agent_path.is_symlink():
             raise UpdateError("Refusing a symlinked LaunchAgent file.")
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        self._write_wrapper()
         tmp = self.agent_path.with_name(f".{self.agent_path.name}.{os.getpid()}.tmp")
         tmp.write_bytes(self._plist())
         os.chmod(tmp, 0o600)
@@ -577,12 +609,21 @@ class AutoUpdater:
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
-                raise UpdateError("Another update is already running.") from exc
+                raise _UpdateBusy("Another update is already running.") from exc
             yield
         finally:
             with contextlib.suppress(OSError):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             handle.close()
+
+    def apply_scheduler_if_idle(self) -> bool:
+        """Reconcile launchd while holding the updater lock for the whole change."""
+        try:
+            with self._exclusive_lock():
+                self.apply_scheduler()
+        except _UpdateBusy:
+            return False
+        return True
 
     @contextlib.contextmanager
     def _admission_lock(self):

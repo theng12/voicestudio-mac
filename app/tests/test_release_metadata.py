@@ -24,8 +24,8 @@ def test_dependency_convergence_bridge_is_versioned_as_2_4_2() -> None:
     assert "No model or live machine changed" in changelog
 
 
-def test_runtime_state_migration_is_versioned_as_2_4_3() -> None:
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.4.3"
+def test_runtime_state_migration_is_preserved_in_the_current_release() -> None:
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "2.4.4"
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "## [2.4.3] — 2026-08-21" in changelog
     assert "ENVIRONMENT.example" in changelog

@@ -5,6 +5,31 @@ from fastapi.testclient import TestClient
 from backend import main
 
 
+def test_startup_reconciles_the_existing_auto_update_launchagent(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        main.auto_updater,
+        "apply_scheduler_if_idle",
+        lambda: calls.append("reconciled") or True,
+    )
+
+    assert main._reconcile_auto_update_scheduler() is True
+
+    assert calls == ["reconciled"]
+
+
+def test_startup_does_not_bootout_the_launchagent_during_its_update(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main.auto_updater, "apply_scheduler_if_idle", lambda: False)
+    monkeypatch.setattr(
+        main, "_schedule_auto_update_reconciliation",
+        lambda: calls.append("scheduled-after-update"),
+    )
+
+    assert main._reconcile_auto_update_scheduler() is False
+    assert calls == ["scheduled-after-update"]
+
+
 def test_health_attests_to_the_loaded_app_commit():
     client = TestClient(main.app)
 

@@ -24,6 +24,8 @@ import secrets
 import socket
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -297,6 +299,41 @@ def _automatic_update_blockers() -> list[str]:
 
 
 auto_updater = create_updater(readiness=_automatic_update_blockers)
+
+
+def _schedule_auto_update_reconciliation() -> None:
+    def wait_until_idle() -> None:
+        deadline = time.monotonic() + 600
+        while time.monotonic() < deadline:
+            time.sleep(1)
+            try:
+                if auto_updater.apply_scheduler_if_idle():
+                    return
+            except (UpdateError, OSError, subprocess.SubprocessError) as exc:
+                print(f"[voice] automatic-update scheduler reconciliation deferred: {exc}")
+                return
+
+    threading.Thread(
+        target=wait_until_idle,
+        name="voice-updater-wrapper-migration",
+        daemon=True,
+    ).start()
+
+
+def _reconcile_auto_update_scheduler() -> bool:
+    """Replace legacy scheduler commands after any current updater exits."""
+    try:
+        if not auto_updater.apply_scheduler_if_idle():
+            print("[voice] automatic-update scheduler reconciliation deferred: update active")
+            _schedule_auto_update_reconciliation()
+            return False
+        return True
+    except (UpdateError, OSError, subprocess.SubprocessError) as exc:
+        print(f"[voice] automatic-update scheduler reconciliation deferred: {exc}")
+        return False
+
+
+app.router.add_event_handler("startup", _reconcile_auto_update_scheduler)
 
 
 # ───────────── API: meta ─────────────

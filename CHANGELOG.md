@@ -8,6 +8,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.4.4] — 2026-08-25
+
+### Fixed
+
+- Automatic updates now run through a named, executable conda-Python wrapper so the macOS LaunchAgent has a stable program path and disabling the scheduler removes both managed files.
+- The first app startup after Update reconciles the existing schedule, replacing
+  a legacy generic `python` background entry without an operator toggle. If that
+  startup belongs to the scheduled updater itself, migration waits until its
+  health verification and status write have finished.
+
 ---
 
 ## [2.4.3] — 2026-08-21
