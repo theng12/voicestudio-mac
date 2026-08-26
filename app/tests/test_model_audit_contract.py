@@ -237,14 +237,25 @@ def test_qwen_17b_bootstrap_record_is_preserved_as_conditional_evidence() -> Non
     assert "approved_for_genstudio" not in json.dumps(record)
 
 
-def test_qwen_v1_is_byte_stable_and_v2_is_the_runtime_source() -> None:
+def test_qwen_v1_is_byte_stable_and_v3_is_the_runtime_source() -> None:
+    """The newest record drives the runtime; the section policy stays pinned.
+
+    Two different questions with two different answers, and keeping them apart
+    is the point. `audit_record()` follows the newest valid record, which since
+    2026-08-26 is v3 -- so the published request ceiling moves with it. The Auto
+    280 section policy does NOT follow the newest record: it is anchored to the
+    exact v2 audit that measured it, and v3 inherits rather than re-derives it.
+    A future record cannot quietly change how a script is split just by being
+    newer.
+    """
+
     assert hashlib.sha256(QWEN_17B_V1.read_bytes()).hexdigest() == (
         "b45e061379df0d8ee9e2d8dc0754108b280db5293f9c2fe7d5b4cab2a5b74e76"
     )
     record = model_audits.audit_record(QWEN_17B_BASE)
     assert record is not None
     assert record["audit_id"] == (
-        "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2"
+        "voicestudio-20260826-qwen3-tts-1.7b-base-production-v3"
     )
     assert model_audits.qwen_17b_production_v2_limits(QWEN_17B_BASE) == {
         "private_section_max_characters": 400,
@@ -333,11 +344,11 @@ def test_invalid_v2_record_schema_fails_closed(mutate, monkeypatch, tmp_path) ->
 
 
 def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() -> None:
-    """Regression: a passed promotion must surface only the measured 5k/400 contract."""
+    """Regression: a passed promotion must surface only the measured 10k/400 contract."""
     record = model_audits.audit_record(QWEN_17B_BASE)
     assert record is not None
     assert record["audit_id"] == (
-        "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2"
+        "voicestudio-20260826-qwen3-tts-1.7b-base-production-v3"
     )
     candidate = record["genstudio_candidate"]
     assert candidate["audit_status"] == "passed"
@@ -360,7 +371,11 @@ def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() 
     assert guardrails["retry_section_max_characters"] == 230
     assert guardrails["terminal_gate"]["revision"] == "voicestudio.qwen-clone-quality.v2"
     limits = candidate["input_limits"]
-    assert limits["text_max_characters"] == 5_000
+    # Raised 5,000 -> 10,000 by v3 on 2026-08-26. Three runs returned 1,727
+    # word tokens for 1,727 sent, zero deletions and zero insertions, scored
+    # by exact edit distance below the 2,048-token validator boundary. This is
+    # the ONLY field of the hashed contract v3 moves.
+    assert limits["text_max_characters"] == 10_000
     assert limits["private_section_max_characters"] == 400
     assert limits["default_private_section_max_characters"] == 280
     assert limits["private_edge_destructive_trim"] is False
@@ -384,9 +399,34 @@ def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() 
         "commercial_use": True,
     }
     assert record["evidence"]["supersedes_audit_id"] == (
-        "voicestudio-20260814-qwen3-tts-1.7b-base-production-v1"
+        "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2"
     )
     evidence = record["evidence"]
+    # `qualified_runtime` is still the v2 canary's, and must stay so. It names
+    # the run that qualified this runtime and measured the 400/280 section
+    # budget, and `audit_contract_runtime._measured_section_override` ties the
+    # anchor to that exact commit, target, batch and job. The 10,000-character
+    # measurement that raised the ceiling describes itself separately, in
+    # `ten_thousand_character_canary`, precisely so it cannot detach the
+    # section budget from the evidence that earned it.
+    ten_k = evidence["ten_thousand_character_canary"]
+    assert ten_k["runs"] == 3
+    assert ten_k["expected_word_tokens"] == 1_727
+    assert ten_k["observed_word_tokens"] == [1_727, 1_727, 1_727]
+    assert ten_k["deletions"] == 0
+    assert ten_k["insertions"] == 0
+    assert ten_k["validator"]["branch"] == "edit_distance"
+    # The v2 rejection of 10,000 is superseded and KEPT. History stays readable.
+    rejected = evidence["rejected_boundaries"]["ten_thousand_characters"]
+    assert rejected["recommendation"] == "fail; never publish"
+    assert rejected["status"] == "superseded"
+    assert rejected["superseded_by"] == (
+        "voicestudio-20260826-qwen3-tts-1.7b-base-production-v3"
+    )
+    # 15,000 is refused on reasoning, not left open.
+    assert "fail" in evidence["rejected_boundaries"]["fifteen_thousand_characters"][
+        "recommendation"
+    ]
     assert evidence["qualified_runtime"] == {
         "voice_studio_version": "2.1.2",
         "commit": "433fccebf08583aa8a61e88fc8804541ec61818b",
@@ -427,12 +467,18 @@ def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() 
         "swap_delta_gb": 0.0,
         "memory_failure_or_restart": False,
     }
-    assert evidence["rejected_boundaries"]["ten_thousand_characters"] == {
+    # The original finding is carried forward WORD FOR WORD. v3 marks it
+    # superseded and points at the measurement that overturned it; it does not
+    # edit or delete it, because a rejection that quietly disappears once it is
+    # inconvenient is not evidence.
+    original_rejection = evidence["rejected_boundaries"]["ten_thousand_characters"]
+    for key, value in {
         "hub_batch_id": "ec806a61a9",
         "worker_job_id": "d2456790cecb",
         "recommendation": "fail; never publish",
         "reason": "unexplained extra life plus missing at; snow may be compound-tokenization",
-    }
+    }.items():
+        assert original_rejection[key] == value
     assert evidence["rejected_boundaries"]["twenty_five_thousand_characters"] == (
         "rejected/informative only; not promotion evidence"
     )
@@ -450,7 +496,9 @@ def test_qwen_17b_passed_production_audit_is_latest_and_drives_catalog_limits() 
     assert model is not None
     published = catalog.serialize_model(model)
     assert published["execution_contract"]["qualification_source"] == "audit"
-    assert published["execution_contract"]["text_max_characters"] == 5_000
+    # The published ceiling follows the current audit. This is the line that
+    # proves the raise reaches the catalogue rather than stopping at the record.
+    assert published["execution_contract"]["text_max_characters"] == 10_000
     assert published["execution_contract"]["private_section_max_characters"] == 400
 
 

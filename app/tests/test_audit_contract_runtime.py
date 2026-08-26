@@ -40,10 +40,22 @@ QWEN_17B_PRODUCTION_V1_RECORD = (
     / "2026-08-14-qwen3-17b-production"
     / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
 )
-QWEN_17B_PRODUCTION_RECORD = (
+QWEN_17B_PRODUCTION_V2_RECORD = (
     ROOT
     / "model-audits"
     / "2026-08-15-qwen3-17b-production-v2"
+    / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
+)
+# The current record. v3 raised the request ceiling 5,000 -> 10,000 and changed
+# nothing about sectioning, so it inherits v2's 400/280 anchor -- and with that
+# inheritance v2 becomes superseded historical evidence, which the validator
+# refuses to treat as runtime policy authority. The override and anchor tests
+# below therefore run against v3: they are about what governs the runtime, and
+# after 2026-08-26 that is v3.
+QWEN_17B_PRODUCTION_RECORD = (
+    ROOT
+    / "model-audits"
+    / "2026-08-26-qwen3-17b-ten-thousand"
     / "mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit.audit.json"
 )
 
@@ -269,7 +281,11 @@ def test_superseded_qwen_production_v1_is_historical_not_runtime_authority(
 
 @pytest.mark.parametrize("default", [None, True, 229, 401, 400.0])
 def test_qwen_17b_v2_rejects_an_invalid_auto_default(default, sources) -> None:
-    """The v2 Auto setting is a bounded integer, distinct from the 400 maximum."""
+    """The Auto setting is a bounded integer, distinct from the 400 maximum.
+
+    Exercised against the current record. The rule is v2's and the number is
+    v2's; what changes with each supersede is only which file carries them.
+    """
     record = json.loads(QWEN_17B_PRODUCTION_RECORD.read_text(encoding="utf-8"))
     record["contract"]["input_limits"]["default_private_section_max_characters"] = default
 

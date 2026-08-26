@@ -100,6 +100,25 @@ _MEASURED_SECTION_PROVENANCE = {
         "section_max_characters": 400,
         "auto_default_section_max_characters": 280,
     },
+    # v3 raises the REQUEST ceiling (text_max_characters 5,000 -> 10,000) and
+    # changes nothing about sectioning. The canary fields below are v2's on
+    # purpose: the 400 maximum and the 280 Auto default were measured on that
+    # run, and v3 inherits them rather than re-deriving them. Copying the
+    # anchor forward is what keeps `check_section_budget` comparing against a
+    # measured number instead of falling back to the family default -- which is
+    # OmniVoice's 288 and has never been this engine's.
+    "voicestudio-20260826-qwen3-tts-1.7b-base-production-v3": {
+        "model_id": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+        "contract_hash": "sha256:323047e52c2000fd359ab6557ac89a91bcdb0b3b411a961bdb6874575a636ec8",
+        "runtime_revision": "e7dd0585652209fa0d7783659aad4e8a324de11c",
+        "supersedes_audit_id": "voicestudio-20260815-qwen3-tts-1.7b-base-production-v2",
+        "canary_commit": "433fccebf08583aa8a61e88fc8804541ec61818b",
+        "canary_target": "terranash-0201",
+        "canary_batch_id": "dc6fc58779",
+        "canary_job_id": "0df456ec1ed0",
+        "section_max_characters": 400,
+        "auto_default_section_max_characters": 280,
+    },
 }
 
 

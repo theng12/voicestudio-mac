@@ -8,6 +8,51 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.4.5] — 2026-08-26
+
+### Changed
+
+- Qwen3-TTS 1.7B Base publishes a **10,000-character** request ceiling, up from
+  5,000. New audit
+  `voicestudio-20260826-qwen3-tts-1.7b-base-production-v3` supersedes
+  `…-production-v2`; contract hash moves to
+  `sha256:323047e5…` because `input_limits.text_max_characters` is inside the
+  hashed contract document.
+- Nothing else in the contract moves. The checkpoint
+  (`e7dd0585…`), adapter, quality guardrails, section policy (Auto 280, custom
+  230–400, retry 230) and the 16 GB memory floor are v2's, unchanged. The
+  section policy stays pinned to the v2 record on purpose — that is where it was
+  measured, and `qwen_17b_production_v2_limits()` is deliberately not a
+  follow-the-newest-audit reader.
+
+### Evidence
+
+- Three runs, 9,989 characters / 1,727 word tokens in. **1,727 word tokens out
+  on every run, zero deletions and zero insertions.** Coverage 99.48–99.60%;
+  every remaining discrepancy a one-for-one homophone the recogniser cannot
+  resolve from audio (`tales`/`tails`, `harbour`/`harbor`). Re-transcribing
+  identical audio returned byte-identical text, so the residue is the model's.
+  Per-run loss did not cluster at section joins — 0.512 / 0.487 / 0.529% against
+  0.510% for a uniform random distribution.
+- Scored on the **exact edit-distance** branch: 1,727 tokens is at or below the
+  2,048-token boundary in `qwen_quality._error_rate`.
+- **15,000 characters is recorded as rejected**, not untested-and-open. At
+  roughly 2,600 tokens it crosses onto the approximate n-gram-multiset branch,
+  where a pass would be weaker evidence than the 5,000 and 10,000 passes. The
+  ceiling moves again when the validator improves.
+- v2's single-run 10,000 rejection ("fail; never publish") is **superseded and
+  kept**, with a pointer to the measurement that overturned it. History stays
+  readable.
+
+### Rollout
+
+- GenStudio approves one live ruling per exact contract, so this release must
+  reach at least one node **before** GenStudio's approval lands. Until it does,
+  GenStudio's migration declines the approval and the 5,000 ruling keeps
+  serving.
+
+---
+
 ## [2.4.4] — 2026-08-25
 
 ### Fixed
