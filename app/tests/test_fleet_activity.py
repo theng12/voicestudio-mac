@@ -65,6 +65,43 @@ def test_activity_snapshot_supports_all_states_and_clamps_malformed_progress():
     assert "/private" not in repr(result)
 
 
+def test_activity_snapshot_reports_safe_latest_error_and_normalizes_invalid_evidence():
+    error_manager = _manager(
+        GenerationJob(
+            "failed", "txt2speech", {"repo": "error/model", "text": "private prompt"},
+            state="error", progress=0.7, created_at=float("inf"),
+            started_at=float("nan"), finished_at="not-a-time",
+            error="RuntimeError: /Users/private/secret transcript",
+            error_code="SAFE_CODE",
+        ),
+    )
+
+    result = error_manager.activity_snapshot(observed_at=10.0)
+    latest = result["latest"]
+
+    assert latest["id"] == "failed"
+    assert latest["error"] == "Generation failed"
+    assert latest["error_code"] == "SAFE_CODE"
+    assert latest["created_at"] == 0.0
+    assert latest["started_at"] is None
+    assert latest["finished_at"] is None
+    assert latest["runtime_s"] is None
+    assert "private prompt" not in repr(result)
+    assert "RuntimeError" not in repr(result)
+    assert "/Users/private" not in repr(result)
+
+    malformed_manager = _manager(
+        GenerationJob(
+            "malformed", "txt2speech", {"repo": "error/model"},
+            state="error", finished_at=11.0, error_code="/private/code",
+        ),
+    )
+
+    malformed = malformed_manager.activity_snapshot(observed_at=12.0)
+
+    assert malformed["latest"]["error_code"] is None
+
+
 def test_activity_snapshot_prefers_running_job_over_newer_queued_job():
     manager = _manager(
         GenerationJob(
