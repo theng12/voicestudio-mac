@@ -44,7 +44,7 @@ def test_activity_snapshot_reports_explicit_provenance_without_private_data():
     assert result["active"]["updated_at"] == 25.0
     assert result["latest"]["source"] == "direct"
     assert result["latest"]["origin"] == "unknown"
-    assert result["latest"]["origin_device"] is None
+    assert "origin_device" not in result["latest"]
     assert result["latest"]["runtime_s"] == 4.0
     assert "secret" not in repr(result)
     assert "/private" not in repr(result)

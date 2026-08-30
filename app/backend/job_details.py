@@ -170,6 +170,16 @@ def _runtime(job, current: float) -> float | None:
         return None
 
 
+def _progress(job) -> float:
+    try:
+        value = float(getattr(job, "progress", 0.0))
+    except (TypeError, ValueError):
+        value = 0.0
+    if not math.isfinite(value):
+        value = 0.0
+    return max(0.0, min(1.0, value))
+
+
 def build_job_details(job, token: str, now: float | None = None) -> dict:
     current = time.time() if now is None else float(now)
     expiry = current + HANDLE_TTL_S
@@ -199,6 +209,8 @@ def build_job_details(job, token: str, now: float | None = None) -> dict:
             "runtime_s": _runtime(job, current),
             "origin": origin,
             "origin_device": device,
+            **({"progress": _progress(job)}
+               if job.state in {"queued", "running"} else {}),
         },
         "inputs": {
             "prompt": None,

@@ -8,6 +8,17 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.6.1] — 2026-08-31
+
+### Fixed — fleet activity compatibility and active-job progress
+
+- Activity snapshots now omit the optional `origin_device` field when no
+  trusted device label exists, so Studio Hub accepts direct and legacy Voice
+  activity while continuing to reject malformed present values.
+- On-demand details for queued and running Voice jobs now include finite,
+  bounded `0..1` progress for the existing Stats drawer. This patch changes no
+  dependency, model, installation flow, or launcher.
+
 ## [2.6.0] — 2026-08-31
 
 ### Added — authenticated on-demand fleet job details

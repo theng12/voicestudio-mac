@@ -1800,6 +1800,7 @@ class GenerationManager:
         state = str(job.state)
         started_at = cls._activity_time(job.started_at)
         finished_at = cls._activity_time(job.finished_at)
+        origin_device = _origin_device(job.origin_device)
         projection = {
             "id": str(job.job_id)[:200],
             "state": state,
@@ -1809,7 +1810,7 @@ class GenerationManager:
             "started_at": started_at,
             "source": "direct",
             "origin": _origin(job.origin),
-            "origin_device": _origin_device(job.origin_device),
+            **({"origin_device": origin_device} if origin_device else {}),
             "chunk_index": cls._activity_chunk(job.chunk_index),
             "chunk_total": cls._activity_chunk(job.chunk_total),
         }
