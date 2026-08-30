@@ -108,6 +108,8 @@ def _output_paths(job) -> list[tuple[Path, str, Path]]:
 
 
 def _has_symlink(path: Path, root: Path) -> bool:
+    if root.is_symlink():
+        return True
     try:
         relative = path.absolute().relative_to(root.absolute())
     except ValueError:
@@ -124,10 +126,12 @@ def _resolve_target(
     path: Path, root: Path, media_type: str,
 ) -> MediaTarget:
     try:
+        if _has_symlink(path, root):
+            raise JobMediaError("media_removed")
         resolved_root = root.resolve(strict=True)
         resolved = path.resolve(strict=True)
         resolved.relative_to(resolved_root)
-        if _has_symlink(path, root) or not resolved.is_file():
+        if not resolved.is_file():
             raise JobMediaError("media_removed")
     except JobMediaError:
         raise

@@ -220,6 +220,24 @@ def test_symlink_under_approved_root_is_rejected_at_access(configured_job, tmp_p
         resolve_job_media(configured_job, handle, "fleet-secret", now=100)
 
 
+def test_symlinked_approved_root_is_rejected_at_access(tmp_path, monkeypatch):
+    outside_root = tmp_path / "outside"
+    outside_root.mkdir()
+    output = outside_root / "job-root-link.wav"
+    output.write_bytes(WAV_BYTES)
+    linked_root = tmp_path / "linked-output"
+    linked_root.symlink_to(outside_root, target_is_directory=True)
+    monkeypatch.setattr(job_details, "OUTPUT_DIR", linked_root)
+    job = GenerationJob(
+        "job-root-link", "txt2speech", {}, state="done",
+        output_path=str(linked_root / output.name),
+    )
+    handle = build_job_details(job, "fleet-secret", now=100)["outputs"][0]["handle"]
+
+    with pytest.raises(JobMediaError, match="media_removed"):
+        resolve_job_media(job, handle, "fleet-secret", now=100)
+
+
 def test_handle_is_bound_to_job_kind_and_index(configured_job):
     handle = build_job_details(configured_job, "fleet-secret", now=100)["references"][0]["handle"]
     other = GenerationJob(
@@ -302,3 +320,44 @@ def test_fleet_detail_and_media_http_contract(configured_job, monkeypatch, caplo
     for value in private_values:
         assert value not in denied.text
         assert value not in caplog.text
+
+
+def test_fleet_detail_and_media_errors_always_set_private_no_store_headers(
+    configured_job, monkeypatch,
+):
+    manager = GenerationManager.__new__(GenerationManager)
+    manager._jobs = {configured_job.job_id: configured_job}
+    monkeypatch.setattr(main, "gen_manager", manager)
+    monkeypatch.setattr(fleet_auth, "load_token", lambda: "fleet-secret")
+    unauthorized = TestClient(main.app).get(
+        "/api/fleet/jobs/job-1/details", headers={"host": "worker.example"},
+    )
+    client = TestClient(
+        main.app,
+        headers={"X-Studio-Token": "fleet-secret", "host": "worker.example"},
+    )
+    missing_details = client.get("/api/fleet/jobs/missing/details")
+    missing_media = client.get("/api/fleet/jobs/missing/media/not-a-handle")
+    handle = client.get("/api/fleet/jobs/job-1/details").json()["outputs"][0]["handle"]
+    denied = client.get(f"/api/fleet/jobs/job-1/media/{handle}x")
+    expired_handle = build_job_details(
+        configured_job, "fleet-secret", now=0,
+    )["outputs"][0]["handle"]
+    expired = client.get(f"/api/fleet/jobs/job-1/media/{expired_handle}")
+    (job_details.OUTPUT_DIR / "job-1.wav").unlink()
+    removed = client.get(f"/api/fleet/jobs/job-1/media/{handle}")
+
+    assert [response.status_code for response in (
+        unauthorized, missing_details, missing_media, denied, expired, removed,
+    )] == [401, 404, 404, 403, 410, 410]
+    assert missing_details.json() == {"detail": {"code": "job_not_found"}}
+    assert missing_media.json() == {"detail": {"code": "job_not_found"}}
+    assert denied.json() == {"detail": {"code": "permission_denied"}}
+    assert expired.json() == {"detail": {"code": "handle_expired"}}
+    assert removed.json() == {"detail": {"code": "media_removed"}}
+    for response in (
+        unauthorized, missing_details, missing_media, denied, expired, removed,
+    ):
+        assert response.headers["cache-control"] == "no-store, private, max-age=0"
+        assert response.headers["pragma"] == "no-cache"
+        assert response.headers["x-content-type-options"] == "nosniff"

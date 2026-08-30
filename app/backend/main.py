@@ -135,6 +135,16 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
 app.add_middleware(NoCacheStaticMiddleware)
 FLEET_TOKEN = load_fleet_token()
 app.middleware("http")(fleet_middleware(FLEET_TOKEN))
+
+
+@app.middleware("http")
+async def fleet_job_safe_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/fleet/jobs/"):
+        response.headers.update(job_details.SAFE_HEADERS)
+    return response
+
+
 storage_policy.start_background(gen_manager, OUTPUT_DIR)
 memory_policy.start_background(gen_manager, stt_manager, _GEN_LOCK)
 
