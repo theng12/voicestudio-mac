@@ -8,6 +8,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.6.0] — 2026-08-31
+
+### Added — authenticated on-demand fleet job details
+
+- Studio Hub can now request one exact Voice job through authenticated
+  `GET /api/fleet/jobs/{job_id}/details`, including allowlisted speech text,
+  reference transcript/audio metadata, settings, and server-derived origin.
+  Ordinary `GET /api/fleet/activity` polling remains content-free: it never
+  carries transcripts, paths, media, handles, credentials, or full parameters.
+- Authenticated reference/output media reads use
+  `GET /api/fleet/jobs/{job_id}/media/{handle}`. Each opaque, path-free handle
+  is HMAC-bound to its exact job and media item, expires after five minutes,
+  and streams with no-store response headers. Local Voice retention remains
+  authoritative, so pruned jobs or audio are unavailable rather than copied or
+  restored by Studio Hub.
+- This release changes no dependency, model, installation flow, or launcher.
+
 ## [2.5.0] — 2026-08-30
 
 ### Added — private fleet activity evidence
