@@ -37,7 +37,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import (cache, catalog, memory_policy, model_storage,
+from . import (cache, catalog, fleet_auth, memory_policy, model_storage,
                reference_audio, settings as app_settings, storage_policy)
 from .generation import (
     manager as gen_manager,
@@ -1159,7 +1159,7 @@ def add_seed_voice(body: AddSeedBody) -> dict:
 
 
 @app.post("/api/generate/txt2speech")
-def start_txt2speech(body: Txt2SpeechBody) -> dict:
+def start_txt2speech(body: Txt2SpeechBody, request: Request) -> dict:
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="text is required")
     _reject_cloud_repo(body.repo)
@@ -1189,7 +1189,10 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
         params.pop("section_max_characters", None)
         params["_resolved_section_max_characters"] = section_budget
     try:
-        job = gen_manager.start_txt2speech(params)
+        origin, origin_device = fleet_auth.classify_job_origin(request)
+        job = gen_manager.start_txt2speech(
+            params, origin=origin, origin_device=origin_device,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return {"job": job.serialize()}
@@ -1197,6 +1200,7 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
 
 @app.post("/api/generate/txt2speech/reference")
 async def start_txt2speech_with_reference(
+    request: Request,
     audio: UploadFile = File(...),
     request_json: str = Form(...),
     transcript_segments_json: str = Form(""),
@@ -1294,7 +1298,10 @@ async def start_txt2speech_with_reference(
         "_reference_duration_s": prepared["duration_seconds"],
     })
     try:
-        job = gen_manager.start_txt2speech(params)
+        origin, origin_device = fleet_auth.classify_job_origin(request)
+        job = gen_manager.start_txt2speech(
+            params, origin=origin, origin_device=origin_device,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {

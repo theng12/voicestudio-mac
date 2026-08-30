@@ -13,14 +13,15 @@ def _manager(*jobs: GenerationJob) -> GenerationManager:
     return manager
 
 
-def test_activity_snapshot_classifies_hub_and_direct_jobs_without_private_data():
+def test_activity_snapshot_reports_explicit_provenance_without_private_data():
     manager = _manager(
         GenerationJob(
             "hub", "txt2speech", {
                 "repo": "org/voice", "client_request_id": "studiohub:b:0",
                 "text": "secret prompt", "_reference_audio_path": "/private/ref.wav",
             }, state="running", progress=0.5, started_at=20.0,
-            chunk_index=2, chunk_total=4,
+            chunk_index=2, chunk_total=4, origin="hub",
+            origin_device="Studio Hub KH · PPS",
         ),
         GenerationJob(
             "direct", "txt2speech", {
@@ -34,15 +35,50 @@ def test_activity_snapshot_classifies_hub_and_direct_jobs_without_private_data()
 
     assert result["schema"] == "kh-studio.activity.v1"
     assert result["studio"] == "voice"
-    assert result["active"]["source"] == "job"
+    assert result["active"]["source"] == "direct"
+    assert result["active"]["origin"] == "hub"
+    assert result["active"]["origin_device"] == "Studio Hub KH · PPS"
     assert result["active"]["model"] == "org/voice"
     assert result["active"]["chunk_index"] == 2
     assert result["active"]["chunk_total"] == 4
     assert result["active"]["updated_at"] == 25.0
     assert result["latest"]["source"] == "direct"
+    assert result["latest"]["origin"] == "unknown"
+    assert result["latest"]["origin_device"] is None
     assert result["latest"]["runtime_s"] == 4.0
     assert "secret" not in repr(result)
     assert "/private" not in repr(result)
+
+
+def test_activity_snapshot_bounds_provenance_and_loads_legacy_history_as_unknown():
+    device = "trusted-device-" + "x" * 200
+    job = GenerationJob(
+        "bounded", "txt2speech", {"repo": "org/voice", "text": "private text"},
+        state="done", started_at=float("nan"), finished_at=float("inf"),
+        error="/private/error", origin="api", origin_device=device,
+    )
+
+    result = GenerationManager._activity_projection(job, observed_at=20.0)
+    legacy = GenerationManager._from_disk({
+        "job_id": "legacy",
+        "mode": "txt2speech",
+        "params": {
+            "repo": "legacy/voice", "text": "private text",
+            "ref_transcript": "private transcript", "_reference_audio_path": "/private/ref.wav",
+        },
+        "state": "done",
+        "progress": 1.0,
+    })
+
+    assert result["origin"] == "api"
+    assert result["origin_device"] == device[:160]
+    assert result["started_at"] is None
+    assert result["finished_at"] is None
+    assert result["runtime_s"] is None
+    assert "private" not in repr(result)
+    assert legacy is not None
+    assert legacy.origin == "unknown"
+    assert legacy.origin_device is None
 
 
 def test_activity_snapshot_supports_all_states_and_clamps_malformed_progress():

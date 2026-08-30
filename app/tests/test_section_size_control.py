@@ -35,7 +35,7 @@ def queued_txt2speech_params(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     monkeypatch.setattr(
         main.gen_manager,
         "start_txt2speech",
-        lambda params: captured.append(params) or SimpleNamespace(serialize=lambda: {}),
+        lambda params, **_kwargs: captured.append(params) or SimpleNamespace(serialize=lambda: {}),
     )
     return captured
 

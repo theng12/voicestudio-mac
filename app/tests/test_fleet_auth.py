@@ -4,10 +4,50 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from backend import fleet_auth
 from backend import main
 from backend.main import FLEET_TOKEN, app
+
+
+def fake_request(host: str, headers: dict[str, str]) -> Request:
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/generate",
+        "raw_path": b"/api/generate",
+        "query_string": b"",
+        "headers": [(key.lower().encode(), value.encode()) for key, value in headers.items()],
+        "client": (host, 12345),
+        "server": ("testserver", 80),
+    }
+    return Request(scope)
+
+
+def test_job_origin_uses_valid_fleet_token_before_loopback(monkeypatch):
+    monkeypatch.setattr(fleet_auth, "load_token", lambda: "fleet-secret")
+    request = fake_request("127.0.0.1", {"x-studio-token": "fleet-secret"})
+
+    assert fleet_auth.classify_job_origin(request) == ("api", None)
+
+
+def test_job_origin_marks_uncredentialed_loopback_as_local_ui(monkeypatch):
+    monkeypatch.setattr(fleet_auth, "load_token", lambda: "fleet-secret")
+    request = fake_request("127.0.0.1", {"x-kh-origin-device": "spoofed"})
+
+    assert fleet_auth.classify_job_origin(request) == ("local_ui", None)
+
+
+def test_job_origin_never_trusts_caller_device_headers(monkeypatch):
+    monkeypatch.setattr(fleet_auth, "load_token", lambda: "fleet-secret")
+    request = fake_request("100.64.0.8", {
+        "x-studio-token": "fleet-secret", "x-kh-origin-device": "spoofed",
+    })
+
+    assert fleet_auth.classify_job_origin(request) == ("api", None)
 
 
 class FleetAuthTests(unittest.TestCase):

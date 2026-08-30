@@ -1613,6 +1613,15 @@ def _release_device_memory(device: str) -> None:
 
 # ───────────── job model ─────────────
 
+def _origin(value: object) -> str:
+    return value if value in {"hub", "local_ui", "api", "unknown"} else "unknown"
+
+
+def _origin_device(value: object) -> str | None:
+    text = str(value or "").strip()
+    return text[:160] or None
+
+
 @dataclass
 class GenerationJob:
     job_id: str
@@ -1641,6 +1650,8 @@ class GenerationJob:
     quality_retry_history: list[dict] = field(default_factory=list)
     error_code: Optional[str] = None
     client_request_params: Optional[dict] = None  # immutable idempotency comparison
+    origin: str = "unknown"
+    origin_device: Optional[str] = None
     chunk_index: Optional[int] = None       # current long-form local segment (1-based)
     chunk_total: Optional[int] = None       # number of long-form local segments
     cancel_event: threading.Event = field(default_factory=threading.Event)
@@ -1787,11 +1798,6 @@ class GenerationManager:
         params = job.params if isinstance(job.params, dict) else {}
         model = str(params.get("repo") or "").strip()[:200] or None
         state = str(job.state)
-        source = (
-            "job"
-            if str(params.get("client_request_id") or "").strip().startswith("studiohub:")
-            else "direct"
-        )
         started_at = cls._activity_time(job.started_at)
         finished_at = cls._activity_time(job.finished_at)
         projection = {
@@ -1801,7 +1807,9 @@ class GenerationManager:
             "progress": cls._activity_progress(job),
             "created_at": cls._activity_created_at(job),
             "started_at": started_at,
-            "source": source,
+            "source": "direct",
+            "origin": _origin(job.origin),
+            "origin_device": _origin_device(job.origin_device),
             "chunk_index": cls._activity_chunk(job.chunk_index),
             "chunk_total": cls._activity_chunk(job.chunk_total),
         }
@@ -2047,7 +2055,9 @@ class GenerationManager:
             self._persist()
         return {"deleted": deleted, "freed_bytes": freed}
 
-    def start_txt2speech(self, params: dict) -> GenerationJob:
+    def start_txt2speech(
+        self, params: dict, *, origin: str = "unknown", origin_device: str | None = None,
+    ) -> GenerationJob:
         params = dict(params)
         repo = str(params.get("repo") or "")
         model = catalog.get_model(repo)
@@ -2102,6 +2112,8 @@ class GenerationManager:
                 mode="txt2speech",
                 params=params,
                 client_request_params=dict(params) if request_id else None,
+                origin=_origin(origin),
+                origin_device=_origin_device(origin_device),
             )
             self._jobs[job.job_id] = job
         job.thread = threading.Thread(
@@ -3916,6 +3928,8 @@ class GenerationManager:
             "quality_retry_count": job.quality_retry_count,
             "quality_retry_history": job.quality_retry_history,
             "error_code": job.error_code,
+            "origin": _origin(job.origin),
+            "origin_device": _origin_device(job.origin_device),
         }
 
     @staticmethod
@@ -3962,6 +3976,8 @@ class GenerationManager:
                 quality_retry_count=int(raw.get("quality_retry_count") or 0),
                 quality_retry_history=raw.get("quality_retry_history") or [],
                 error_code=raw.get("error_code"),
+                origin=_origin(raw.get("origin")),
+                origin_device=_origin_device(raw.get("origin_device")),
             )
         except Exception:
             return None

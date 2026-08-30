@@ -62,6 +62,20 @@ def _presented(request: Request) -> str | None:
             request.cookies.get(COOKIE_NAME))
 
 
+def has_valid_fleet_token(request: Request) -> bool:
+    offered = _presented(request)
+    current = load_token()
+    return bool(offered and current and secrets.compare_digest(offered, current))
+
+
+def classify_job_origin(request: Request) -> tuple[str, str | None]:
+    if has_valid_fleet_token(request):
+        return "api", None
+    if is_loopback(request):
+        return "local_ui", None
+    return "unknown", None
+
+
 def make_middleware(token: str):
     async def middleware(request: Request, call_next):
         origin = request.headers.get("origin")
