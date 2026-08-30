@@ -327,6 +327,12 @@ transcribe shared voices in Hub rather than calling these directly:
 - `DELETE /api/voices/{stable_12_hex_id}/fleet-sync?audio_sha256=...` — removes
   only an exact Hub-managed copy. It refuses machine-local voices and hash
   mismatches.
+- `GET /api/fleet/activity` — authenticated, sanitized activity for Studio Hub
+  only: safe job/model/progress/result evidence, Hub/direct attribution, and
+  the latest terminal activity. It never returns prompts, transcripts,
+  filesystem paths, assets, credentials, or reference media. Older Studios
+  remain compatible but can appear as partial or unknown activity until
+  updated.
 
 Remote calls require the fleet's `X-Studio-Token`, an equivalent Bearer header,
 or the protected session cookie established after successful authentication.
@@ -334,7 +340,9 @@ Voice Studio rejects query-string credentials such as `?token=...` so fleet
 secrets do not leak through browser history, access logs, or copied links.
 Studio Hub uses `X-Studio-Token` for direct Studio calls and `X-Hub-Token` for
 controller-proxied calls. Generated embeddings are intentionally not
-distributed.
+distributed. This release adds no dependency, model, port, or service, so
+ordinary **Update** is sufficient and does not update any fleet Mac
+automatically.
 
 ### Private GenStudio reference execution
 
