@@ -12,6 +12,7 @@ Serves:
 - `/api/settings*`             → HF token + future settings
 - `/api/connectivity`          → bind port, local IPs, share-proxy state
 - `/api/generate/*`            → generation availability + job submit/stream
+- `/api/fleet/activity`       → authenticated current activity snapshot
 """
 from __future__ import annotations
 
@@ -1311,6 +1312,11 @@ async def start_txt2speech_with_reference(
 @app.get("/api/generate/jobs")
 def list_generation_jobs() -> dict:
     return {"jobs": [j.serialize() for j in gen_manager.list_jobs()]}
+
+
+@app.get("/api/fleet/activity")
+def fleet_activity() -> dict:
+    return gen_manager.activity_snapshot()
 
 
 @app.delete("/api/generate/jobs")
