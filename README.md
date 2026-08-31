@@ -328,8 +328,9 @@ transcribe shared voices in Hub rather than calling these directly:
   only an exact Hub-managed copy. It refuses machine-local voices and hash
   mismatches.
 - `GET /api/fleet/activity` — authenticated, sanitized activity for Studio Hub
-  only: safe job/model/progress/result evidence, Hub/direct attribution, and
-  the latest terminal activity. It never returns prompts, transcripts,
+  only: safe job/model/progress/result evidence for speech generation and
+  subtitle transcription, Hub/direct attribution, and the latest terminal
+  activity. It never returns prompts, transcripts,
   filesystem paths, assets, credentials, or reference media. Older Studios
   remain compatible but can appear as partial or unknown activity until
   updated.
@@ -337,8 +338,9 @@ transcribe shared voices in Hub rather than calling these directly:
 #### On-demand job details and media
 
 The owner selects **View details** in Studio Hub before it requests a Voice
-job's speech text, reference transcript, allowlisted settings, or available
-reference/output audio. Normal activity polling remains content-free: it never
+job's speech text or subtitle transcript, reference transcript, allowlisted
+settings, input filename, or available reference/output audio. Normal activity
+polling remains content-free: it never
 returns transcripts, filesystem paths, media, handles, credentials, or complete
 parameter maps. Detail media entries contain only opaque, path-free handles.
 They are authenticated, bound to the exact job and media item, and expire after

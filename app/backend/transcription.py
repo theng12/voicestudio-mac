@@ -29,8 +29,11 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import subprocess
+import threading
 import time
+import uuid
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -448,11 +451,52 @@ def _segments_from_nemotron(result, *, word_timestamps: bool) -> list[dict]:
 # ───────────── transcription manager ─────────────
 
 @dataclass
+class TranscriptionActivityJob:
+    job_id: str
+    model: str
+    state: str = "queued"
+    params: dict = field(default_factory=dict)
+    origin: str = "unknown"
+    origin_device: Optional[str] = None
+    progress: Optional[float] = None
+    created_at: float = field(default_factory=time.time)
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    output_path: Optional[str] = None
+    mode: str = field(default="transcription", init=False)
+
+
+def _activity_origin(value: object) -> str:
+    return value if value in {"hub", "local_ui", "api", "unknown"} else "unknown"
+
+
+def _activity_device(value: object) -> str | None:
+    text = str(value or "").strip()
+    return text[:160] or None
+
+
+def _activity_error_code(exc: Exception) -> str:
+    if isinstance(exc, FileNotFoundError):
+        return "INPUT_NOT_FOUND"
+    if isinstance(exc, ValueError):
+        return "INVALID_TRANSCRIPTION_REQUEST"
+    if isinstance(exc, RuntimeError):
+        return "TRANSCRIPTION_UNAVAILABLE"
+    return "TRANSCRIPTION_FAILED"
+
+
+@dataclass
 class TranscriptionManager:
     _model: object = field(default=None, repr=False)
     _model_repo: Optional[str] = None
     _active: bool = field(default=False, repr=False)
     _last_model_activity_at: Optional[float] = field(default=None, repr=False)
+    _activity_jobs: dict[str, TranscriptionActivityJob] = field(
+        default_factory=dict, repr=False,
+    )
+    _activity_lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False,
+    )
 
     def is_active(self) -> bool:
         return self._active
@@ -471,6 +515,141 @@ class TranscriptionManager:
 
     def last_activity_at(self) -> Optional[float]:
         return self._last_model_activity_at
+
+    def _start_activity(
+        self, activity_id: str | None, model: str, *, origin: str,
+        origin_device: str | None, language: str | None = None,
+        word_timestamps: bool = False, input_filename: str | None = None,
+    ) -> TranscriptionActivityJob:
+        job_id = str(activity_id or f"stt-{uuid.uuid4().hex[:12]}").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", job_id):
+            raise ValueError("activity_id must contain 1-160 safe characters")
+        params = {
+            "repo": model,
+            "language": str(language or "").strip() or None,
+            "word_timestamps": bool(word_timestamps),
+            "input_filename": str(input_filename or "").strip()[:240] or None,
+        }
+        job = TranscriptionActivityJob(
+            job_id=job_id, model=model, params=params,
+            origin=_activity_origin(origin),
+            origin_device=_activity_device(origin_device),
+        )
+        with self._activity_lock:
+            self._activity_jobs[job_id] = job
+            if len(self._activity_jobs) > 100:
+                terminal = sorted(
+                    (item for item in self._activity_jobs.values()
+                     if item.state in {"done", "error", "cancelled"}),
+                    key=lambda item: item.finished_at or item.created_at,
+                )
+                for item in terminal[:len(self._activity_jobs) - 100]:
+                    self._activity_jobs.pop(item.job_id, None)
+        return job
+
+    def _mark_activity_running(self, job: TranscriptionActivityJob) -> None:
+        with self._activity_lock:
+            job.state = "running"
+            job.started_at = time.time()
+
+    def _finish_activity(
+        self, job: TranscriptionActivityJob, *, result: dict | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        with self._activity_lock:
+            job.finished_at = time.time()
+            if error is not None:
+                job.state = "error"
+                job.params["error_code"] = _activity_error_code(error)
+                return
+            job.state = "done"
+            job.progress = 1.0
+            if isinstance(result, dict):
+                job.params["text"] = str(result.get("text") or "")
+                job.params["language"] = str(result.get("language") or "").strip() or None
+
+    def transcribe_job(
+        self, audio_path: str, *, model_repo: Optional[str] = None,
+        language: Optional[str] = None, word_timestamps: bool = False,
+        activity_id: str | None = None, origin: str = "unknown",
+        origin_device: str | None = None, input_filename: str | None = None,
+    ) -> dict:
+        """Run one user-requested subtitle job with bounded activity evidence."""
+        repo = (model_repo or "").strip() or recommended_model()
+        job = self._start_activity(
+            activity_id, repo, origin=origin, origin_device=origin_device,
+            language=language, word_timestamps=word_timestamps,
+            input_filename=input_filename,
+        )
+        try:
+            with _GEN_LOCK:
+                self._mark_activity_running(job)
+                result = self.transcribe(
+                    audio_path, model_repo=repo, language=language,
+                    word_timestamps=word_timestamps,
+                    _lock_already_held=True,
+                )
+        except Exception as exc:
+            self._finish_activity(job, error=exc)
+            raise
+        self._finish_activity(job, result=result)
+        return {**result, "task_id": job.job_id}
+
+    def get_activity(self, job_id: str) -> TranscriptionActivityJob | None:
+        with self._activity_lock:
+            return self._activity_jobs.get(job_id)
+
+    @staticmethod
+    def _activity_projection(
+        job: TranscriptionActivityJob, *, observed_at: float,
+    ) -> dict:
+        result = {
+            "id": job.job_id,
+            "state": job.state,
+            "model": job.model,
+            "operation": "transcription",
+            "progress": job.progress,
+            "created_at": job.created_at,
+            "started_at": job.started_at,
+            "source": "direct",
+            "origin": _activity_origin(job.origin),
+            **({"origin_device": _activity_device(job.origin_device)}
+               if _activity_device(job.origin_device) else {}),
+        }
+        if job.state in {"queued", "running"}:
+            result["updated_at"] = observed_at
+        else:
+            result["finished_at"] = job.finished_at
+            result["runtime_s"] = (
+                max(0.0, job.finished_at - job.started_at)
+                if job.started_at is not None and job.finished_at is not None
+                else None
+            )
+            result["error"] = "Transcription failed" if job.state == "error" else None
+            result["error_code"] = job.params.get("error_code")
+        return result
+
+    def activity_snapshot(self, observed_at: float | None = None) -> dict:
+        observed = float(time.time() if observed_at is None else observed_at)
+        with self._activity_lock:
+            jobs = list(self._activity_jobs.values())
+        running = [job for job in jobs if job.state == "running"]
+        queued = [job for job in jobs if job.state == "queued"]
+        terminal = [job for job in jobs if job.state in {"done", "error", "cancelled"}]
+        active = max(running, key=lambda job: job.created_at, default=None)
+        if active is None:
+            active = max(queued, key=lambda job: job.created_at, default=None)
+        latest = max(
+            terminal,
+            key=lambda job: (job.finished_at or job.created_at, job.created_at),
+            default=None,
+        )
+        return {
+            "schema": "kh-studio.activity.v1", "studio": "voice",
+            "observed_at": observed,
+            "active": self._activity_projection(active, observed_at=observed) if active else None,
+            "latest": self._activity_projection(latest, observed_at=observed) if latest else None,
+        }
 
     def _evict_loaded_model(self, reason: str) -> dict:
         key = self.loaded_model_key()

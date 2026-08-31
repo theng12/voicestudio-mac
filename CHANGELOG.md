@@ -8,6 +8,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.7.0] — 2026-09-01
+
+### Added — subtitle transcription in fleet activity
+
+- Subtitle work now appears in Voice Studio's private fleet activity feed as a
+  distinct `transcription` operation, alongside existing speech generation.
+  Queued, running, and latest completed/failed subtitle jobs retain safe model,
+  timing, progress, origin, and stable job identity evidence for Studio Hub
+  Stats. A request waiting behind TTS remains honestly queued until it owns the
+  shared GPU lock.
+- Hub-dispatched subtitle work accepts a stable activity ID, so the Controller
+  can attribute it to the requesting location/device without double-counting.
+  Direct subtitle requests continue to be identified as local UI or API work.
+- Ordinary activity polling remains content-free. Transcript text and the input
+  filename are available only through the existing authenticated, on-demand
+  job-details request. Uploaded audio is still temporary and is not retained or
+  copied into Studio Hub.
+- Transcription inference now runs off the API event loop, so the authenticated
+  activity poll remains responsive while a long subtitle job is running.
+- This release changes no dependency, model, installation flow, or launcher.
+  **Ordinary Update is enough**; Install Generation is not required.
+
 ## [2.6.1] — 2026-08-31
 
 ### Fixed — fleet activity compatibility and active-job progress

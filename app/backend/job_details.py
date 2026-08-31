@@ -34,7 +34,8 @@ SAFE_HEADERS = {
 VOICE_PARAMETER_KEYS = (
     "voice_library_id", "voice", "speaker", "language", "speed", "instruct",
     "voice_design_prompt", "emotion", "temperature", "top_p", "top_k",
-    "repetition_penalty", "chunk_index", "chunk_total",
+    "repetition_penalty", "chunk_index", "chunk_total", "word_timestamps",
+    "input_filename",
 )
 
 

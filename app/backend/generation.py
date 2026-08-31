@@ -1805,6 +1805,7 @@ class GenerationManager:
             "id": str(job.job_id)[:200],
             "state": state,
             "model": model,
+            "operation": "speech",
             "progress": cls._activity_progress(job),
             "created_at": cls._activity_created_at(job),
             "started_at": started_at,

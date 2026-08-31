@@ -1333,12 +1333,34 @@ def list_generation_jobs() -> dict:
 
 @app.get("/api/fleet/activity")
 def fleet_activity() -> dict:
-    return gen_manager.activity_snapshot()
+    observed_at = time.time()
+    speech = gen_manager.activity_snapshot(observed_at=observed_at)
+    transcription = stt_manager.activity_snapshot(observed_at=observed_at)
+
+    def active_rank(job: dict) -> tuple[int, float]:
+        return (
+            1 if job.get("state") == "running" else 0,
+            float(job.get("started_at") or job.get("created_at") or 0),
+        )
+
+    active = max(
+        (job for job in (speech.get("active"), transcription.get("active")) if job),
+        key=active_rank, default=None,
+    )
+    latest = max(
+        (job for job in (speech.get("latest"), transcription.get("latest")) if job),
+        key=lambda job: float(job.get("finished_at") or job.get("created_at") or 0),
+        default=None,
+    )
+    return {
+        "schema": "kh-studio.activity.v1", "studio": "voice",
+        "observed_at": observed_at, "active": active, "latest": latest,
+    }
 
 
 @app.get("/api/fleet/jobs/{job_id}/details")
 def fleet_job_details(job_id: str, response: Response) -> dict:
-    job = gen_manager.get(job_id)
+    job = gen_manager.get(job_id) or stt_manager.get_activity(job_id)
     if job is None:
         raise HTTPException(404, detail={"code": "job_not_found"})
     response.headers.update(job_details.SAFE_HEADERS)
@@ -1476,8 +1498,10 @@ def transcribe_availability() -> dict:
 
 @app.post("/api/transcribe")
 async def transcribe(
+    request: Request,
     file: Optional[UploadFile] = File(None),
     job_id: str = Form(""),
+    activity_id: str = Form(""),
     model: str = Form(""),
     language: str = Form(""),
     word_timestamps: bool = Form(False),
@@ -1526,11 +1550,17 @@ async def transcribe(
             )
 
         try:
-            result = stt_manager.transcribe(
+            origin, origin_device = fleet_auth.classify_job_origin(request)
+            result = await asyncio.to_thread(
+                stt_manager.transcribe_job,
                 audio_path,
                 model_repo=model or None,
                 language=language or None,
                 word_timestamps=word_timestamps,
+                activity_id=activity_id or None,
+                origin=origin,
+                origin_device=origin_device,
+                input_filename=(file.filename if file is not None else None),
             )
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
