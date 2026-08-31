@@ -90,6 +90,7 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -1612,6 +1613,15 @@ def _release_device_memory(device: str) -> None:
 
 # ───────────── job model ─────────────
 
+def _origin(value: object) -> str:
+    return value if value in {"hub", "local_ui", "api", "unknown"} else "unknown"
+
+
+def _origin_device(value: object) -> str | None:
+    text = str(value or "").strip()
+    return text[:160] or None
+
+
 @dataclass
 class GenerationJob:
     job_id: str
@@ -1640,10 +1650,13 @@ class GenerationJob:
     quality_retry_history: list[dict] = field(default_factory=list)
     error_code: Optional[str] = None
     client_request_params: Optional[dict] = None  # immutable idempotency comparison
+    origin: str = "unknown"
+    origin_device: Optional[str] = None
     chunk_index: Optional[int] = None       # current long-form local segment (1-based)
     chunk_total: Optional[int] = None       # number of long-form local segments
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: Optional[threading.Thread] = None
+    created_at: float = field(default_factory=time.time)
 
     def serialize(self) -> dict:
         duration = None
@@ -1736,6 +1749,119 @@ class GenerationManager:
 
     def list_jobs(self) -> list[GenerationJob]:
         return list(self._jobs.values())
+
+    @staticmethod
+    def _activity_time(value: object) -> Optional[float]:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) else None
+
+    @classmethod
+    def _activity_created_at(cls, job: GenerationJob) -> float:
+        value = getattr(job, "created_at", None)
+        if value is None:
+            value = job.started_at if job.started_at is not None else job.finished_at
+        parsed = cls._activity_time(value)
+        return parsed if parsed is not None else 0.0
+
+    @staticmethod
+    def _activity_progress(job: GenerationJob) -> float:
+        try:
+            value = float(job.progress)
+        except (TypeError, ValueError):
+            value = 0.0
+        if not math.isfinite(value):
+            value = 0.0
+        return max(0.0, min(1.0, value))
+
+    @staticmethod
+    def _activity_chunk(value: object) -> Optional[int]:
+        if isinstance(value, bool):
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return max(0, parsed)
+
+    @staticmethod
+    def _activity_error_code(value: object) -> Optional[str]:
+        code = str(value or "").strip()
+        if re.fullmatch(r"[A-Z][A-Z0-9_.-]{0,99}", code):
+            return code
+        return None
+
+    @classmethod
+    def _activity_projection(cls, job: GenerationJob, *, observed_at: float) -> dict:
+        params = job.params if isinstance(job.params, dict) else {}
+        model = str(params.get("repo") or "").strip()[:200] or None
+        state = str(job.state)
+        started_at = cls._activity_time(job.started_at)
+        finished_at = cls._activity_time(job.finished_at)
+        origin_device = _origin_device(job.origin_device)
+        projection = {
+            "id": str(job.job_id)[:200],
+            "state": state,
+            "model": model,
+            "progress": cls._activity_progress(job),
+            "created_at": cls._activity_created_at(job),
+            "started_at": started_at,
+            "source": "direct",
+            "origin": _origin(job.origin),
+            **({"origin_device": origin_device} if origin_device else {}),
+            "chunk_index": cls._activity_chunk(job.chunk_index),
+            "chunk_total": cls._activity_chunk(job.chunk_total),
+        }
+        if state in {"queued", "running"}:
+            projection["updated_at"] = observed_at
+        else:
+            projection["finished_at"] = finished_at
+            runtime = None
+            if started_at is not None and finished_at is not None:
+                runtime = max(0.0, finished_at - started_at)
+            projection["runtime_s"] = runtime
+            # Worker errors may contain prompts, transcripts, or filesystem paths.
+            # Keep the activity contract safe with a generic outcome and a
+            # machine-generated uppercase code only.
+            projection["error"] = "Generation failed" if state == "error" else None
+            projection["error_code"] = cls._activity_error_code(job.error_code)
+        return projection
+
+    def activity_snapshot(self, observed_at: float | None = None) -> dict:
+        """Return a bounded, private-data-free snapshot for the fleet controller."""
+        observed = self._activity_time(observed_at)
+        if observed is None:
+            observed = time.time()
+        with self._lock:
+            jobs = [
+                job for job in self._jobs.values()
+                if str(job.state) in {"queued", "running", "done", "error", "cancelled"}
+            ]
+        running_jobs = [job for job in jobs if str(job.state) == "running"]
+        queued_jobs = [job for job in jobs if str(job.state) == "queued"]
+        terminal_jobs = [
+            job for job in jobs if str(job.state) in {"done", "error", "cancelled"}
+        ]
+        active_job = max(running_jobs, key=self._activity_created_at, default=None)
+        if active_job is None:
+            active_job = max(queued_jobs, key=self._activity_created_at, default=None)
+        latest_job = max(
+            terminal_jobs,
+            key=lambda job: (
+                self._activity_time(job.finished_at) or self._activity_created_at(job),
+                self._activity_created_at(job),
+            ),
+            default=None,
+        )
+        return {
+            "schema": "kh-studio.activity.v1",
+            "observed_at": observed,
+            "studio": "voice",
+            "active": self._activity_projection(active_job, observed_at=observed) if active_job else None,
+            "latest": self._activity_projection(latest_job, observed_at=observed) if latest_job else None,
+        }
 
     def get(self, job_id: str) -> Optional[GenerationJob]:
         return self._jobs.get(job_id)
@@ -1930,7 +2056,9 @@ class GenerationManager:
             self._persist()
         return {"deleted": deleted, "freed_bytes": freed}
 
-    def start_txt2speech(self, params: dict) -> GenerationJob:
+    def start_txt2speech(
+        self, params: dict, *, origin: str = "unknown", origin_device: str | None = None,
+    ) -> GenerationJob:
         params = dict(params)
         repo = str(params.get("repo") or "")
         model = catalog.get_model(repo)
@@ -1985,6 +2113,8 @@ class GenerationManager:
                 mode="txt2speech",
                 params=params,
                 client_request_params=dict(params) if request_id else None,
+                origin=_origin(origin),
+                origin_device=_origin_device(origin_device),
             )
             self._jobs[job.job_id] = job
         job.thread = threading.Thread(
@@ -3778,6 +3908,7 @@ class GenerationManager:
             "chunk_index": job.chunk_index,
             "chunk_total": job.chunk_total,
             "params": job.params,
+            "created_at": job.created_at,
             "output_path": job.output_path,
             "resolved_seed": job.resolved_seed,
             "error": job.error,
@@ -3798,6 +3929,8 @@ class GenerationManager:
             "quality_retry_count": job.quality_retry_count,
             "quality_retry_history": job.quality_retry_history,
             "error_code": job.error_code,
+            "origin": _origin(job.origin),
+            "origin_device": _origin_device(job.origin_device),
         }
 
     @staticmethod
@@ -3815,6 +3948,12 @@ class GenerationManager:
                 params=params,
                 state=raw.get("state", "done"),
                 client_request_params=raw.get("client_request_params"),
+                created_at=(
+                    raw.get("created_at")
+                    or raw.get("started_at")
+                    or raw.get("finished_at")
+                    or time.time()
+                ),
                 progress=raw.get("progress", 1.0),
                 chunk_index=raw.get("chunk_index"),
                 chunk_total=raw.get("chunk_total"),
@@ -3838,6 +3977,8 @@ class GenerationManager:
                 quality_retry_count=int(raw.get("quality_retry_count") or 0),
                 quality_retry_history=raw.get("quality_retry_history") or [],
                 error_code=raw.get("error_code"),
+                origin=_origin(raw.get("origin")),
+                origin_device=_origin_device(raw.get("origin_device")),
             )
         except Exception:
             return None

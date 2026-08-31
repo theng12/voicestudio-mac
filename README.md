@@ -327,6 +327,39 @@ transcribe shared voices in Hub rather than calling these directly:
 - `DELETE /api/voices/{stable_12_hex_id}/fleet-sync?audio_sha256=...` — removes
   only an exact Hub-managed copy. It refuses machine-local voices and hash
   mismatches.
+- `GET /api/fleet/activity` — authenticated, sanitized activity for Studio Hub
+  only: safe job/model/progress/result evidence, Hub/direct attribution, and
+  the latest terminal activity. It never returns prompts, transcripts,
+  filesystem paths, assets, credentials, or reference media. Older Studios
+  remain compatible but can appear as partial or unknown activity until
+  updated.
+
+#### On-demand job details and media
+
+The owner selects **View details** in Studio Hub before it requests a Voice
+job's speech text, reference transcript, allowlisted settings, or available
+reference/output audio. Normal activity polling remains content-free: it never
+returns transcripts, filesystem paths, media, handles, credentials, or complete
+parameter maps. Detail media entries contain only opaque, path-free handles.
+They are authenticated, bound to the exact job and media item, and expire after
+five minutes. Voice Studio's existing local job and audio retention remains
+authoritative, so pruned media stays unavailable.
+
+```bash
+STUDIO_URL=http://<your-mac-ip>:47870
+STUDIO_TOKEN='existing-fleet-token'
+JOB_ID='job-id-from-activity'
+
+# Fetch only after the owner selected View details.
+curl --fail \
+  -H "X-Studio-Token: $STUDIO_TOKEN" \
+  "$STUDIO_URL/api/fleet/jobs/$JOB_ID/details" | jq .
+
+# Use a handle returned by that response; never provide a filesystem path.
+curl --fail --output reference-or-output.wav \
+  -H "X-Studio-Token: $STUDIO_TOKEN" \
+  "$STUDIO_URL/api/fleet/jobs/$JOB_ID/media/<opaque-handle>"
+```
 
 Remote calls require the fleet's `X-Studio-Token`, an equivalent Bearer header,
 or the protected session cookie established after successful authentication.
@@ -334,7 +367,11 @@ Voice Studio rejects query-string credentials such as `?token=...` so fleet
 secrets do not leak through browser history, access logs, or copied links.
 Studio Hub uses `X-Studio-Token` for direct Studio calls and `X-Hub-Token` for
 controller-proxied calls. Generated embeddings are intentionally not
-distributed.
+distributed. This release adds no dependency, model, port, or service, so
+ordinary **Update** is sufficient and does not update any fleet Mac
+automatically.
+
+This feature changes no dependency, model, installation flow, or launcher.
 
 ### Private GenStudio reference execution
 

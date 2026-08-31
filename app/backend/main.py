@@ -12,6 +12,7 @@ Serves:
 - `/api/settings*`             → HF token + future settings
 - `/api/connectivity`          → bind port, local IPs, share-proxy state
 - `/api/generate/*`            → generation availability + job submit/stream
+- `/api/fleet/activity`       → authenticated current activity snapshot
 """
 from __future__ import annotations
 
@@ -36,7 +37,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import (cache, catalog, memory_policy, model_storage,
+from . import (cache, catalog, fleet_auth, job_details, memory_policy, model_storage,
                reference_audio, settings as app_settings, storage_policy)
 from .generation import (
     manager as gen_manager,
@@ -134,6 +135,16 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
 app.add_middleware(NoCacheStaticMiddleware)
 FLEET_TOKEN = load_fleet_token()
 app.middleware("http")(fleet_middleware(FLEET_TOKEN))
+
+
+@app.middleware("http")
+async def fleet_job_safe_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/fleet/jobs/"):
+        response.headers.update(job_details.SAFE_HEADERS)
+    return response
+
+
 storage_policy.start_background(gen_manager, OUTPUT_DIR)
 memory_policy.start_background(gen_manager, stt_manager, _GEN_LOCK)
 
@@ -1158,7 +1169,7 @@ def add_seed_voice(body: AddSeedBody) -> dict:
 
 
 @app.post("/api/generate/txt2speech")
-def start_txt2speech(body: Txt2SpeechBody) -> dict:
+def start_txt2speech(body: Txt2SpeechBody, request: Request) -> dict:
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="text is required")
     _reject_cloud_repo(body.repo)
@@ -1188,7 +1199,10 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
         params.pop("section_max_characters", None)
         params["_resolved_section_max_characters"] = section_budget
     try:
-        job = gen_manager.start_txt2speech(params)
+        origin, origin_device = fleet_auth.classify_job_origin(request)
+        job = gen_manager.start_txt2speech(
+            params, origin=origin, origin_device=origin_device,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return {"job": job.serialize()}
@@ -1196,6 +1210,7 @@ def start_txt2speech(body: Txt2SpeechBody) -> dict:
 
 @app.post("/api/generate/txt2speech/reference")
 async def start_txt2speech_with_reference(
+    request: Request,
     audio: UploadFile = File(...),
     request_json: str = Form(...),
     transcript_segments_json: str = Form(""),
@@ -1293,7 +1308,10 @@ async def start_txt2speech_with_reference(
         "_reference_duration_s": prepared["duration_seconds"],
     })
     try:
-        job = gen_manager.start_txt2speech(params)
+        origin, origin_device = fleet_auth.classify_job_origin(request)
+        job = gen_manager.start_txt2speech(
+            params, origin=origin, origin_device=origin_device,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
@@ -1311,6 +1329,37 @@ async def start_txt2speech_with_reference(
 @app.get("/api/generate/jobs")
 def list_generation_jobs() -> dict:
     return {"jobs": [j.serialize() for j in gen_manager.list_jobs()]}
+
+
+@app.get("/api/fleet/activity")
+def fleet_activity() -> dict:
+    return gen_manager.activity_snapshot()
+
+
+@app.get("/api/fleet/jobs/{job_id}/details")
+def fleet_job_details(job_id: str, response: Response) -> dict:
+    job = gen_manager.get(job_id)
+    if job is None:
+        raise HTTPException(404, detail={"code": "job_not_found"})
+    response.headers.update(job_details.SAFE_HEADERS)
+    return job_details.build_job_details(job, token=fleet_auth.load_token())
+
+
+@app.get("/api/fleet/jobs/{job_id}/media/{handle}")
+def fleet_job_media(job_id: str, handle: str, download: bool = False):
+    job = gen_manager.get(job_id)
+    if job is None:
+        raise HTTPException(404, detail={"code": "job_not_found"})
+    try:
+        target = job_details.resolve_job_media(job, handle, fleet_auth.load_token())
+    except job_details.JobMediaError as exc:
+        status = 410 if exc.code in {"handle_expired", "media_removed"} else 403
+        raise HTTPException(status, detail={"code": exc.code}) from exc
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        target.path, media_type=target.media_type, filename=target.name,
+        content_disposition_type=disposition, headers=job_details.SAFE_HEADERS,
+    )
 
 
 @app.delete("/api/generate/jobs")

@@ -8,6 +8,49 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.6.1] — 2026-08-31
+
+### Fixed — fleet activity compatibility and active-job progress
+
+- Activity snapshots now omit the optional `origin_device` field when no
+  trusted device label exists, so Studio Hub accepts direct and legacy Voice
+  activity while continuing to reject malformed present values.
+- On-demand details for queued and running Voice jobs now include finite,
+  bounded `0..1` progress for the existing Stats drawer. This patch changes no
+  dependency, model, installation flow, or launcher.
+
+## [2.6.0] — 2026-08-31
+
+### Added — authenticated on-demand fleet job details
+
+- Studio Hub can now request one exact Voice job through authenticated
+  `GET /api/fleet/jobs/{job_id}/details`, including allowlisted speech text,
+  reference transcript/audio metadata, settings, and server-derived origin.
+  Ordinary `GET /api/fleet/activity` polling remains content-free: it never
+  carries transcripts, paths, media, handles, credentials, or full parameters.
+- Authenticated reference/output media reads use
+  `GET /api/fleet/jobs/{job_id}/media/{handle}`. Each opaque, path-free handle
+  is HMAC-bound to its exact job and media item, expires after five minutes,
+  and streams with no-store response headers. Local Voice retention remains
+  authoritative, so pruned jobs or audio are unavailable rather than copied or
+  restored by Studio Hub.
+- This release changes no dependency, model, installation flow, or launcher.
+
+## [2.5.0] — 2026-08-30
+
+### Added — private fleet activity evidence
+
+- `GET /api/fleet/activity` now gives Studio Hub an authenticated, sanitized
+  activity snapshot for this Voice Studio: safe job/model/progress/result
+  evidence, Hub-versus-direct attribution, and the latest terminal activity.
+  It exposes no prompts, transcripts, filesystem paths, assets, credentials,
+  or reference media.
+- The endpoint uses the existing fleet authentication and does not create a
+  new dependency, model, port, or service. **Ordinary Update** is enough for
+  this minor release; it does not update any fleet Mac automatically. Older
+  Studios remain compatible and appear as partial or unknown activity until
+  they are updated.
+
 ## [2.4.5] — 2026-08-26
 
 ### Changed
