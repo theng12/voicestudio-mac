@@ -1,9 +1,11 @@
 import threading
+import time
 
 from fastapi.testclient import TestClient
 
 from backend import main
 from backend.generation import GenerationJob, GenerationManager
+from backend.transcription import TranscriptionManager, _GEN_LOCK
 
 
 def _manager(*jobs: GenerationJob) -> GenerationManager:
@@ -180,3 +182,137 @@ def test_activity_route_is_authenticated_and_returns_sanitized_snapshot(monkeypa
     assert payload["active"]["model"] == "org/model"
     assert "private prompt" not in response.text
     assert "/private/reference.wav" not in response.text
+
+
+def test_transcription_activity_is_live_then_retained_without_polling_private_text(monkeypatch):
+    manager = TranscriptionManager()
+    inference_started = threading.Event()
+    release_inference = threading.Event()
+    result = {}
+
+    def fake_transcribe(*_args, **_kwargs):
+        inference_started.set()
+        assert release_inference.wait(timeout=2)
+        return {
+            "text": "private subtitle transcript",
+            "language": "en",
+            "duration": 12.5,
+            "model": "org/whisper",
+            "segments": [],
+            "srt": "1\n00:00:00,000 --> 00:00:01,000\nprivate subtitle transcript\n",
+            "vtt": "WEBVTT\n",
+            "elapsed_seconds": 1.25,
+            "resource_telemetry": None,
+        }
+
+    monkeypatch.setattr(manager, "transcribe", fake_transcribe)
+
+    def run():
+        result.update(manager.transcribe_job(
+            "/private/source.wav",
+            model_repo="org/whisper",
+            activity_id="stt-job-1",
+            origin="local_ui",
+        ))
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert inference_started.wait(timeout=2)
+
+    active = manager.activity_snapshot(observed_at=50.0)
+    assert active["active"] == {
+        "id": "stt-job-1",
+        "state": "running",
+        "model": "org/whisper",
+        "operation": "transcription",
+        "progress": None,
+        "created_at": active["active"]["created_at"],
+        "started_at": active["active"]["started_at"],
+        "updated_at": 50.0,
+        "source": "direct",
+        "origin": "local_ui",
+    }
+    assert "private subtitle transcript" not in repr(active)
+    assert "/private/source.wav" not in repr(active)
+
+    release_inference.set()
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert result["task_id"] == "stt-job-1"
+
+    latest = manager.activity_snapshot()["latest"]
+    assert latest["id"] == "stt-job-1"
+    assert latest["state"] == "done"
+    assert latest["operation"] == "transcription"
+    assert latest["runtime_s"] >= 0
+    assert "private subtitle transcript" not in repr(latest)
+    assert manager.get_activity("stt-job-1").params["text"] == "private subtitle transcript"
+
+
+def test_transcription_waiting_for_tts_remains_queued_until_gpu_lock_is_acquired(monkeypatch):
+    manager = TranscriptionManager()
+    inference_started = threading.Event()
+    release_inference = threading.Event()
+    lock_flags = []
+
+    def fake_transcribe(*_args, **kwargs):
+        lock_flags.append(kwargs.get("_lock_already_held"))
+        inference_started.set()
+        assert release_inference.wait(timeout=2)
+        return {"text": "done", "language": "en"}
+
+    monkeypatch.setattr(manager, "transcribe", fake_transcribe)
+    _GEN_LOCK.acquire()
+    first_phase_ok = False
+    try:
+        thread = threading.Thread(target=lambda: manager.transcribe_job(
+            "/tmp/input.wav", model_repo="org/whisper", activity_id="stt-waiting",
+        ))
+        thread.start()
+        deadline = time.time() + 2
+        queued = None
+        while time.time() < deadline:
+            queued = manager.activity_snapshot()["active"]
+            if queued is not None:
+                break
+            time.sleep(0.01)
+        assert queued["state"] == "queued"
+        assert not inference_started.is_set()
+        first_phase_ok = True
+    finally:
+        _GEN_LOCK.release()
+        if not first_phase_ok:
+            release_inference.set()
+            thread.join(timeout=2)
+
+    assert inference_started.wait(timeout=2)
+    assert manager.activity_snapshot()["active"]["state"] == "running"
+    assert lock_flags == [True]
+    release_inference.set()
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+
+
+def test_fleet_activity_merges_speech_and_transcription_and_details_resolve(monkeypatch):
+    speech = _manager(GenerationJob(
+        "speech-queued", "txt2speech", {"repo": "org/voice"},
+        state="queued", created_at=20.0,
+    ))
+    transcription = TranscriptionManager()
+    job = transcription._start_activity(
+        "stt-running", "org/whisper", origin="api", origin_device=None,
+    )
+    transcription._mark_activity_running(job)
+    job.params["text"] = "on-demand transcript"
+    monkeypatch.setattr(main, "gen_manager", speech)
+    monkeypatch.setattr(main, "stt_manager", transcription)
+
+    client = TestClient(main.app, headers={"X-Studio-Token": main.FLEET_TOKEN})
+    payload = client.get("/api/fleet/activity").json()
+    details = client.get("/api/fleet/jobs/stt-running/details")
+
+    assert payload["active"]["id"] == "stt-running"
+    assert payload["active"]["operation"] == "transcription"
+    assert details.status_code == 200
+    assert details.json()["job"]["operation"] == "transcription"
+    assert details.json()["inputs"]["text"] == "on-demand transcript"

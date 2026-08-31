@@ -140,6 +140,30 @@ def test_active_voice_detail_progress_is_bounded(
     assert details["job"]["progress"] == expected
 
 
+def test_transcription_details_label_the_result_as_transcription_without_media():
+    from backend.transcription import TranscriptionActivityJob
+
+    job = TranscriptionActivityJob(
+        job_id="stt-1", model="org/whisper", state="done",
+        params={
+            "repo": "org/whisper", "text": "Subtitle transcript",
+            "language": "en", "word_timestamps": True,
+            "input_filename": "episode.wav",
+        },
+        origin="local_ui", created_at=10.0, started_at=11.0, finished_at=13.0,
+    )
+
+    details = build_job_details(job, "fleet-secret", now=20.0)
+
+    assert details["job"]["operation"] == "transcription"
+    assert details["inputs"]["text"] == "Subtitle transcript"
+    assert details["inputs"]["parameters"] == {
+        "language": "en", "word_timestamps": True, "input_filename": "episode.wav",
+    }
+    assert details["references"] == []
+    assert details["outputs"] == []
+
+
 def test_saved_library_reference_is_used_only_without_a_private_reference(configured_job):
     saved_job = GenerationJob(
         "saved-job", "txt2speech", {
