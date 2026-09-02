@@ -37,3 +37,4 @@ bench-results/
 
 # Private fleet machine table (tools/fleet_test.py) — addresses and token keys
 fleet_machines.json
+.venv/
