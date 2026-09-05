@@ -168,7 +168,13 @@ class _InertThread:
         pass
 
 
-def _inert_generation_manager() -> generation.GenerationManager:
+def _inert_generation_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> generation.GenerationManager:
+    output_dir = tmp_path / "output"
+    monkeypatch.setattr(generation, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(generation, "HISTORY_FILE", output_dir / ".history.json")
     manager = object.__new__(generation.GenerationManager)
     manager._lock = threading.RLock()
     manager._jobs = {}
@@ -177,8 +183,9 @@ def _inert_generation_manager() -> generation.GenerationManager:
 
 def test_internal_queueing_canonicalizes_a_qwen_section_budget(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    manager = _inert_generation_manager()
+    manager = _inert_generation_manager(monkeypatch, tmp_path)
     monkeypatch.setattr(generation.threading, "Thread", _InertThread)
 
     job = manager.start_txt2speech({
@@ -193,8 +200,9 @@ def test_internal_queueing_canonicalizes_a_qwen_section_budget(
 
 def test_internal_queueing_rejects_an_out_of_range_qwen_section_budget(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    manager = _inert_generation_manager()
+    manager = _inert_generation_manager(monkeypatch, tmp_path)
     monkeypatch.setattr(generation.threading, "Thread", _InertThread)
 
     with pytest.raises(catalog.SectionSizeControlError) as error:
@@ -210,8 +218,9 @@ def test_internal_queueing_rejects_an_out_of_range_qwen_section_budget(
 
 def test_internal_queueing_keeps_qwen_06b_private_fallback_for_validation(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    manager = _inert_generation_manager()
+    manager = _inert_generation_manager(monkeypatch, tmp_path)
     monkeypatch.setattr(generation.threading, "Thread", _InertThread)
     text = " ".join(
         f"Fallback validation sentence {index} remains independently bounded."
@@ -298,8 +307,13 @@ def test_non_qwen_section_override_remains_fail_closed(
 
 def test_internal_queueing_without_a_non_qwen_override_stays_accepted(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    manager = _inert_generation_manager()
+    repository_history = ROOT / "app" / "output" / ".history.json"
+    repository_history_before = (
+        repository_history.read_bytes() if repository_history.exists() else None
+    )
+    manager = _inert_generation_manager(monkeypatch, tmp_path)
     monkeypatch.setattr(generation.threading, "Thread", _InertThread)
 
     job = manager.start_txt2speech({
@@ -309,10 +323,17 @@ def test_internal_queueing_without_a_non_qwen_override_stays_accepted(
 
     assert "section_max_characters" not in job.params
     assert "_resolved_section_max_characters" not in job.params
+    assert generation.HISTORY_FILE == tmp_path / "output" / ".history.json"
+    saved = json.loads(generation.HISTORY_FILE.read_text())
+    assert [row["job_id"] for row in saved["jobs"]] == [job.job_id]
+    assert (
+        repository_history.read_bytes() if repository_history.exists() else None
+    ) == repository_history_before
 
 
 def test_auto_budget_fails_closed_when_audit_capability_mismatches(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     queued_txt2speech_params: list[dict],
 ) -> None:
     original_policy_for = long_form_policy.policy_for
@@ -339,7 +360,7 @@ def test_auto_budget_fails_closed_when_audit_capability_mismatches(
         "repo": QWEN_17B_BASE,
         "text": "A mismatch-safe Auto request.",
     })
-    manager = _inert_generation_manager()
+    manager = _inert_generation_manager(monkeypatch, tmp_path)
     monkeypatch.setattr(generation.threading, "Thread", _InertThread)
 
     assert response.status_code == 422
@@ -356,6 +377,7 @@ def test_auto_budget_fails_closed_when_audit_capability_mismatches(
 
 def test_missing_v2_rejects_auto_across_endpoint_and_manager(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     queued_txt2speech_params: list[dict],
 ) -> None:
     monkeypatch.setattr(
@@ -365,7 +387,7 @@ def test_missing_v2_rejects_auto_across_endpoint_and_manager(
         "repo": QWEN_17B_BASE,
         "text": "A missing-audit Auto request.",
     })
-    manager = _inert_generation_manager()
+    manager = _inert_generation_manager(monkeypatch, tmp_path)
     monkeypatch.setattr(generation.threading, "Thread", _InertThread)
 
     assert response.status_code == 422
@@ -427,6 +449,7 @@ def test_non_production_v2_evidence_cannot_publish_or_queue_section_budgets(
 
 def test_manager_rejects_a_forged_private_auto_budget_when_capability_disagrees(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     original_policy_for = long_form_policy.policy_for
 
@@ -448,7 +471,7 @@ def test_manager_rejects_a_forged_private_auto_budget_when_capability_disagrees(
         return policy
 
     monkeypatch.setattr(catalog.long_form_policy, "policy_for", mismatched_policy_for)
-    manager = _inert_generation_manager()
+    manager = _inert_generation_manager(monkeypatch, tmp_path)
     monkeypatch.setattr(generation.threading, "Thread", _InertThread)
 
     with pytest.raises(catalog.SectionSizeControlError) as error:
