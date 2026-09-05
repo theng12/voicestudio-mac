@@ -1767,6 +1767,12 @@ details.control-block[open] > summary { color: var(--text, #ddd); }
 }
 .audio-recent-row .audio-actions .btn { justify-content: center; }
 
+@media (max-width: 620px) {
+  .audio-recent-row { flex-direction: column; align-items: stretch; }
+  .audio-recent-row audio { width: 100%; }
+  .audio-recent-row .audio-actions { flex-direction: row; flex-wrap: wrap; }
+}
+
 /* Prominent, boxed Download button in each history row — bigger than the
    ghost Reuse button so it reads unmistakably as "save this file". */
 .btn.download-btn.history-download {

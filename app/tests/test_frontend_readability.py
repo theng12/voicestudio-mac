@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import json
+import subprocess
 
 
 ROOT = Path(__file__).parents[2]
@@ -99,3 +101,45 @@ def test_section_size_control_is_accessible_and_responsive() -> None:
     assert css.index("grid-template-columns: minmax(0, 1fr) minmax(150px, 0.9fr)") < css.rindex(
         ".section-size-grid { grid-template-columns: 1fr; }"
     )
+
+
+def test_clear_history_keeps_every_active_generation_state() -> None:
+    script = ROOT / "app" / "frontend" / "app.js"
+    probe = r"""
+const fs = require('fs');
+const vm = require('vm');
+global.fetch = async () => ({ ok: true });
+global.clearTimeout = () => {};
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+(async () => {
+  const app = studio();
+  app.pushToast = () => {};
+  app.gen.clearArmed = true;
+  app.gen.jobs = [
+    { id: 'queued', state: 'queued' },
+    { id: 'running', state: 'running' },
+    { id: 'cancel', state: 'cancel_requested' },
+    { id: 'done', state: 'done' },
+    { id: 'error', state: 'error' },
+    { id: 'uncertain', state: 'uncertain' },
+  ];
+  await app.clearHistory();
+  process.stdout.write(JSON.stringify(app.gen.jobs.map(job => job.state)));
+})();
+"""
+    result = subprocess.run(
+        ["node", "-e", probe, str(script)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert json.loads(result.stdout) == ["queued", "running", "cancel_requested"]
+
+
+def test_history_row_mobile_layout_preserves_metadata_space() -> None:
+    css = STYLE_PATH.read_text(encoding="utf-8")
+
+    assert "@media (max-width: 620px) {\n  .audio-recent-row { flex-direction: column; align-items: stretch; }" in css
+    assert ".audio-recent-row audio { width: 100%; }" in css
+    assert ".audio-recent-row .audio-actions { flex-direction: row; flex-wrap: wrap; }" in css

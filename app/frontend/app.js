@@ -1130,14 +1130,14 @@ function studio() {
      *  reads top-down in submission order. */
     get pendingJobs() {
       return (this.gen.jobs || [])
-        .filter(j => j.state === "queued" || j.state === "running")
+        .filter(j => j.state === "queued" || j.state === "running" || j.state === "cancel_requested")
         .sort((a, b) => (a.started_at || 0) - (b.started_at || 0));
     },
     get queuedCount() {
       return (this.gen.jobs || []).filter(j => j.state === "queued").length;
     },
     get runningJob() {
-      return (this.gen.jobs || []).find(j => j.state === "running") || null;
+      return (this.gen.jobs || []).find(j => j.state === "running" || j.state === "cancel_requested") || null;
     },
     get hasPending() {
       return this.pendingJobs.length > 0;
@@ -1150,7 +1150,7 @@ function studio() {
     get recentJobs() {
       // Sorted newest-first. Includes the latest at index 0 for the UI's
       // recent-grid which slices [1..].
-      return (this.gen.jobs || []).filter(j => j.state === "done" || j.state === "error" || j.state === "cancelled");
+      return (this.gen.jobs || []).filter(j => ["done", "error", "cancelled", "uncertain"].includes(j.state));
     },
 
     /** History entries other than the current "Latest generation" — the
@@ -2925,7 +2925,7 @@ function studio() {
           // Detect state transitions running/queued → done/error/cancelled, fire a toast.
           for (const j of incoming) {
             const prev = this._jobStatePrev[j.id];
-            const terminal = ["done", "error", "cancelled"];
+            const terminal = ["done", "error", "cancelled", "uncertain"];
             if (prev && prev !== j.state && terminal.includes(j.state) && !terminal.includes(prev)) {
               this._notifyJobFinished(j);
             }
@@ -2943,7 +2943,7 @@ function studio() {
             this.gen.currentJob = this.gen.jobs[0];
           }
           // Manage the busy flag.
-          const running = this.gen.jobs.find(j => j.state === "running" || j.state === "queued");
+          const running = this.gen.jobs.find(j => ["running", "queued", "cancel_requested"].includes(j.state));
           this.gen.busy = !!running;
           if (running) {
             // Use the real fields the job actually has: `progress` (0..1) and
@@ -2954,7 +2954,7 @@ function studio() {
               ? Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(running.started_at)) : 0;
             const chunkTotal = Number(running.chunk_total || 0);
             const chunkIndex = Number(running.chunk_index || 0);
-            this.gen.busyLabel = "Generating…"
+            this.gen.busyLabel = running.state === "cancel_requested" ? "Cancelling…" : "Generating…"
               + (pct > 0 ? ` ${pct}%` : "")
               + (chunkTotal > 1 ? ` · part ${Math.max(1, chunkIndex)}/${chunkTotal}` : "")
               + (elapsed ? ` · ${elapsed}s` : "");
@@ -2990,6 +2990,9 @@ function studio() {
         this._flashTabTitle("✗ Error");
       } else if (job.state === "cancelled") {
         this.pushToast({ kind: "warn", icon: "⏹", title: "Generation cancelled" });
+      } else if (job.state === "uncertain") {
+        this.pushToast({ kind: "warn", icon: "⚠", title: "Generation outcome uncertain",
+          body: "Generation could not be verified. No audio is available." });
       }
     },
 
@@ -3185,13 +3188,11 @@ function studio() {
      *  - queued: backend immediately flips state → "cancelled" so the UI
      *    reflects it on the next SSE snapshot (~1 s). The worker still
      *    safely no-ops when it later wakes up and sees cancel_event set.
-     *  - running: mlx-audio TTS engines (Kokoro, VoxCPM, Chatterbox, Orpheus,
-     *    Spark, Qwen3-TTS) are blocking synthesis calls that don't honor
-     *    mid-flight cancellation. We can only set cancel_event so the result
-     *    is discarded after synthesis finishes. */
+     *  - running: the server requests cooperative cancellation, then stops
+     *    only the job's native executor if it remains blocked. */
     async cancelPending(job) {
       if (!job || !job.id) return;
-      const wasRunning = job.state === "running";
+      const wasRunning = job.state === "running" || job.state === "cancel_requested";
       try {
         const r = await fetch("/api/generate/jobs/" + encodeURIComponent(job.id), { method: "DELETE" });
         if (!r.ok) {
@@ -3204,8 +3205,7 @@ function studio() {
           this.pushToast({
             kind: "info", icon: "⏸",
             title: "Cancel signal sent",
-            body: "Running jobs can't stop mid-synthesis (mlx-audio TTS engines don't honor cancellation). " +
-                  "The result will be discarded when synthesis finishes.",
+            body: "Voice Studio is stopping this job. Any partial audio will not be made available.",
           });
         } else {
           this.pushToast({ kind: "info", icon: "✓", title: "Cancelled", body: "Queued job removed." });
@@ -3241,7 +3241,7 @@ function studio() {
         // Backend removed the finished jobs; keep any active ones on screen.
         // The SSE stream reconciles to the trimmed list on its next tick.
         this.gen.currentJob = null;
-        this.gen.jobs = (this.gen.jobs || []).filter(j => ["queued", "running", "cancelling"].includes(j.state));
+        this.gen.jobs = (this.gen.jobs || []).filter(j => ["queued", "running", "cancel_requested"].includes(j.state));
         this._jobStatePrev = {};
         this.pushToast({ kind: "info", icon: "🧹", title: "History cleared",
           body: "The WAV files stay in your outputs folder." });
@@ -3763,7 +3763,8 @@ function studio() {
     stateChipClass(state) {
       if (state === "done") return "ok";
       if (state === "error") return "bad";
-      if (state === "cancelled" || state === "cancelling") return "warn";
+      if (state === "cancelled" || state === "cancelling" || state === "cancel_requested") return "warn";
+      if (state === "uncertain") return "bad";
       return "";
     },
 

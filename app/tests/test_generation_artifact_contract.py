@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import threading
 
 import numpy as np
 import pytest
@@ -351,6 +352,7 @@ def test_failed_generation_never_publishes_a_partial_final_file(
     monkeypatch.setattr(generation, "OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(generation, "TTS_AVAILABLE", True)
     manager = object.__new__(generation.GenerationManager)
+    manager._lock = threading.Lock()
     manager._consecutive_memory_failures = 0
     manager._last_memory_event = None
     manager._restart_scheduled = False
@@ -388,6 +390,7 @@ def test_success_is_atomically_published_only_after_evidence(
     monkeypatch.setattr(generation, "TTS_AVAILABLE", True)
     monkeypatch.setattr(generation.cache, "snapshot_revision", lambda _repo: "4" * 40)
     manager = object.__new__(generation.GenerationManager)
+    manager._lock = threading.Lock()
     manager._consecutive_memory_failures = 0
     manager._last_memory_event = None
     manager._restart_scheduled = False
@@ -487,25 +490,8 @@ def test_local_generation_serializes_and_persists_worker_resource_evidence(
     monkeypatch.setattr(generation, "TTS_AVAILABLE", True)
     monkeypatch.setattr(generation.cache, "snapshot_revision", lambda _repo: "5" * 40)
 
-    class FakeSampler:
-        def __init__(self, publish):
-            self.publish = publish
-
-        def start(self):
-            self.publish({"schema": "voicestudio.resource-telemetry", "live": True})
-            return self
-
-        def finish(self, **outcome):
-            result = {
-                "schema": "voicestudio.resource-telemetry",
-                "schema_version": 1,
-                "outcome": outcome,
-            }
-            self.publish(result)
-            return result
-
-    monkeypatch.setattr(generation.resource_telemetry, "JobResourceSampler", FakeSampler)
     manager = object.__new__(generation.GenerationManager)
+    manager._lock = threading.Lock()
     manager._consecutive_memory_failures = 0
     manager._last_memory_event = None
     manager._restart_scheduled = False
@@ -521,7 +507,14 @@ def test_local_generation_serializes_and_persists_worker_resource_evidence(
     manager._persist = lambda: None
     manager._evict_loaded_models = lambda reason="": {}
 
-    def generate(_job, output_path: Path) -> None:
+    def generate(job, output_path: Path) -> None:
+        # Production receives this snapshot from the spawned native executor,
+        # rather than sampling the server process.
+        job.resource_usage = {
+            "schema": "voicestudio.resource-telemetry",
+            "schema_version": 1,
+            "worker": {"peak_rss_gb": 1.25},
+        }
         sf.write(output_path, np.zeros(1000, dtype=np.float32), 1000, subtype="PCM_16")
 
     manager._dispatch_txt2speech = generate

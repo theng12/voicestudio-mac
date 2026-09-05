@@ -1053,9 +1053,9 @@
           </div>
           <div class="queue-list">
             <template x-for="job in pendingJobs" :key="job.id">
-              <div class="queue-row" :class="{'queue-row-running': job.state === 'running'}">
+              <div class="queue-row" :class="{'queue-row-running': job.state === 'running' || job.state === 'cancel_requested'}">
                 <div class="queue-state-icon">
-                  <span x-show="job.state === 'running'" class="queue-spinner">●</span>
+                  <span x-show="job.state === 'running' || job.state === 'cancel_requested'" class="queue-spinner">●</span>
                   <span x-show="job.state === 'queued'" class="queue-clock">◯</span>
                 </div>
                 <div class="queue-row-meta">
@@ -1064,14 +1064,15 @@
                     <span x-text="historyModelLabel(job)"></span>
                     <span x-show="historyVoiceLabel(job)" x-text="' · ' + historyVoiceLabel(job)"></span>
                     <span x-show="job.state === 'queued'" class="queue-queued-label"> · waiting</span>
+                    <span x-show="job.state === 'cancel_requested'" class="queue-queued-label"> · cancellation requested</span>
                   </div>
                   <!-- Live progress for the running job (bar + % + elapsed). -->
-                  <div class="queue-progress" x-show="job.state === 'running'">
+                  <div class="queue-progress" x-show="job.state === 'running' || job.state === 'cancel_requested'">
                     <div class="queue-progress-bar"><i :style="`width:${Math.max(3, Math.round((job.progress||0)*100))}%`"></i></div>
                     <span class="queue-progress-label" x-text="gen.busyLabel || 'Generating…'"></span>
                   </div>
                 </div>
-                <button class="btn ghost small" @click="cancelPending(job)"
+                <button class="btn ghost small" x-show="job.state !== 'cancel_requested'" @click="cancelPending(job)"
                         :title="job.state === 'running' ? 'Cancel the running job' : 'Cancel this queued job'">✕ Cancel</button>
               </div>
             </template>
@@ -1251,6 +1252,7 @@
                     <summary class="error-text" x-text="friendlyJobError(job.error)"></summary>
                     <pre x-text="job.error || 'Generation failed without a technical error message.'"></pre>
                   </details>
+                  <p class="error-text" x-show="job.state === 'uncertain'">Generation could not be verified. No audio is available.</p>
                 </div>
 
                 <div class="audio-actions">

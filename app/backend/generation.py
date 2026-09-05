@@ -92,8 +92,10 @@ import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -115,6 +117,7 @@ from . import (
     resource_telemetry,
     text_normalization,
 )
+from .native_executor import ExclusiveNativeExecutor
 from .voicestudio_genstudio_integration import final_tts_result
 
 
@@ -141,6 +144,14 @@ MEMORY_RESTART_FAILURES = 2
 
 class MemoryGuardError(RuntimeError):
     """A job was refused before inference because the host had too little RAM."""
+
+
+class NativeExecutionUncertain(RuntimeError):
+    """The parent could not prove what happened to a native execution."""
+
+
+class PersistenceError(RuntimeError):
+    """A required job-history write did not complete."""
 
 
 def _memory_snapshot() -> Optional[dict]:
@@ -1067,7 +1078,8 @@ def _production_join_pauses_s(text: str, chunks: list[str], speed: float) -> lis
 
 def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,
                          family: str, pause_s: float = _LONG_FORM_JOIN_PAUSE_S,
-                         pause_sequence_s: Optional[list[float]] = None) -> None:
+                         pause_sequence_s: Optional[list[float]] = None,
+                         cancel_event: threading.Event | None = None) -> None:
     """Validate and atomically stream independently synthesized WAV sections."""
     if not segment_paths:
         raise ValueError(f"No {family} audio segments were generated")
@@ -1106,8 +1118,12 @@ def _join_long_form_wavs(segment_paths: list[Path], output_path: Path,
             subtype=first_info.subtype,
         ) as destination:
             for index, path in enumerate(segment_paths):
+                if cancel_event is not None and cancel_event.is_set():
+                    raise InterruptedError("long-form join cancelled")
                 with sf.SoundFile(str(path), mode="r") as source:
                     while True:
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise InterruptedError("long-form join cancelled")
                         block = source.read(
                             frames=262_144,
                             dtype="float32",
@@ -1390,7 +1406,8 @@ def _clean_omnivoice_section_edges(
     return 0.0, 0.0
 
 
-def _apply_mlx_output_speed(output_path: Path, speed: float, family: str) -> bool:
+def _apply_mlx_output_speed(output_path: Path, speed: float, family: str,
+                            cancel_event: threading.Event | None = None) -> bool:
     """Apply pitch-preserving tempo to a finished MLX-family WAV atomically.
 
     Qwen's current MLX implementation accepts ``speed`` without applying it,
@@ -1426,19 +1443,63 @@ def _apply_mlx_output_speed(output_path: Path, speed: float, family: str) -> boo
     }.get(source.subtype, "pcm_s16le")
     temporary = output_path.with_name(f".{output_path.stem}.tempo-{uuid.uuid4().hex}.wav")
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             [
                 str(ffmpeg), "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
                 "-i", str(output_path), "-filter:a", f"atempo={speed:.6f}",
                 "-c:a", codec, str(temporary),
             ],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=300,
-            check=False,
+            start_new_session=os.name == "posix",
         )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or "unknown FFmpeg error").strip()
+        deadline = time.monotonic() + 300
+        while process.poll() is None:
+            if cancel_event is not None and cancel_event.is_set():
+                if os.name == "posix":
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        process.terminate()
+                else:
+                    process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    if os.name == "posix":
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            process.kill()
+                    else:
+                        process.kill()
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired as exc:
+                        raise NativeExecutionUncertain(
+                            "FFmpeg exit could not be verified after cancellation"
+                        ) from exc
+                return False
+            if time.monotonic() >= deadline:
+                if os.name == "posix":
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        process.kill()
+                else:
+                    process.kill()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired as exc:
+                    raise NativeExecutionUncertain(
+                        "FFmpeg exit could not be verified after timeout"
+                    ) from exc
+                raise TimeoutError(f"{engine} speed adjustment timed out")
+            time.sleep(0.02)
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            detail = (stderr or stdout or "unknown FFmpeg error").strip()
             raise RuntimeError(f"{engine} speed adjustment failed: {detail[-800:]}")
         adjusted = sf.info(str(temporary))
         expected_frames = source.frames / speed
@@ -1630,9 +1691,11 @@ class GenerationJob:
     state: str = "queued"
     progress: float = 0.0
     output_path: Optional[str] = None
+    partial_output_path: Optional[str] = None
     resolved_seed: Optional[int] = None
     error: Optional[str] = None
     started_at: Optional[float] = None
+    cancel_requested_at: Optional[float] = None
     finished_at: Optional[float] = None
     model_revision: Optional[str] = None
     voice_revision: Optional[str] = None
@@ -1654,6 +1717,8 @@ class GenerationJob:
     origin_device: Optional[str] = None
     chunk_index: Optional[int] = None       # current long-form local segment (1-based)
     chunk_total: Optional[int] = None       # number of long-form local segments
+    execution_run_id: Optional[str] = None  # opaque active child execution identity
+    executor_generation: Optional[int] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: Optional[threading.Thread] = None
     created_at: float = field(default_factory=time.time)
@@ -1679,10 +1744,14 @@ class GenerationJob:
             "chunk_total": self.chunk_total,
             "params": public_params,
             "output_path": self.output_path,
-            "output_url": f"/api/generate/jobs/{self.job_id}/audio" if self.output_path else None,
+            "output_url": (
+                f"/api/generate/jobs/{self.job_id}/audio"
+                if self.state == "done" and self.output_path else None
+            ),
             "resolved_seed": self.resolved_seed,
             "error": self.error,
             "started_at": self.started_at,
+            "cancel_requested_at": self.cancel_requested_at,
             "finished_at": self.finished_at,
             "duration_seconds": duration,
             "resource_usage": self.resource_usage,
@@ -1723,7 +1792,7 @@ class GenerationJob:
 
 class GenerationManager:
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._jobs: dict[str, GenerationJob] = {}
         # Cache one mlx-audio model at a time (loading is slow — 5-10s for
         # MLX 8-bit dequantization, longer for larger models). When the user
@@ -1738,6 +1807,10 @@ class GenerationManager:
         # cold-start because the vocoder also loads from HF.
         self._f5_tts_model = None
         self._f5_tts_model_repo: Optional[str] = None
+        # Native models belong to a clean spawned process, never this server
+        # process. The mirror is only public inventory for memory policy/UI.
+        self._native_executor = ExclusiveNativeExecutor(_native_dispatch_payload)
+        self._native_loaded_model_keys: list[tuple[str, str]] = []
         self._consecutive_memory_failures = 0
         self._last_memory_event: Optional[dict] = None
         self._restart_scheduled = False
@@ -1815,7 +1888,7 @@ class GenerationManager:
             "chunk_index": cls._activity_chunk(job.chunk_index),
             "chunk_total": cls._activity_chunk(job.chunk_total),
         }
-        if state in {"queued", "running"}:
+        if state in {"queued", "running", "cancel_requested"}:
             projection["updated_at"] = observed_at
         else:
             projection["finished_at"] = finished_at
@@ -1838,12 +1911,14 @@ class GenerationManager:
         with self._lock:
             jobs = [
                 job for job in self._jobs.values()
-                if str(job.state) in {"queued", "running", "done", "error", "cancelled"}
+                if str(job.state) in {
+                    "queued", "running", "cancel_requested", "done", "error", "cancelled", "uncertain"
+                }
             ]
-        running_jobs = [job for job in jobs if str(job.state) == "running"]
+        running_jobs = [job for job in jobs if str(job.state) in {"running", "cancel_requested"}]
         queued_jobs = [job for job in jobs if str(job.state) == "queued"]
         terminal_jobs = [
-            job for job in jobs if str(job.state) in {"done", "error", "cancelled"}
+            job for job in jobs if str(job.state) in {"done", "error", "cancelled", "uncertain"}
         ]
         active_job = max(running_jobs, key=self._activity_created_at, default=None)
         if active_job is None:
@@ -1868,7 +1943,7 @@ class GenerationManager:
         return self._jobs.get(job_id)
 
     def has_active_jobs(self) -> bool:
-        return any(job.state in ("queued", "running", "cancelling") for job in self._jobs.values())
+        return any(job.state in ("queued", "running", "cancel_requested") for job in self._jobs.values())
 
     def loaded_model_keys(self) -> list[tuple[str, str]]:
         loaded: list[tuple[str, str]] = []
@@ -1876,6 +1951,9 @@ class GenerationManager:
             loaded.append((self._mlx_audio_model_repo, "tts-mlx"))
         if self._f5_tts_model is not None and self._f5_tts_model_repo:
             loaded.append((self._f5_tts_model_repo, "f5-tts"))
+        for item in getattr(self, "_native_loaded_model_keys", []):
+            if item not in loaded:
+                loaded.append(item)
         return loaded
 
     def has_loaded_model(self) -> bool:
@@ -1945,23 +2023,36 @@ class GenerationManager:
         mid-generation cancellation, so the worker discards the result after
         generation completes.
         """
-        job = self._jobs.get(job_id)
-        if job is None or job.state in ("done", "error", "cancelled"):
+        try:
+            with self._lock:
+                job = self._jobs.get(job_id)
+                if job is None or job.state in ("done", "error", "cancelled", "uncertain"):
+                    return False
+                previous_state = job.state
+                previous_cancel_requested_at = job.cancel_requested_at
+                previous_finished_at = job.finished_at
+                job.cancel_requested_at = time.time()
+                if job.state == "queued":
+                    job.state = "cancelled"
+                    job.finished_at = time.time()
+                else:
+                    job.state = "cancel_requested"
+                try:
+                    self._persist(strict=True)
+                except PersistenceError:
+                    job.state = previous_state
+                    job.cancel_requested_at = previous_cancel_requested_at
+                    job.finished_at = previous_finished_at
+                    return False
+                job.cancel_event.set()
+        except PersistenceError:
             return False
-        job.cancel_event.set()
-        if job.state == "queued":
-            job.state = "cancelled"
-            job.finished_at = time.time()
-            try:
-                self._persist()
-            except Exception:
-                pass
         return True
 
     def clear_history(self) -> int:
         with self._lock:
             terminal = [jid for jid, j in self._jobs.items()
-                        if j.state in ("done", "error", "cancelled")]
+                        if j.state in ("done", "error", "cancelled", "uncertain")]
             for jid in terminal:
                 self._jobs.pop(jid, None)
         self._persist()
@@ -2118,6 +2209,11 @@ class GenerationManager:
                 origin_device=_origin_device(origin_device),
             )
             self._jobs[job.job_id] = job
+            try:
+                self._persist(strict=True)
+            except PersistenceError:
+                self._jobs.pop(job.job_id, None)
+                raise
         job.thread = threading.Thread(
             target=self._run_txt2speech,
             args=(job,),
@@ -2136,6 +2232,15 @@ class GenerationManager:
         """Drop both cached engines before a memory retry or supervised restart."""
         loaded = [list(item) for item in self.loaded_model_keys()]
         actions: list[str] = []
+        executor = getattr(self, "_native_executor", None)
+        if executor is not None and getattr(self, "_native_loaded_model_keys", []):
+            outcome = executor.release({"action": "release"})
+            if outcome.state == "done":
+                self._native_loaded_model_keys = []
+                actions.append("cleared native executor model cache")
+            elif outcome.state == "uncertain":
+                self._native_loaded_model_keys = []
+                actions.append("native executor cache ownership became uncertain")
         for attr in ("_mlx_audio_model", "_f5_tts_model"):
             model = getattr(self, attr, None)
             if model is not None:
@@ -2419,7 +2524,6 @@ class GenerationManager:
             job.started_at = time.time()
             self._last_model_activity_at = job.started_at
             job.progress = 0.05          # move the bar off zero the moment work starts
-            telemetry = None
             memory_failure_seen = False
             print(
                 f"[gen] starting {job.job_id}: repo={job.params.get('repo')} "
@@ -2435,10 +2539,6 @@ class GenerationManager:
                 self._persist()
                 return
 
-            telemetry = resource_telemetry.JobResourceSampler(
-                lambda value: setattr(job, "resource_usage", value)
-            ).start()
-
             output_path: Optional[Path] = None
             memory_retries = 0
             quality_retries = 0
@@ -2446,8 +2546,11 @@ class GenerationManager:
                 try:
                     final_output_path = OUTPUT_DIR / f"{job.job_id}.wav"
                     output_path = OUTPUT_DIR / f".{job.job_id}.{uuid.uuid4().hex}.partial.wav"
+                    job.partial_output_path = str(output_path)
+                    self._persist()
                     self._validate_qwen_reference_locked(job)
                     self._dispatch_txt2speech(job, output_path)
+                    self._apply_parent_output_speed(job, output_path)
                     _enforce_output_duration_limit(output_path, job.params)
                     self._validate_qwen_output_locked(job, output_path)
                     self._record_qwen_quality_attempt(
@@ -2457,18 +2560,10 @@ class GenerationManager:
                     )
                     self._record_local_revision_evidence(job)
                     self._record_final_audio_evidence(job, output_path)
-                    if not job.cancel_event.is_set():
-                        os.replace(output_path, final_output_path)
-                        output_path = final_output_path
-                    if job.cancel_event.is_set():
-                        if output_path is not None:
-                            output_path.unlink(missing_ok=True)
-                        job.state = "cancelled"
-                    else:
-                        job.output_path = str(output_path.resolve())
-                        job.progress = 1.0
-                        job.state = "done"
-                        self._consecutive_memory_failures = 0
+                    output_path = self._promote_or_cancel_output(
+                        job, output_path, final_output_path,
+                    )
+                    if output_path is not None:
                         print(f"[gen] done {job.job_id} → {output_path}", flush=True)
                     break
                 except Exception as e:
@@ -2477,6 +2572,12 @@ class GenerationManager:
                             output_path.unlink(missing_ok=True)
                         except OSError:
                             pass
+                    job.partial_output_path = None
+                    if isinstance(e, NativeExecutionUncertain):
+                        job.state = "uncertain"
+                        job.error = "Generation status is uncertain because native execution could not be verified."
+                        job.error_code = "EXECUTION_IDENTITY_LOST"
+                        break
                     if (
                         isinstance(e, qwen_quality.QwenQualityError)
                         and e.code in qwen_quality.RETRYABLE_OUTPUT_CODES
@@ -2565,16 +2666,33 @@ class GenerationManager:
             self._last_model_activity_at = job.finished_at
             if job.state != "done":
                 self._evict_loaded_models("failed-or-cancelled-generation")
-            if telemetry is not None:
-                job.resource_usage = telemetry.finish(
-                    state=job.state,
-                    memory_failure=memory_failure_seen,
-                    restart_scheduled=self._restart_scheduled,
-                    model_retained=(
-                        job.state == "done" and self.has_loaded_model()
-                    ),
-                )
+            self._finish_native_resource_usage(
+                job,
+                state=job.state,
+                memory_failure=memory_failure_seen,
+                restart_scheduled=self._restart_scheduled,
+                model_retained=(
+                    job.state == "done" and self.has_loaded_model()
+                ),
+            )
             self._persist()
+
+    def _promote_or_cancel_output(self, job: GenerationJob, partial_output: Path,
+                                  final_output: Path) -> Path | None:
+        """Serialize cancel acceptance with the irreversible final promotion."""
+        with self._lock:
+            if job.cancel_event.is_set():
+                partial_output.unlink(missing_ok=True)
+                job.partial_output_path = None
+                job.state = "cancelled"
+                return None
+            os.replace(partial_output, final_output)
+            job.partial_output_path = None
+            job.output_path = str(final_output.resolve())
+            job.progress = 1.0
+            job.state = "done"
+            self._consecutive_memory_failures = 0
+            return final_output
 
     @staticmethod
     def _record_local_revision_evidence(job: GenerationJob) -> None:
@@ -2671,7 +2789,198 @@ class GenerationManager:
         job.sample_rate_hz = info.samplerate
         job.channels = info.channels
 
+    @staticmethod
+    def _finish_native_resource_usage(job: GenerationJob, *, state: str,
+                                      memory_failure: bool, restart_scheduled: bool,
+                                      model_retained: bool) -> None:
+        """Annotate child-measured telemetry with the parent-owned job outcome."""
+        if isinstance(job.resource_usage, dict):
+            job.resource_usage["outcome"] = {
+                "state": state,
+                "memory_failure": bool(memory_failure),
+                "restart_scheduled": bool(restart_scheduled),
+                "model_retained": bool(model_retained),
+            }
+
+    @staticmethod
+    def _record_native_resource_usage(job: GenerationJob, telemetry: dict) -> None:
+        """Keep all child command evidence while reporting whole-job peaks."""
+        if not isinstance(job.resource_usage, dict):
+            job.resource_usage = telemetry
+            return
+        prior = job.resource_usage
+        for section, fields in {
+            "worker": ("peak_rss_gb", "peak_process_count"),
+            "host": ("maximum_used_gb", "maximum_used_percent", "maximum_swap_used_gb"),
+            "mlx": ("peak_active_gb", "peak_cache_gb", "reported_peak_gb"),
+        }.items():
+            target = prior.get(section)
+            incoming = telemetry.get(section)
+            if not isinstance(target, dict) or not isinstance(incoming, dict):
+                continue
+            for field_name in fields:
+                before, after = target.get(field_name), incoming.get(field_name)
+                if isinstance(after, (int, float)) and (
+                    not isinstance(before, (int, float)) or after > before
+                ):
+                    target[field_name] = after
+        sampling = prior.get("sampling")
+        incoming_sampling = telemetry.get("sampling")
+        if isinstance(sampling, dict) and isinstance(incoming_sampling, dict):
+            sampling["samples"] = int(sampling.get("samples") or 0) + int(
+                incoming_sampling.get("samples") or 0
+            )
+            for field_name, reducer in (("started_at", min), ("finished_at", max)):
+                before, after = sampling.get(field_name), incoming_sampling.get(field_name)
+                if isinstance(after, (int, float)) and (
+                    not isinstance(before, (int, float))
+                ):
+                    sampling[field_name] = after
+                elif isinstance(after, (int, float)):
+                    sampling[field_name] = reducer(before, after)
+        prior["command_count"] = int(prior.get("command_count") or 1) + 1
+
     def _dispatch_txt2speech(self, job: GenerationJob, output_path: Path) -> None:
+        """Run native inference in the one clean child process.
+
+        The server persists the run token before handing it to the child and
+        remains the only process allowed to promote the partial file.
+        """
+        model = catalog.get_model(str(job.params.get("repo") or ""))
+        text = str(job.params.get("text") or "").strip()
+        if model is not None and model.family in MLX_AUDIO_FAMILIES and text:
+            normalized = _normalized_speech_text(model.family, text, job.params)
+            chunks = _internal_mlx_text_chunks(
+                model.family, model.repo, normalized,
+                max_chars_override=job.params.get("_resolved_section_max_characters"),
+            )
+            if len(chunks) > 1:
+                self._dispatch_mlx_long_form(job, output_path, model, normalized, chunks)
+                return
+        value = self._run_native_payload(
+            job,
+            {"action": "generate", "job_id": job.job_id,
+             "params": job.params, "output_path": str(output_path)},
+        )
+        job.resolved_seed = value.get("resolved_seed")
+        job.chunk_index = value.get("chunk_index")
+        job.chunk_total = value.get("chunk_total")
+        job.progress = max(job.progress, float(value.get("progress") or 0))
+
+    def _run_native_payload(self, job: GenerationJob, payload: dict) -> dict:
+        """Dispatch one fenced native command and accept only its own result."""
+        executor = getattr(self, "_native_executor", None)
+        if executor is None:
+            executor = ExclusiveNativeExecutor(_native_dispatch_payload)
+            self._native_executor = executor
+            self._native_loaded_model_keys = []
+
+        def record_started(run_id: str, generation: int) -> None:
+            job.execution_run_id = run_id
+            job.executor_generation = generation
+            self._persist(strict=True)
+
+        try:
+            outcome = executor.run(payload, job.cancel_event, on_started=record_started)
+        finally:
+            job.execution_run_id = None
+            job.executor_generation = None
+        value = outcome.value or {}
+        if "loaded_models" in value:
+            self._native_loaded_model_keys = [tuple(item) for item in value["loaded_models"]]
+        telemetry = value.get("resource_usage")
+        if (
+            isinstance(telemetry, dict)
+            and telemetry.get("schema") == resource_telemetry.SCHEMA
+            and telemetry.get("schema_version") == resource_telemetry.SCHEMA_VERSION
+        ):
+            self._record_native_resource_usage(job, telemetry)
+        if outcome.state == "done":
+            if value.get("execution_error"):
+                raise RuntimeError(str(value["execution_error"]))
+            return value
+        self._native_loaded_model_keys = [] if outcome.terminated else getattr(
+            self, "_native_loaded_model_keys", []
+        )
+        if outcome.state == "cancelled":
+            job.cancel_event.set()
+            return {}
+        if outcome.state == "uncertain":
+            raise NativeExecutionUncertain(outcome.error or "native execution identity was lost")
+        raise RuntimeError(outcome.error or "native execution failed")
+
+    def _dispatch_mlx_long_form(self, job: GenerationJob, output_path: Path, model,
+                                text: str, chunks: list[str]) -> None:
+        """Keep section sequencing and atomic assembly in the server parent."""
+        requested_seed = job.params.get("_qwen_attempt_seed", job.params.get("seed"))
+        if requested_seed is None or int(requested_seed) < 0:
+            import random
+            job.resolved_seed = random.randint(0, 2**32 - 1)
+        else:
+            job.resolved_seed = int(requested_seed)
+        segment_root = Path(tempfile.mkdtemp(prefix=f"voice_sections_{job.job_id}_"))
+        segment_paths: list[Path] = []
+        job.chunk_total = len(chunks)
+        job.chunk_index = 0
+        try:
+            for index, chunk in enumerate(chunks, start=1):
+                if job.cancel_event.is_set():
+                    return
+                job.chunk_index = index
+                job.progress = max(job.progress, min(0.93, 0.08 + (index - 1) / len(chunks) * 0.85))
+                self._persist()
+                segment_path = segment_root / f"section_{index:03d}.wav"
+                section_params = {
+                    **job.params,
+                    "text": chunk,
+                    "_native_single_section": True,
+                    "_qwen_attempt_seed": job.resolved_seed,
+                    # The reused child keeps MLX RNG state between commands,
+                    # matching the former parent loop which seeded once per job.
+                    "_native_continue_rng": index > 1,
+                }
+                self._run_native_payload(
+                    job,
+                    {"action": "generate", "job_id": job.job_id,
+                     "params": section_params, "output_path": str(segment_path)},
+                )
+                if job.cancel_event.is_set():
+                    return
+                if not segment_path.exists():
+                    raise RuntimeError(f"{model.family} produced no audio for section {index}")
+                segment_paths.append(segment_path)
+                job.progress = max(job.progress, min(0.95, 0.08 + index / len(chunks) * 0.85))
+                self._persist()
+            _join_long_form_wavs(
+                segment_paths, output_path, model.family,
+                pause_s=_long_form_join_pause_s(model.family, model.repo),
+                pause_sequence_s=(
+                    _production_join_pauses_s(
+                        text, chunks, float(job.params.get("speed") or 1.0),
+                    )
+                    if (
+                        model.family == "omnivoice"
+                        or (model.family == "qwen3-tts" and "1.7b-base" in model.repo.lower())
+                    )
+                    else None
+                ),
+                cancel_event=job.cancel_event,
+            )
+        finally:
+            shutil.rmtree(segment_root, ignore_errors=True)
+
+    @staticmethod
+    def _apply_parent_output_speed(job: GenerationJob, output_path: Path) -> None:
+        """Keep the FFmpeg child under the server job's cancellation custody."""
+        model = catalog.get_model(str(job.params.get("repo") or ""))
+        if model is not None and model.family in _POSTPROCESSED_SPEED_FAMILIES:
+            _apply_mlx_output_speed(
+                output_path, float(job.params.get("speed") or 1.0), model.family,
+                cancel_event=job.cancel_event,
+            )
+
+    def _dispatch_txt2speech_direct(self, job: GenerationJob, output_path: Path,
+                                    *, postprocess_speed: bool = True) -> None:
         """Pick the right backend pipeline based on model family."""
         params = job.params
         repo = params["repo"]
@@ -2696,7 +3005,7 @@ class GenerationManager:
                     "The `mlx-audio` package isn't installed. Run 'Install Generation' "
                     "from the Pinokio sidebar (this installs the MLX + mlx-audio stack)."
                 )
-            self._generate_mlx_audio(job, model, output_path)
+            self._generate_mlx_audio(job, model, output_path, postprocess_speed=postprocess_speed)
         else:
             raise NotImplementedError(f"No worker implemented for family '{family}'.")
 
@@ -2815,7 +3124,8 @@ class GenerationManager:
         self._last_model_activity_at = time.time()
         return model
 
-    def _generate_mlx_audio(self, job: GenerationJob, model_entry, output_path: Path) -> None:
+    def _generate_mlx_audio(self, job: GenerationJob, model_entry, output_path: Path,
+                            *, postprocess_speed: bool = True) -> None:
         """
         Unified worker for every mlx-audio-backed TTS family.
 
@@ -2933,7 +3243,8 @@ class GenerationManager:
         temp_dir = Path(tempfile.mkdtemp(prefix=f"mlxaudio_{family}_{job.job_id}_"))
         try:
             import mlx.core as mx
-            mx.random.seed(int(seed) % (2**32))
+            if not params.get("_native_continue_rng"):
+                mx.random.seed(int(seed) % (2**32))
             log_extras = []
             if family_config.get("uses_cfg"):
                 log_extras.append(f"steps={gen_kwargs['inference_timesteps']}")
@@ -2945,11 +3256,15 @@ class GenerationManager:
                 f"[gen] {family} {mode_label} ({len(text)} chars){extras}",
                 flush=True,
             )
-            internal_chunks = _internal_mlx_text_chunks(
-                family,
-                model_entry.repo,
-                text,
-                max_chars_override=params.get("_resolved_section_max_characters"),
+            internal_chunks = (
+                [text]
+                if params.get("_native_single_section")
+                else _internal_mlx_text_chunks(
+                    family,
+                    model_entry.repo,
+                    text,
+                    max_chars_override=params.get("_resolved_section_max_characters"),
+                )
             )
             if len(internal_chunks) > 1:
                 self._generate_mlx_long_form_sections(
@@ -2990,7 +3305,7 @@ class GenerationManager:
                 sr = model_entry.sample_rate_hz or family_config["default_sample_rate"]
                 print(f"[gen] {family} saved WAV at {sr} Hz: {output_path}", flush=True)
 
-            if not job.cancel_event.is_set() and family in _POSTPROCESSED_SPEED_FAMILIES:
+            if postprocess_speed and not job.cancel_event.is_set() and family in _POSTPROCESSED_SPEED_FAMILIES:
                 if _apply_mlx_output_speed(output_path, speed, family):
                     print(
                         f"[gen] {family} applied pitch-preserving {speed:.2f}x tempo",
@@ -3865,19 +4180,32 @@ class GenerationManager:
 
     # ----- persistence -----
 
-    def _persist(self) -> None:
+    def _persist(self, *, strict: bool = False) -> bool:
         try:
-            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            terminal = [j for j in self._jobs.values()
-                        if j.state in ("done", "error", "cancelled")]
-            terminal.sort(key=lambda j: j.finished_at or 0, reverse=True)
-            terminal = terminal[:HISTORY_MAX]
-            payload = {"jobs": [self._to_disk(j) for j in terminal]}
-            tmp = HISTORY_FILE.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(payload, default=str))
-            os.replace(tmp, HISTORY_FILE)
+            with self._lock:
+                OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                active = [j for j in self._jobs.values() if j.state in {
+                    "queued", "running", "cancel_requested"
+                }]
+                terminal = [j for j in self._jobs.values() if j.state in {
+                    "done", "error", "cancelled", "uncertain"
+                }]
+                active.sort(key=lambda j: j.created_at)
+                terminal.sort(key=lambda j: (j.finished_at or j.created_at), reverse=True)
+                # Losing an old terminal row is routine retention. Losing an
+                # active request loses its idempotency/recovery identity.
+                payload = {"jobs": [self._to_disk(j) for j in (
+                    active + terminal[:HISTORY_MAX]
+                )]}
+                tmp = HISTORY_FILE.with_suffix(".json.tmp")
+                tmp.write_text(json.dumps(payload, default=str))
+                os.replace(tmp, HISTORY_FILE)
+            return True
         except Exception as e:
             print(f"[gen] persist failed: {e}", file=sys.stderr, flush=True)
+            if strict:
+                raise PersistenceError("Generation history could not be saved") from e
+            return False
 
     def _load_history(self) -> None:
         if not HISTORY_FILE.exists():
@@ -3889,6 +4217,26 @@ class GenerationManager:
             for raw in rows:
                 job = self._from_disk(raw)
                 if job is not None:
+                    if job.state in {"queued", "running", "cancel_requested"}:
+                        # A new server cannot prove that the previous native process
+                        # stopped or still owns this request. Never resume it.
+                        if job.output_path:
+                            try:
+                                Path(job.output_path).unlink(missing_ok=True)
+                            except OSError:
+                                pass
+                        if job.partial_output_path:
+                            try:
+                                Path(job.partial_output_path).unlink(missing_ok=True)
+                            except OSError:
+                                pass
+                        job.output_path = None
+                        job.partial_output_path = None
+                        job.state = "uncertain"
+                        job.error = "Generation status is uncertain after Voice Studio restarted."
+                        job.error_code = "EXECUTION_IDENTITY_LOST"
+                        job.finished_at = time.time()
+                        needs_cleanup = True
                     self._jobs[job.job_id] = job
                 if job is None or any(str(key).startswith("provider") for key in raw):
                     needs_cleanup = True
@@ -3908,12 +4256,16 @@ class GenerationManager:
             "progress": job.progress,
             "chunk_index": job.chunk_index,
             "chunk_total": job.chunk_total,
+            "execution_run_id": job.execution_run_id,
+            "executor_generation": job.executor_generation,
             "params": job.params,
             "created_at": job.created_at,
             "output_path": job.output_path,
+            "partial_output_path": job.partial_output_path,
             "resolved_seed": job.resolved_seed,
             "error": job.error,
             "started_at": job.started_at,
+            "cancel_requested_at": job.cancel_requested_at,
             "finished_at": job.finished_at,
             "model_revision": job.model_revision,
             "voice_revision": job.voice_revision,
@@ -3958,10 +4310,14 @@ class GenerationManager:
                 progress=raw.get("progress", 1.0),
                 chunk_index=raw.get("chunk_index"),
                 chunk_total=raw.get("chunk_total"),
+                execution_run_id=raw.get("execution_run_id"),
+                executor_generation=raw.get("executor_generation"),
                 output_path=output_path,
+                partial_output_path=raw.get("partial_output_path"),
                 resolved_seed=raw.get("resolved_seed"),
                 error=raw.get("error"),
                 started_at=raw.get("started_at"),
+                cancel_requested_at=raw.get("cancel_requested_at"),
                 finished_at=raw.get("finished_at"),
                 model_revision=raw.get("model_revision"),
                 voice_revision=raw.get("voice_revision"),
@@ -3985,4 +4341,55 @@ class GenerationManager:
             return None
 
 
-manager = GenerationManager()
+_NATIVE_CHILD_MANAGER: GenerationManager | None = None
+
+
+def _native_dispatch_payload(payload: dict, cancel_requested) -> dict:
+    """Child entry point. It retains only native model caches across commands."""
+    global _NATIVE_CHILD_MANAGER
+    if _NATIVE_CHILD_MANAGER is None:
+        runtime = object.__new__(GenerationManager)
+        runtime._mlx_audio_model = None
+        runtime._mlx_audio_model_repo = None
+        runtime._f5_tts_model = None
+        runtime._f5_tts_model_repo = None
+        runtime._last_model_activity_at = None
+        _NATIVE_CHILD_MANAGER = runtime
+    runtime = _NATIVE_CHILD_MANAGER
+    if payload.get("action") == "release":
+        released = runtime._evict_loaded_models(reason="parent-memory-release")
+        return {"released": released, "loaded_models": runtime.loaded_model_keys()}
+    if payload.get("action") != "generate":
+        raise ValueError("unknown native executor action")
+    job = GenerationJob(
+        job_id=str(payload["job_id"]), mode="txt2speech",
+        params=dict(payload["params"]), cancel_event=cancel_requested,
+    )
+    sampler = resource_telemetry.JobResourceSampler(lambda _value: None).start()
+    try:
+        runtime._dispatch_txt2speech_direct(
+            job, Path(payload["output_path"]), postprocess_speed=False,
+        )
+        execution_error = None
+    except Exception as exc:
+        execution_error = f"{type(exc).__name__}: {exc}"
+    telemetry = sampler.finish(
+        state="error" if execution_error else "done",
+        memory_failure=False,
+        restart_scheduled=False,
+        model_retained=runtime.has_loaded_model(),
+    )
+    return {
+        "resolved_seed": job.resolved_seed,
+        "chunk_index": job.chunk_index,
+        "chunk_total": job.chunk_total,
+        "progress": job.progress,
+        "loaded_models": runtime.loaded_model_keys(),
+        "resource_usage": telemetry,
+        "execution_error": execution_error,
+    }
+
+
+# Spawned native workers import this module only to unpickle the child entry
+# point. They must never construct the HTTP/history-owning singleton.
+manager = None if os.environ.get("VOICE_NATIVE_EXECUTOR_CHILD") == "1" else GenerationManager()

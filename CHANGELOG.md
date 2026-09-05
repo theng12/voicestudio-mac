@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.7.1] — 2026-09-05
+
+### Fixed — recoverable local generation cancellation
+
+- Local native synthesis now runs in one clean, exclusively leased child process
+  with durable execution identity, bounded cancellation, and fail-closed
+  recovery after an unverified exit. Queued and cancellation-requested jobs
+  retain their request identity across restart and are never replayed
+  automatically.
+- Voice Studio keeps section sequencing, final WAV promotion, and FFmpeg speed
+  conversion under the server job's custody. Partial or unverified output is
+  not made available, and the generation history distinguishes cancelled from
+  uncertain outcomes.
+- This patch changes no dependency, model, installation flow, or launcher.
+  **Ordinary Update is enough**; Install Generation is not required.
+
 ## [2.7.0] — 2026-09-01
 
 ### Added — subtitle transcription in fleet activity
