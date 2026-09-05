@@ -1,4 +1,5 @@
 from pathlib import Path
+import threading
 
 import numpy as np
 import pytest
@@ -386,6 +387,7 @@ def test_job_owned_reference_validation_attaches_redacted_evidence(
     reference.write_bytes(b"immutable-reference")
     transcript = "Aiden reads a calm and accurately aligned reference."
     manager = object.__new__(generation.GenerationManager)
+    manager._lock = threading.Lock()
     manager._mlx_audio_model = None
     manager._mlx_audio_model_repo = None
     manager._f5_tts_model = None
@@ -462,6 +464,7 @@ def test_rejected_local_qwen_output_retries_once_with_safer_settings(
     monkeypatch, tmp_path: Path, initial_budget: int
 ) -> None:
     manager = object.__new__(generation.GenerationManager)
+    manager._lock = threading.Lock()
     manager._mlx_audio_model = None
     manager._mlx_audio_model_repo = None
     manager._f5_tts_model = None
@@ -535,6 +538,7 @@ def test_qwen_output_mismatch_on_retry_is_terminal_and_preserves_attempt_evidenc
     monkeypatch, tmp_path: Path
 ) -> None:
     manager = object.__new__(generation.GenerationManager)
+    manager._lock = threading.Lock()
     manager._mlx_audio_model = None
     manager._mlx_audio_model_repo = None
     manager._f5_tts_model = None
