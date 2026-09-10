@@ -8,6 +8,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.7.3] — 2026-09-10
+
+### Fixed — Qwen3 TTS 0.6B Base admission floor
+
+- Qwen3 TTS 0.6B Base now requires 16 GB unified memory. The worker catalog,
+  hardware guidance, and memory guard all use this one floor, so 8 GB Macs
+  are refused before local inference rather than being advertised as eligible.
+- This changes no dependency, model download, launcher, or service setup.
+  **Ordinary Update is enough**; fleet activation remains an operator action.
+
 ## [2.7.2] — 2026-09-10
 
 ### Fixed — generation installation after macOS SDK updates
