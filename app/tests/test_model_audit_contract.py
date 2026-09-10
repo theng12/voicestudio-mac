@@ -85,16 +85,20 @@ def test_kokoro_audit_inventory_exactly_matches_the_runtime_roster() -> None:
     assert limits["supports_cancellation_between_chunks"] is True
 
 
-def test_qwen_base_guardrail_contract_requires_requalification() -> None:
+def test_qwen_base_has_a_passed_limited_english_qualification_contract() -> None:
     record = model_audits.audit_record(QWEN_BASE)
     assert record is not None
+    assert record["audit_id"] == (
+        "voicestudio-20260910-qwen3-tts-0.6b-base-production-v1"
+    )
     assert record["subject"]["display_name"] == "Qwen3-TTS 0.6B Base"
     assert record["subject"]["checkpoint_revision"] == (
         "50f45ef0047cde7e84c2ef04326acb8ada2436a7"
     )
     candidate = record["genstudio_candidate"]
-    assert candidate["audit_status"] == "conditional"
-    assert candidate["candidate_for_genstudio"] is False
+    assert candidate["audited_at"] == record["audited_at"]
+    assert candidate["audit_status"] == "passed"
+    assert candidate["candidate_for_genstudio"] is True
     assert candidate["approved_operations"] == ["voice.tts"]
     assert candidate["contract_hash"] == model_audits.contract_hash(
         record["contract"]
@@ -122,9 +126,19 @@ def test_qwen_base_guardrail_contract_requires_requalification() -> None:
     assert reference["maximum_duration_seconds"] == 15
     assert reference["transcript"] == "required"
     assert record["evidence"]["supersedes_audit_id"] == (
-        "voicestudio-20260803-qwen3-tts-0.6b-base-50f45ef0-pacing288"
+        "voicestudio-20260803-qwen3-tts-0.6b-base-guardrails-v1"
     )
-    assert record["evidence"]["promotion_gate"]["candidate_for_genstudio"] is False
+    coverage = record["evidence"]["qualification_coverage"]
+    assert coverage["completed_short_cases"] == 3
+    assert coverage["language"] == "en"
+    assert coverage["automated_output_quality"] == "passed"
+    assert coverage["not_covered"] == [
+        "human listening evaluation",
+        "numeric WER or CER benchmark",
+        "cross-language quality benchmark",
+        "long-form traffic benchmark",
+    ]
+    assert record["evidence"]["resource_observations"]["warning_cases"] == 1
     assert "approved_for_genstudio" not in json.dumps(record)
 
 
