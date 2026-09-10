@@ -77,6 +77,19 @@ installer creates it when needed. Existing machine values are never replaced by
 these seed steps, so updates preserve cache, sharing, custom model-directory,
 and startup-ownership settings.
 
+### Generation install fails after a macOS update
+
+If Install Generation fails while building `pyopenjtalk` with a linker error
+such as `libSystem.tbd`, `tapi`, or `unknown architecture arm64e.x1`, run
+**Update**, then retry **Install Generation**. Voice Studio checks Apple's C
+and C++ tools and selects a working installed macOS SDK for that build. It
+does not change the system SDK selection or remove downloaded models.
+
+If setup reports that no compatible SDK works, installed packages and cached
+wheels can still be reused. If a native build then fails, update or reinstall
+Apple's Command Line Tools for your macOS version and retry. Resetting Voice
+Studio does not repair Apple's compiler/SDK installation.
+
 ### Local-only boundary
 
 Voice Studio synthesises with local Apple Silicon engines only. The former
