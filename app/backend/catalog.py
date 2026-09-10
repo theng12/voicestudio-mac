@@ -702,9 +702,9 @@ CATALOG: tuple[ModelEntry, ...] = (
         family="qwen3-tts",
         size_gb=1.9,
         gated=False,
-        min_unified_memory_gb=8,
+        min_unified_memory_gb=16,
         recommended_hardware=(
-            "Apple Silicon with 8 GB unified memory minimum; 16 GB preferred "
+            "Apple Silicon with 16 GB unified memory minimum; 24 GB preferred "
             "for normal memory pressure and faster generation."
         ),
         # Base model handles voice CLONING from a reference audio clip — pair
@@ -714,7 +714,7 @@ CATALOG: tuple[ModelEntry, ...] = (
         sample_rate_hz=24000,
         languages=("en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"),
         use_cases=(
-            ("good",  "Qualified transcript-assisted voice cloning on 8 GB and larger Macs"),
+            ("good",  "Qualified transcript-assisted voice cloning on 16 GB and larger Macs"),
             ("good",  "Multilingual cloning across the ten upstream-supported languages"),
             ("good",  "MLX-native — no PyTorch install needed"),
             ("weak",  "Less prosodic nuance than the 1.7B tier — voice character may sound flatter"),
