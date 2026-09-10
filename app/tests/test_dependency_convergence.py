@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -25,6 +26,7 @@ class RecordingRunner:
 
 @pytest.fixture
 def toolchain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    monkeypatch.setattr(convergence, "generation_build_environment", lambda: None)
     home = tmp_path / "pinokio"
     conda = home / "bin" / "miniforge" / "bin" / "conda"
     uv = home / "bin" / "miniforge" / "bin" / "uv"
@@ -188,3 +190,82 @@ def test_cli_accepts_only_each_fixed_mode(
 
     assert capsys.readouterr().err == ""
     assert calls == [mode]
+
+
+@pytest.mark.parametrize("working_sdk", ["MacOSX27.0.sdk", "MacOSX26.5.sdk", None])
+def test_generation_selects_only_an_sdk_that_compiles_and_links(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, working_sdk: str | None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("VOICE_BUILD_TEST", "preserved")
+    original = os.environ.copy()
+    sdks = tmp_path / "SDKs"
+    for name in ("MacOSX27.0.sdk", "MacOSX26.5.sdk", "MacOSX15.4.sdk"):
+        (sdks / name).mkdir(parents=True)
+    (sdks / "MacOSX.sdk").symlink_to(sdks / "MacOSX27.0.sdk")
+    probes = []
+
+    def runner(argv, **kwargs):
+        if argv[0] == "/usr/bin/xcrun":
+            return subprocess.CompletedProcess(argv, 0, stdout=str(sdks / "MacOSX.sdk") + "\n")
+        env = kwargs["env"]
+        sdk = Path(env["SDKROOT"]).name
+        probes.append((sdk, argv[0]))
+        # C alone succeeding is insufficient: a broken C++ toolchain must
+        # also prevent the installer from accepting this SDK.
+        if sdk != working_sdk and argv[0] == "/usr/bin/c++":
+            raise subprocess.CalledProcessError(1, argv, stderr="ld: unknown architecture arm64e.x1")
+        return subprocess.CompletedProcess(argv, 0)
+
+    if working_sdk is None:
+        assert convergence.generation_build_environment(runner=runner) is None
+        assert "Command Line Tools" in capsys.readouterr().err
+    else:
+        env = convergence.generation_build_environment(runner=runner)
+        assert env["SDKROOT"] == str(sdks / working_sdk)
+        assert env["CC"] == "/usr/bin/cc"
+        assert env["CXX"] == "/usr/bin/c++"
+        assert env["VOICE_BUILD_TEST"] == "preserved"
+        assert probes[-2:] == [(working_sdk, "/usr/bin/cc"), (working_sdk, "/usr/bin/c++")]
+        assert not any(sdk == "MacOSX15.4.sdk" for sdk, _ in probes)
+    assert os.environ == original
+
+
+def test_generation_reports_missing_apple_tools_before_install(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    def runner(argv, **kwargs):
+        raise subprocess.CalledProcessError(1, argv)
+
+    assert convergence.generation_build_environment(runner=runner) is None
+    assert "Command Line Tools" in capsys.readouterr().err
+
+
+def test_non_macos_does_not_probe_apple_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert convergence.generation_build_environment() is None
+
+
+@pytest.mark.parametrize("mode", ["generation", "all-installed"])
+def test_build_environment_is_scoped_to_generation_install(
+    toolchain: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, mode: str,
+) -> None:
+    env = {"SDKROOT": "/working/sdk"}
+    monkeypatch.setattr(convergence, "generation_build_environment", lambda: env)
+    monkeypatch.setattr(convergence, "generation_installed", lambda: True)
+    runner = RecordingRunner()
+    convergence.converge(mode, runner=runner)
+    assert runner.kwargs[-2]["env"] is env
+    assert all("env" not in kwargs for kwargs in runner.kwargs[:-2] + runner.kwargs[-1:])
+
+
+def test_package_build_failure_is_not_suppressed_without_sdk(
+    toolchain: tuple[Path, Path],
+) -> None:
+    runner = RecordingRunner(failure_at=1)
+    with pytest.raises(convergence.ConvergenceError, match="generation-python-install"):
+        convergence.converge("generation", runner=runner)
+    assert len(runner.argv) == 1

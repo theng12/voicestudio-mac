@@ -8,6 +8,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.7.2] — 2026-09-10
+
+### Fixed — generation installation after macOS SDK updates
+
+- Generation setup now checks that Apple's C and C++ tools can compile and
+  link against the selected macOS SDK before installing native dependencies.
+  If a newer SDK is incompatible with the installed linker (including the
+  `pyopenjtalk` / `arm64e.x1` failure), setup uses another installed SDK only
+  after both compiler checks pass. If none work, it explains how to repair
+  Command Line Tools while still allowing installed packages or cached wheels
+  to be reused. Native build failures still stop installation.
+- The selected SDK applies only to the generation dependency build. System
+  tools, model packages, saved voices, models, and generated files are unchanged.
+  This covers Install Generation, Update, and Studio Hub's managed updates.
+- Run **Update**, then retry **Install Generation** if the previous generation
+  install failed. Already installed generation dependencies are checked during
+  ordinary Update; a reset or model re-download is not required.
+
 ## [2.7.1] — 2026-09-05
 
 ### Fixed — recoverable local generation cancellation

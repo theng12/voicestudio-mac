@@ -4,8 +4,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import tempfile
 from typing import Callable, Sequence
 
 
@@ -71,6 +73,55 @@ def generation_installed() -> bool:
     return any(path.is_dir() for path in Path(sys.prefix).glob("lib/python*/site-packages/diffusers"))
 
 
+def generation_build_environment(*, runner: Callable[..., object] = subprocess.run) -> dict[str, str] | None:
+    """Keep native builds on an installed SDK that Apple's compilers can link."""
+    if sys.platform != "darwin":
+        return None
+    failure = (
+        "No working Apple compiler/macOS SDK pair found. Continuing with available packages. "
+        "If a native build fails, update or reinstall Command Line Tools for this macOS version, "
+        "then retry Install Generation."
+    )
+    try:
+        result = runner(
+            ["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path"],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+        selected = Path(result.stdout.strip()).resolve(strict=True)
+        if not result.stdout.strip() or not selected.is_dir():
+            raise ConvergenceError(failure)
+        # A newer SDK can remain beside older tools after a macOS update.
+        # Try the selected SDK first, then installed versions, newest first.
+        versions = sorted(
+            selected.parent.glob("MacOSX[0-9]*.sdk"),
+            key=lambda path: tuple(int(part) for part in re.findall(r"\d+", path.name)),
+            reverse=True,
+        )
+        candidates = dict.fromkeys([selected, *(path.resolve() for path in versions)])
+        with tempfile.TemporaryDirectory(prefix="voicestudio-build-") as scratch:
+            for sdk in candidates:
+                env = {**os.environ, "SDKROOT": str(sdk), "CC": "/usr/bin/cc", "CXX": "/usr/bin/c++"}
+                try:
+                    for compiler, language, source in (
+                        (env["CC"], "c", "#include <stdio.h>\nint main(void) { return puts(\"ok\") < 0; }\n"),
+                        (env["CXX"], "c++", "#include <vector>\nint main() { std::vector<int> v(1); return v[0]; }\n"),
+                    ):
+                        runner(
+                            [compiler, "-isysroot", str(sdk), "-x", language, "-", "-o", str(Path(scratch) / "probe")],
+                            input=source, env=env, check=True, capture_output=True, text=True, timeout=30,
+                        )
+                except (OSError, subprocess.SubprocessError):
+                    continue
+                print(f"Generation native build SDK: {sdk.name}", flush=True)
+                return env
+    except (ConvergenceError, OSError, subprocess.SubprocessError):
+        pass
+    # Installed packages and cached wheels need no compiler. Let uv decide
+    # whether a source build is necessary, retaining its actual failure output.
+    print(failure, file=sys.stderr, flush=True)
+    return None
+
+
 def _commands(mode: str) -> list[tuple[str, list[str]]]:
     if mode not in MODES:
         raise ValueError("mode must be base, generation, or all-installed")
@@ -94,8 +145,9 @@ def _commands(mode: str) -> list[tuple[str, list[str]]]:
 def converge(mode: str, *, runner: Callable[..., object] = subprocess.run) -> None:
     """Run the selected fixed convergence mode without accepting caller input."""
     for stage, argv in _commands(mode):
+        env = generation_build_environment() if stage == "generation-python-install" else None
         try:
-            runner(argv, cwd=APP, check=True, timeout=1800)
+            runner(argv, cwd=APP, check=True, timeout=1800, **({"env": env} if env is not None else {}))
         except (OSError, subprocess.SubprocessError) as exc:
             raise ConvergenceError(f"Dependency convergence failed during {stage}.") from exc
 
