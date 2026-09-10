@@ -8,6 +8,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.7.4] — 2026-09-10
+
+### Added — Qwen3 TTS 0.6B Base qualification evidence
+
+- Added a new hash-bound, passed Qwen3 TTS 0.6B Base audit for its exact
+  revision and existing 16 GB admission contract. It records three successful
+  short English owner-reference cases and their automated transcript, repetition,
+  and terminal-artifact gates.
+- The audit explicitly does not claim a human listening evaluation, numeric WER
+  or CER, cross-language benchmark, or long-form traffic benchmark. The
+  historical conditional audit remains preserved as prior evidence.
+- This changes no dependency, model download, launcher, or service setup.
+  **Ordinary Update is enough**; routing and customer publication remain
+  separately guarded actions.
+
 ## [2.7.3] — 2026-09-10
 
 ### Fixed — Qwen3 TTS 0.6B Base admission floor
