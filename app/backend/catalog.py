@@ -60,6 +60,28 @@ OMNIVOICE_NONVERBAL_TAGS: tuple[str, ...] = (
 
 
 FAMILIES: dict[str, Family] = {
+    "mms-vits": Family(
+        id="mms-vits",
+        label="MMS VITS (PyTorch)",
+        summary=(
+            "A compact single-speaker Khmer VITS model running locally on CPU "
+            "with PyTorch and Transformers. It produces 16 kHz speech and does "
+            "not use reference audio or voice selection."
+        ),
+        how_to_use=(
+            "Enter Khmer text and use the fixed built-in voice. The model only "
+            "supports Khmer (km); reference voices, voice design, and English "
+            "text normalization do not apply."
+        ),
+        text_guidance=TextGuidance(
+            soft_max_chars=500,
+            chunking="hard-cap",
+            note=(
+                "For initial testing, use short Khmer passages up to 500 characters; "
+                "long-text chunking is not enabled."
+            ),
+        ),
+    ),
     "f5-tts": Family(
         id="f5-tts",
         label="F5-TTS",
@@ -564,6 +586,37 @@ class ModelEntry:
 
 
 CATALOG: tuple[ModelEntry, ...] = (
+    ModelEntry(
+        repo="khmerttsopensource/khmer-tts",
+        label="Khmer TTS",
+        family="mms-vits",
+        size_gb=0.3322,
+        gated=False,
+        min_unified_memory_gb=8,
+        recommended_hardware="Any Mac with 8 GB. Runs on CPU with PyTorch and Transformers.",
+        capabilities=("tts",),
+        best_for=(
+            "Short Khmer passages with a compact local single-speaker model. "
+            "CC BY-NC 4.0 — personal and other non-commercial use only."
+        ),
+        sample_rate_hz=16000,
+        languages=("km",),
+        language_support=LanguageSupport(
+            input_selection="none",
+            enumeration_status="exact",
+            codes=("km",),
+            runtime_enforced=False,
+        ),
+        ignore_patterns=("eval/*", "training/*"),
+        use_cases=(
+            ("good", "Compact ~0.33 GB download and CPU runtime"),
+            ("good", "Khmer speech with one fixed built-in voice"),
+            ("weak", "16 kHz single-speaker output; no reference voice or voice design"),
+            ("weak", "CC BY-NC 4.0 — personal and other non-commercial use only"),
+            ("avoid", "Other languages or passages longer than 500 characters"),
+        ),
+    ),
+
     # ──────────── F5-TTS ────────────
     ModelEntry(
         repo="SWivid/F5-TTS",

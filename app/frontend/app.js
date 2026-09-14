@@ -992,6 +992,7 @@ function studio() {
 
     get selectedVoiceSummary() {
       if (!this.selectedModel) return "—";
+      if (this.isMmsVits(this.gen.repo)) return "Fixed Khmer voice";
       const qwenMode = this.qwen3Mode(this.gen.repo);
       if (qwenMode === "custom") return this.gen.preset_speaker || "Choose speaker";
       if (this.isBark(this.gen.repo)) return this.gen.bark_voice_preset || "Random voice";
@@ -1009,6 +1010,12 @@ function studio() {
         return this.gen.voice || "Model default";
       }
       return "Model default";
+    },
+
+    get selectedComputeSummary() {
+      return this.isMmsVits(this.gen.repo)
+        ? "CPU"
+        : this.gen.device || this.system.chip || "Apple Silicon";
     },
 
     get selectedLibraryVoice() {
@@ -1057,6 +1064,10 @@ function studio() {
       return this.gen.text.length > g.soft_max_chars;
     },
 
+    get textHardCapCanOverride() {
+      return this.textHardCapExceeded && !this.isMmsVits(this.gen.repo);
+    },
+
     get genWiredFamilies() {
       return this.gen.wired_families || [];
     },
@@ -1080,6 +1091,7 @@ function studio() {
       if (!this.gen.repo) return false;
       if (!this.gen.text.trim()) return false;
       if (!this.isModelReady(this.gen.repo)) return false;
+      if (this.isMmsVits(this.gen.repo) && this.textHardCapExceeded) return false;
       if (this.sectionSizeControlSupported
           && this.gen.section_size_mode === "custom" && !this.sectionSizeIsValid) return false;
       // Per-mode validation
@@ -1103,6 +1115,9 @@ function studio() {
       if (!this.gen.repo) return "Choose a downloaded model to continue.";
       if (!this.gen.text.trim()) return "Type some text to enable Generate.";
       if (!this.isModelReady(this.gen.repo)) return "This model is not ready yet.";
+      if (this.isMmsVits(this.gen.repo) && this.textHardCapExceeded) {
+        return "Khmer TTS currently accepts up to 500 characters per generation.";
+      }
       if (this.sectionSizeControlSupported
           && this.gen.section_size_mode === "custom" && !this.sectionSizeIsValid) {
         const c = this.sectionSizeControl;
@@ -2602,6 +2617,10 @@ function studio() {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "qwen3-tts";
     },
+    isMmsVits(repo) {
+      const m = (this.models || []).find(x => x.repo === repo);
+      return m?.family === "mms-vits";
+    },
     isVoxCPMMlx(repo) {
       const m = (this.models || []).find(x => x.repo === repo);
       return m?.family === "voxcpm-mlx";
@@ -2795,6 +2814,11 @@ function studio() {
       // not-cached. (The $watch on gen.repo also sets this, but flipping it
       // here too means we don't depend on watcher ordering.)
       this._repoUserConfirmed = true;
+      if (this.isMmsVits(this.gen.repo)) {
+        this.gen.normalize_text = false;
+        const text = this.gen.text || "";
+        if (!text.trim() || (window.SAMPLE_PROMPTS || []).includes(text)) this.useKhmerSample();
+      }
       // Apply per-family default knob values when the user switches engines.
       // Saves the user from having to remember each model's sweet-spot defaults.
       if (this.isVoxCPMMlx(this.gen.repo) && !this.gen.inference_timesteps) {
@@ -2905,13 +2929,19 @@ function studio() {
       return `https://huggingface.co/${repo}`;
     },
     randomTextPrompt() {
-      if (!window.SAMPLE_PROMPTS || !window.SAMPLE_PROMPTS.length) return;
+      const prompts = this.isMmsVits(this.gen.repo)
+        ? window.KHMER_SAMPLE_PROMPTS
+        : window.SAMPLE_PROMPTS;
+      if (!prompts || !prompts.length) return;
       let idx;
       do {
-        idx = Math.floor(Math.random() * window.SAMPLE_PROMPTS.length);
-      } while (window.SAMPLE_PROMPTS.length > 1 && idx === this._lastRandomPromptIndex);
+        idx = Math.floor(Math.random() * prompts.length);
+      } while (prompts.length > 1 && idx === this._lastRandomPromptIndex);
       this._lastRandomPromptIndex = idx;
-      this.gen.text = window.SAMPLE_PROMPTS[idx];
+      this.gen.text = prompts[idx];
+    },
+    useKhmerSample() {
+      this.gen.text = window.KHMER_SAMPLE_PROMPTS?.[0] || "សួស្តីអ្នកទាំងអស់គ្នា។";
     },
 
     startGenStream() {
@@ -3002,7 +3032,7 @@ function studio() {
     // Engines with auto-split / unlimited chunking skip this entirely.
     safeSubmit() {
       if (!this.canSubmit) return;
-      if (this.textHardCapExceeded && !this.gen.overCapConfirmed) {
+      if (this.textHardCapCanOverride && !this.gen.overCapConfirmed) {
         this.gen.overCapConfirmed = true;
         return;
       }
@@ -3067,7 +3097,7 @@ function studio() {
                  ? ([this.gen.voice, this.isKokoroMlx(repo) ? this.gen.kokoro_blend_voice : ""]
                     .map(value => (value || "").trim()).filter(Boolean).join(",") || null)
                  : null,
-          language: (this.isKokoroMlx(repo) ? this.gen.kokoro_language : this.gen.language || "").trim() || null,
+          language: (this.isMmsVits(repo) ? "km" : this.isKokoroMlx(repo) ? this.gen.kokoro_language : this.gen.language || "").trim() || null,
           speed: Number(this.gen.speed),
           temperature: Number(this.gen.temperature),
           seed: seedForThis,
@@ -3085,7 +3115,7 @@ function studio() {
           // for VoxCPM v2 (uses_cfg=true).
           cfg_value: Number(this.gen.cfg_value),
           inference_timesteps: Number(this.gen.inference_timesteps),
-          normalize_text: !!this.gen.normalize_text,
+          normalize_text: !this.isMmsVits(repo) && !!this.gen.normalize_text,
           voxcpm_warmup_patches: Number(this.gen.voxcpm_warmup_patches),
           voxcpm_max_tokens: Number(this.gen.voxcpm_max_tokens),
           chatterbox_cfg_weight: Number(this.gen.chatterbox_cfg_weight),

@@ -8,6 +8,15 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.8.0] — 2026-09-14
+
+### Added — Khmer TTS for local testing
+
+- Added `khmerttsopensource/khmer-tts` to Models and Generate with a fixed Khmer voice, a sample prompt, and 16 kHz WAV output.
+- Added a CPU VITS worker using the existing PyTorch, Transformers, NumPy and SoundFile dependencies. Inference reads only the selected local snapshot; no additional package is needed on an installed 2.7.4 generation environment.
+- Preserved job cancellation, output validation, reproducible seeds and pitch-preserving speed control. Initial testing accepts Khmer passages up to 500 characters per generation; long-text chunking and voice cloning are not supported by this integration.
+- The checkpoint remains experimental and available for personal testing under its upstream CC-BY-NC-4.0 license. This addition does not qualify it for fleet or commercial routing.
+
 ## [2.7.4] — 2026-09-10
 
 ### Added — Qwen3 TTS 0.6B Base qualification evidence

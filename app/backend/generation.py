@@ -460,6 +460,8 @@ def availability() -> dict:
             wired.append(fam)
     if f5_tts_ok:
         wired.append("f5-tts")
+    if all(_package_installed(name) for name in _ENGINE_REQUIREMENTS["mms-vits"]):
+        wired.append("mms-vits")
     return {
         "available": TTS_AVAILABLE,
         "kokoro_available": qwen3_ok,
@@ -547,6 +549,7 @@ _PACKAGE_CHECKLIST = [
 ]
 
 _ENGINE_REQUIREMENTS = {
+    "mms-vits":       ["torch", "transformers", "soundfile", "numpy"],
     "voxcpm-mlx":     ["mlx", "mlx_audio", "soundfile", "numpy"],
     "bark":           ["mlx", "mlx_audio", "transformers", "soundfile", "numpy"],
     # Other mlx-audio-backed families. All share the same package set, since
@@ -583,6 +586,7 @@ _ENGINE_REQUIREMENTS = {
 # one of these models won't trip a NotImplementedError. Keep in sync with the
 # branches in `_dispatch_txt2speech` below + the MLX_AUDIO_FAMILIES table.
 _WIRED_FAMILIES = {
+    "mms-vits",
     "bark",
     # All mlx-audio-backed families share one worker.
     "qwen3-tts", "voxcpm-mlx", "kokoro-mlx",
@@ -1155,6 +1159,7 @@ def _find_ffmpeg_executable() -> Optional[Path]:
 
 
 _POSTPROCESSED_SPEED_FAMILIES = {
+    "mms-vits": "Khmer TTS",
     "qwen3-tts": "Qwen",
     "voxcpm-mlx": "VoxCPM2",
     "vibevoice": "VibeVoice",
@@ -1975,6 +1980,8 @@ class GenerationManager:
     def runtime_ready_for_family(family: str) -> bool:
         if family in MLX_AUDIO_FAMILIES:
             return _have_mlx_audio()
+        if family == "mms-vits":
+            return all(_package_installed(name) for name in _ENGINE_REQUIREMENTS[family])
         if family == "f5-tts":
             return _have_f5_tts()
         return False
@@ -2712,15 +2719,19 @@ class GenerationManager:
         is_fish = "fish-audio-s2-pro" in normalized_repo
         is_omnivoice = "omnivoice" in normalized_repo
         is_longcat = "longcat-audiodit" in normalized_repo
+        is_khmer = normalized_repo == "khmerttsopensource/khmer-tts"
         if not (
             is_qwen or is_voxcpm or is_kokoro or is_chatterbox
-            or is_fish or is_omnivoice or is_longcat
+            or is_fish or is_omnivoice or is_longcat or is_khmer
         ):
             return
         revision = cache.snapshot_revision(repo)
         if not revision:
             raise RuntimeError("Local TTS model revision evidence is unavailable")
         job.model_revision = revision
+        if is_khmer:
+            job.voice_revision = f"{revision}:fixed:khmer"
+            return
         if is_kokoro:
             voice = str(job.params.get("voice") or "").strip().lower()
             if not voice:
@@ -2992,7 +3003,11 @@ class GenerationManager:
 
         family = model.family
         self._memory_preflight(model)
-        if family == "f5-tts":
+        if family == "mms-vits":
+            self._generate_mms_vits(job, model, output_path)
+            if postprocess_speed and not job.cancel_event.is_set():
+                self._apply_parent_output_speed(job, output_path)
+        elif family == "f5-tts":
             if not _have_f5_tts():
                 raise RuntimeError(
                     "The `f5-tts` package isn't installed. Run 'Install Generation' "
@@ -4092,6 +4107,54 @@ class GenerationManager:
         self._f5_tts_model_repo = repo
         self._last_model_activity_at = time.time()
         return model
+
+    def _generate_mms_vits(self, job: GenerationJob, model_entry, output_path: Path) -> None:
+        """Single-speaker Khmer VITS on CPU, inside the existing native executor."""
+        text = str(job.params.get("text") or "").strip()
+        if not text or not any("\u1780" <= char <= "\u17ff" and char.isalpha() for char in text):
+            raise ValueError("Khmer TTS needs text in Khmer script")
+        # An initial testing bound, not an upstream model limit. This worker
+        # does not yet split Khmer passages, whose words need not use spaces.
+        if len(text) > 500:
+            raise ValueError("Khmer TTS currently accepts up to 500 characters per generation")
+        if job.cancel_event.is_set():
+            return
+
+        import numpy as np
+        import soundfile as sf
+        import torch
+        from transformers import AutoTokenizer, VitsModel
+
+        revision = cache.snapshot_revision(model_entry.repo)
+        if revision is None:
+            raise ValueError("Khmer TTS needs a complete, revisioned model download")
+        snapshot = cache.repo_cache_dir(model_entry.repo) / "snapshots" / revision
+        # Do not retain another native model alongside this CPU model. The
+        # small VITS checkpoint loads per job and is released on return.
+        self._evict_loaded_models(reason="switch-to-mms-vits")
+        tokenizer = AutoTokenizer.from_pretrained(str(snapshot), local_files_only=True)
+        inputs = tokenizer(text, return_tensors="pt")
+        ids = inputs["input_ids"].tolist()[0]
+        if not any(token not in (tokenizer.pad_token_id, tokenizer.unk_token_id) for token in ids):
+            raise ValueError("Khmer TTS could not tokenize this text")
+        model = VitsModel.from_pretrained(str(snapshot), local_files_only=True).eval()
+        seed = job.params.get("seed")
+        if seed is None or seed < 0:
+            import random
+            seed = random.randint(0, 2**32 - 1)
+        job.resolved_seed = int(seed)
+        torch.manual_seed(job.resolved_seed)
+        if job.cancel_event.is_set():
+            return
+        job.progress = 0.2
+        with torch.inference_mode():
+            audio = model(**inputs).waveform.squeeze().cpu().numpy()
+        if job.cancel_event.is_set():
+            return
+        if audio.ndim != 1 or audio.size == 0 or not np.isfinite(audio).all() or not np.any(audio):
+            raise RuntimeError("Khmer TTS produced invalid or silent audio")
+        sf.write(str(output_path), audio, int(model.config.sampling_rate), subtype="PCM_16")
+        job.progress = 0.95
 
     def _generate_f5_tts(self, job: GenerationJob, model_entry, output_path: Path) -> None:
         """F5-TTS voice cloning. The engine has no zero-shot mode — a reference
