@@ -27,8 +27,9 @@ Apple Silicon text-to-speech studio. Sibling app to **ImageStudio Mac** (FLUX im
   Kokoro keeps one
   full-quality MLX model with all 54 voices, nine language variants, speed, and
   equal voice blending. VoxCPM2 keeps a fast 4-bit tier and a bf16 final-render
-  tier, both with voice design, transcript-aware cloning, sentence-safe long-form
-  rendering, and exact pitch-preserving final tempo control. Bark uses its current
+  tier, plus an 8-bit option with no local speed or quality benchmark; all three
+  use voice design, transcript-aware cloning, sentence-safe long-form rendering,
+  and exact pitch-preserving final tempo control. Bark uses its current
   native MLX conversion with all 130 multilingual presets and complete sampling controls.
 - **Smart downloads** — filters out redundant duplicate weight formats,
   recognizes an already-complete immutable snapshot without creating another

@@ -677,12 +677,12 @@ CATALOG: tuple[ModelEntry, ...] = (
     ),
 
     # ──────────── VoxCPM2 (MLX) ────────────
-    # MLX ports of openbmb/VoxCPM2. 2B params, 30 languages, 48 kHz, one model
-    # that does zero-shot + voice design + cloning. Inference via `mlx-audio`
+    # MLX ports of openbmb/VoxCPM2. One 2B-parameter family with 30 languages,
+    # 48 kHz output, and zero-shot + voice design + cloning. Inference via `mlx-audio`
     # — same library as Qwen3-TTS, so the worker shares load_model + generate.
-    # Apache-2.0. 4-bit is the recommended pick (faster + smaller, minimal
-    # quality loss per the MLX conversion benchmarks). Keep bf16 as the
-    # final-render tier; the 8-bit middle row has no distinct workflow.
+    # Apache-2.0. 4-bit is the measured recommended pick; 8-bit is available
+    # as the published intermediate option, while bf16 remains the
+    # final-render tier. The 8-bit row has no local speed or quality benchmark.
     ModelEntry(
         repo="mlx-community/VoxCPM2-4bit",
         label="VoxCPM2 4-bit (MLX) — recommended",
@@ -713,6 +713,38 @@ CATALOG: tuple[ModelEntry, ...] = (
             ("good",  "Voice design from natural-language prompt ('elderly male, gravelly')"),
             ("weak",  "4-bit quantization can occasionally fumble on rare-word pronunciation"),
             ("avoid", "Final renders where you can't afford a quantization artifact — use bf16"),
+        ),
+    ),
+    ModelEntry(
+        repo="mlx-community/VoxCPM2-8bit",
+        label="VoxCPM2 8-bit (MLX)",
+        family="voxcpm-mlx",
+        size_gb=3.23,
+        gated=False,
+        min_unified_memory_gb=16,
+        recommended_hardware=(
+            "24 GB unified memory recommended; 16 GB minimum by conservative "
+            "family guidance. Not locally benchmarked."
+        ),
+        capabilities=("tts", "voice-cloning", "multilingual", "expressive"),
+        best_for=(
+            "The published VoxCPM2 8-bit option: 8-bit LM layers with a "
+            "full-precision VAE/DiT, a 3.23 GB download, 48 kHz output, and "
+            "30 languages. Not locally benchmarked for speed or quality."
+        ),
+        sample_rate_hz=48000,
+        languages=VOXCPM2_LANGUAGE_CODES,
+        language_support=LanguageSupport(
+            input_selection="none",
+            enumeration_status="exact",
+            codes=VOXCPM2_LANGUAGE_CODES,
+        ),
+        use_cases=(
+            ("good", "Existing VoxCPM2 zero-shot, voice-design, and cloning workflow"),
+            ("good", "8-bit LM layers with a full-precision VAE/DiT"),
+            ("good", "3.23 GB download, 48 kHz output, and 30 languages"),
+            ("weak", "Not locally benchmarked for speed or quality"),
+            ("avoid", "8 GB Macs; use the 16 GB minimum as the conservative floor"),
         ),
     ),
     ModelEntry(
