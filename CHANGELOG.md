@@ -8,6 +8,20 @@ Versioning follows [Semantic Versioning](https://semver.org/) with this project-
 - **MINOR** (1.1.x → 1.2.x) — new engine / new feature / new model family. **Re-run "Install Generation"** to pick up new Python deps.
 - **PATCH** (1.2.0 → 1.2.1) — bugfix / UI tweak / catalog entry within an existing family. **Just run Update** from the Pinokio sidebar.
 
+## [2.8.1] — 2026-09-14
+
+### Added — VoxCPM2 8-bit catalog option
+
+- Restored `mlx-community/VoxCPM2-8bit` to the existing VoxCPM2 (MLX) model
+  picker and download flow. It is catalog-only and uses the existing shared
+  worker, language roster, and 400-character long-form sections.
+- Recorded the published 3.23 GB size, 8-bit LM layers with full-precision
+  VAE/DiT, 48 kHz output, and 30-language scope. The row uses a conservative
+  16 GB minimum and recommends 24 GB; speed and quality remain explicitly
+  unbenchmarked locally.
+- This patch changes no generation dependencies or runtime worker behavior.
+  **Ordinary Update is enough**; the user chooses whether to download it.
+
 ## [2.8.0] — 2026-09-14
 
 ### Added — Khmer TTS for local testing

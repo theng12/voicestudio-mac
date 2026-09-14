@@ -45,11 +45,6 @@ LEGACY_REPOS: dict[str, dict[str, str]] = {
         "label": "Whisper Large v3 Turbo ASR fp16 (older alternative)",
         "reason": "Not referenced by Voice Studio's current transcription catalogue.",
     },
-    "mlx-community/VoxCPM2-8bit": {
-        "family": "voxcpm-mlx",
-        "label": "VoxCPM2 8-bit (older alternative)",
-        "reason": "Not referenced by Voice Studio's current 4-bit and bf16 catalogue options.",
-    },
     "mlx-community/Ming-omni-tts-0.5B-4bit": {
         "family": "unlisted",
         "label": "Ming-omni-tts 0.5B 4-bit (evaluated, rejected)",

@@ -535,11 +535,27 @@ def test_mlx_worker_joins_all_generated_segments() -> None:
 def test_voxcpm_catalog_keeps_latest_mlx_workflows_only() -> None:
     assert _repos("voxcpm-mlx") == [
         "mlx-community/VoxCPM2-4bit",
+        "mlx-community/VoxCPM2-8bit",
         "mlx-community/VoxCPM2-bf16",
     ]
     assert "voxcpm" not in catalog.FAMILIES
     requirements = (Path(__file__).resolve().parents[1] / "requirements-generation.txt").read_text()
     assert not any(line.startswith("voxcpm") for line in requirements.splitlines())
+
+
+def test_voxcpm_8bit_catalog_entry_inherits_family_contract() -> None:
+    model = catalog.get_model("mlx-community/VoxCPM2-8bit")
+    assert model is not None
+    assert model.size_gb == 3.23
+    assert model.min_unified_memory_gb == 16
+    assert model.sample_rate_hz == 48000
+    assert model.languages == catalog.VOXCPM2_LANGUAGE_CODES
+    assert "Not locally benchmarked" in model.recommended_hardware
+    assert "not locally benchmarked for speed or quality" in model.best_for.lower()
+
+    serialized = catalog.serialize_model(model)
+    assert serialized["long_form_delivery"]["section_max_characters"] == 400
+    assert serialized["language_support"]["codes"] == list(catalog.VOXCPM2_LANGUAGE_CODES)
 
 
 def test_voxcpm_saved_transcript_enables_ultimate_clone(tmp_path: Path) -> None:
