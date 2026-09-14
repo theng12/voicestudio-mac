@@ -228,6 +228,14 @@ The WebUI footer shows the running version. The same value is also surfaced at:
 - `POST /api/auto-update/update` → update now or pass `{"after_current":true}`
 - `POST /api/auto-update/retry` → retry a failed update
 
+## Khmer TTS
+
+In **Models**, download **Khmer TTS** (`khmerttsopensource/khmer-tts`), then select it in **Generate** and enter Khmer text, for example `សួស្តីអ្នកទាំងអស់គ្នា`. It uses one fixed voice and saves mono 16 kHz WAV audio. Voice cloning is not supported. Initial testing is limited to 500 characters per generation; use separate short passages for now.
+
+This model runs on CPU through PyTorch and Transformers. Those packages, NumPy and SoundFile are already included in **Install Generation**; an installed 2.7.4 environment needs no extra dependency. It uses the downloaded local snapshot during generation. The experimental checkpoint is listed for personal testing under its upstream CC-BY-NC-4.0 license; listen to the result to assess pronunciation.
+
+The existing `POST /api/generate/txt2speech` API also accepts `{"repo":"khmerttsopensource/khmer-tts","text":"សួស្តីអ្នកទាំងអស់គ្នា","seed":42,"speed":1.0}`. Use the normal job status and audio download endpoints documented above.
+
 ## Truth audit (for contributors)
 
 The Models tab shows a green "✓ engine ready" chip per model. That chip is driven by the `_WIRED_FAMILIES` set in `app/backend/generation.py`. If a family is in `_WIRED_FAMILIES` but its dispatch branch raises `NotImplementedError`, users see a green chip and then hit a wall when they click Generate.

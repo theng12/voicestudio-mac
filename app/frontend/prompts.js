@@ -83,6 +83,14 @@ window.SAMPLE_PROMPTS = [
   "It took several minutes for the meaning of the message to settle in. When it did, the rest of the afternoon felt suddenly far away.",
 ];
 
+// The Khmer-only MMS VITS model must never receive the English sampler above.
+// Keep these short while its first release intentionally has no long-text chunking.
+window.KHMER_SAMPLE_PROMPTS = [
+  "សួស្តីអ្នកទាំងអស់គ្នា។ សូមស្វាគមន៍មកកាន់កម្មវិធីសំឡេងខ្មែរ។",
+  "ថ្ងៃនេះអាកាសធាតុល្អ ហើយខ្យល់បក់ត្រជាក់ស្រួល។",
+  "សូមអរគុណសម្រាប់ការស្តាប់ ហើយសូមជួបគ្នាម្តងទៀត។",
+];
+
 // Multilingual sampler — only sensible for engines that actually support these
 // languages. Read via `getRandomPromptFor(model)` in app.js if you want to
 // gate by language capability per engine. For now `SAMPLE_PROMPTS` above is
